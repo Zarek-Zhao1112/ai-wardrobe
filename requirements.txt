@@ -1,0 +1,35 @@
+# AI 穿搭助手 — 运行依赖
+#
+# 安装：
+#   python -m venv .venv
+#   .venv/Scripts/python -m pip install -r requirements.txt
+#
+# 若你的机器配过全局 pip 配置（python -m pip config list 里有 global.target），
+# 包装不进 venv，改用绕开用户配置的方式：
+#   .venv/Scripts/python -m pip --isolated install -r requirements.txt
+#
+# 版本精确 pin：不用范围。fastapi 对 starlette 耦合很紧，
+# 放开范围可能解析到未经烟雾测试的组合。升级 = 重跑烟雾测试。
+
+fastapi==0.142.0
+starlette==1.7.0
+uvicorn==0.54.0
+pydantic==2.13.4
+
+# fastapi 0.142 新增的硬依赖，--no-deps 安装方式会漏掉它
+opentelemetry-api==1.45.0
+
+# 用于烟雾测试里探测真实服务器（本机 curl 被沙箱拦截，只能用 httpx）
+httpx==0.28.1
+
+# FastAPI 的 UploadFile / File() 依赖它（图片上传用）。
+# 不装的话 POST /items/{id}/image 会在**启动时**就抛
+# "Form data requires python-multipart to be installed"
+python-multipart==0.0.32
+
+# 把微信登录二维码渲染成**内联 SVG**（P3 微信入口绑定用）。
+# 选它是因为**纯 Python、零额外依赖** —— 另一条路（qrcode + Pillow）
+# 要多拉一个图像库，而我们只要一段能嵌进 HTML 的 SVG 就够了。
+# ⚠️ 它的 `svg_inline()` 输出**不带 `xmlns`**（内联进 HTML 是对的，
+# 单独当 .svg 文件打开会被浏览器当成 XML 源码显示 —— 验证时要注意）。
+segno==1.6.6

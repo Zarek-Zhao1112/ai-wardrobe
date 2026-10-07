@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 穿搭助手</title>
+  <!-- 图标内联成 SVG（data URI）：省一个文件，也免掉浏览器自动请求
+       /favicon.ico 造成的 404（首次加载时控制台会红一条）。 -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%232f6f4f'/%3E%3Cpath%20d='M10%209h12M16%209v15M12%2024h8'%20stroke='white'%20stroke-width='2.4'%20stroke-linecap='round'%20fill='none'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">AI 穿搭助手</div>
+    <nav id="nav" class="nav" aria-label="主导航"></nav>
+    <div id="status" class="status" title="服务与模型状态"></div>
+  </header>
+
+  <main id="view" class="view">
+    <p class="muted">加载中…</p>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>绑定微信 · AI 穿搭助手</title>
+<link rel="stylesheet" href="/css/style.css">
+<!-- 内联图标，省掉一次 404 请求（见 index.html 同样的处理） -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%91%95%3C/text%3E%3C/svg%3E">
+<style>
+  .bind-wrap { max-width: 520px; margin: 40px auto; padding: 0 20px; }
+  .qr-box {
+    display: flex; justify-content: center; align-items: center;
+    min-height: 260px; margin: 18px 0;
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px;
+  }
+  .qr-box svg { width: 240px; height: 240px; }
+  .steps { line-height: 1.9; }
+  .state-line { font-weight: 600; }
+  .state-wait { color: var(--text-dim); }
+  .state-scanned { color: #b45309; }
+  .state-ok { color: #0a7d33; }
+  .state-bad { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="bind-wrap">
+  <div class="view-head">
+    <h1>绑定微信</h1>
+    <a class="back" href="/">← 回衣橱</a>
+  </div>
+
+  <div id="app">
+    <p class="muted">加载中…</p>
+  </div>
+
+  <details style="margin-top:26px">
+    <summary class="faint" style="cursor:pointer">这是什么？安全吗？</summary>
+    <div class="steps muted" style="margin-top:10px;font-size:13px">
+      <p>用的是微信官方 2026 年开放的 <strong>ClawBot（iLink）</strong>通道 ——
+      需要你在手机上点一次「授权」，不是模拟登录、不读聊天记录、不碰通讯录。</p>
+      <p>绑定后，你在微信里给机器人发消息，它就能查你的衣橱、给你搭衣服。
+      凭据只存在<strong>你自己这台机器</strong>的 <code>data/clawbot_session.json</code> 里
+      （该文件已在 <code>.gitignore</code> 里，不会进仓库）。</p>
+      <p>想断开就点下面的「解绑」—— 删掉那个文件即可，随时可以重来。</p>
+    </div>
+  </details>
+</div>
+
+<script type="module">
+const app = document.getElementById("app");
+let qrTimer = null;
+
+const esc = (v) =>
+  v === null || v === undefined
+    ? ""
+    : String(v).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const j = async (url, opt) => {
+  const r = await fetch(url, opt);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+  return body;
+};
+
+function stopPolling() {
+  if (qrTimer) { clearTimeout(qrTimer); qrTimer = null; }
+}
+
+/** 已绑定的样子 */
+function renderBound(info) {
+  stopPolling();
+  app.innerHTML = `
+    <p class="state-line state-ok">✅ 已连接</p>
+    <p class="muted">机器人 ID：<code>${esc(info.bot_id || "（未知）")}</code></p>
+    <p class="muted">现在可以在微信里给它发消息了，试试「今天穿什么」。</p>
+    <p style="margin-top:20px">
+      <button id="unbind" class="ghost">解绑</button>
+    </p>`;
+  app.querySelector("#unbind").addEventListener("click", async () => {
+    if (!confirm("解绑后微信里发消息就不会有回应了。确定吗？")) return;
+    await j("/channel/wechat", { method: "DELETE" });
+    boot();
+  });
+}
+
+/** 未绑定的样子（按钮 + 说明） */
+function renderIdle() {
+  stopPolling();
+  app.innerHTML = `
+    <p class="muted">还没绑定。绑定后就能在微信里用了。</p>
+    <p style="margin-top:16px"><button id="start">开始绑定</button></p>`;
+  app.querySelector("#start").addEventListener("click", startLogin);
+}
+
+async function startLogin() {
+  stopPolling();
+  app.innerHTML = `<p class="muted">正在获取二维码…</p>`;
+  let d;
+  try {
+    d = await j("/channel/wechat/qrcode");
+  } catch (err) {
+    app.innerHTML = `<div class="alert error">拿不到二维码：${esc(err.message)}</div>
+      <p><button id="retry" class="ghost">重试</button></p>`;
+    app.querySelector("#retry").addEventListener("click", renderIdle);
+    return;
+  }
+  // ⚠️ 服务端给的是**内联 SVG**（segno 的 svg_inline 不带 xmlns，
+  // 内联进 HTML 没问题）。**不要**把它当独立 .svg 文件打开 —— 那会显示源码。
+  app.innerHTML = `
+    <div class="qr-box">${d.qr_svg}</div>
+    <p class="state-line state-wait" id="st">等待扫码…</p>
+    <div class="steps muted" style="font-size:13px">
+      <p>1. 打开手机微信 → 右上角「+」→ 扫一扫</p>
+      <p>2. 扫上面这个码 → 点「授权」</p>
+    </div>
+    <p style="margin-top:16px"><button id="again" class="ghost">重新生成二维码</button></p>`;
+  // ⚠️ 过期后点它要**直接重新拿码** —— 以前绑的是 renderIdle，
+  // 于是得先回到"开始绑定"页再点一次，按钮文案与行为不符（W4 审查抓到）。
+  app.querySelector("#again").addEventListener("click", startLogin);
+  poll(d.qrcode, d.qr_svg);
+}
+
+/** 长轮询查状态。
+ *
+ * ⚠️ 服务端 `/status` **自己会挂最多 30 秒**（上游 iLink 是长轮询）。
+ * 所以这里**不能用 setInterval** —— 那会在 30 秒里堆十几个挂住的请求。
+ * 正确做法：发一个、等它返回、再发下一个（下面这个 setTimeout 链）。
+ */
+function poll(qrcode, svg) {
+  const st = () => document.getElementById("st");
+  const tick = async () => {
+    try {
+      const r = await j(`/channel/wechat/status?qrcode=${encodeURIComponent(qrcode)}`);
+      if (r.state === "confirmed") {
+        renderBound(r);
+        return;
+      }
+      if (r.state === "expired") {
+        const el = st();
+        if (el) { el.className = "state-line state-bad"; el.textContent = "二维码过期了，点下面重新生成。"; }
+        return;   // 停止轮询，等用户点"重新生成"
+      }
+      const el = st();
+      if (el) {
+        el.className = "state-line " + (r.state === "scanned" ? "state-scanned" : "state-wait");
+        el.textContent = r.state === "scanned" ? "已扫码，请在手机上点「授权」…" : "等待扫码…";
+      }
+    } catch (err) {
+      const el = st();
+      if (el) { el.className = "state-line state-bad"; el.textContent = "查询失败：" + err.message; }
+      // 失败后退避久一点 —— 300ms 重排会在网络快速失败时打成紧重试（W4 审查抓到）
+      qrTimer = setTimeout(tick, 3000);
+      return;
+    }
+    qrTimer = setTimeout(tick, 300);
+  };
+  tick();
+}
+
+async function boot() {
+  try {
+    const info = await j("/channel/wechat");
+    info.bound ? renderBound(info) : renderIdle();
+  } catch (err) {
+    app.innerHTML = `<div class="alert error">连不上后端：${esc(err.message)}</div>`;
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

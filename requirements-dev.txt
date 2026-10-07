@@ -1,0 +1,20 @@
+# 开发/验证依赖（`-r requirements.txt` 已含全部运行依赖）
+#
+# 安装：.venv/Scripts/python -m pip --isolated install -r requirements-dev.txt
+-r requirements.txt
+
+pytest>=8
+
+# 二维码**解码**验证（P3 绑定时用）。
+#
+# 为什么需要它：`segno` 只负责**生成**二维码。而"生成出来的东西真能被扫"
+# 必须用**独立的解码器**验一遍 —— 否则只能靠肉眼判断"看起来像个二维码"，
+# 那不足以说明它能扫。
+#
+# 实测做法：Chrome 把内联 SVG 渲染成 PNG → `zxingcpp` 解码 → 比对原文。
+# 2026-10-05 验过：解出来的内容与 `qr_content` 完全一致。
+#
+# ⚠️ 不要换回 `pyzbar`：它装了但静默解不出（DLL 能加载、结果恒为空列表），
+# 会让人误判成"二维码有问题"。
+zxing-cpp==3.1.1
+pillow==12.3.0

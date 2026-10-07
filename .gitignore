@@ -1,0 +1,39 @@
+# 运行时数据：每个部署实例独有（数据库 + 衣服照片），绝不入库
+data/
+
+# 虚拟环境
+.venv/
+venv/
+
+# Agent 记忆（含本机路径与对话痕迹）
+.workbuddy/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 本地环境变量（可能含模型 API key）
+.env
+
+# ── 内部工作文档：留在这台机器上，不发布 ──────────────────────────
+# 为什么用 gitignore 而不是把它们挪走：不移动文件 = 零风险，
+# 而且引用它们的文档（AGENTS.md / 内部笔记）不用跟着改。
+#
+# ⚠️ 每条规则必须**单独占一行** —— gitignore **不认行尾注释**，
+#    写成 `docs/tasks.md   # 说明` 会让整行变成一个匹配不到任何东西的模式，
+#    规则**静默失效**。（这个坑刚踩过一次，靠 `git ls-files` 复核才抓到。）
+# 任务台账：含大量开发过程与决策留档
+docs/tasks.md
+# 多 agent 审查模板：含本机绝对路径
+docs/review-prompts.md
+# 历史版本，内容已过时
+docs/设计文档_v0.1.txt
+
