@@ -28,8 +28,9 @@ import re
 from pathlib import Path
 from typing import Any, Optional
 
-from .. import db, taxonomy
-from .llm.client import LLMClient, get_client
+from .. import config, db, taxonomy
+from . import images, items
+from .llm.client import LLMClient, LLMError, get_client
 
 # ---------------------------------------------------------------------------
 # 受控字段
@@ -137,6 +138,15 @@ def resolve_enum(raw: Any, vocab_key: str) -> Optional[str]:
     return _match(raw, table)
 
 
+def _squash(text: str) -> str:
+    """把分隔符归一：空格/逗号/顿号/斜杠/连字符/下划线 → 单个 `_`，并转小写。
+
+    用于判断「整个字符串**就是**某个枚举值」：`"light blue"` → `light_blue`。
+    与 `_as_list` 的切分规则对齐（同一批分隔符），避免两处口径不一致。
+    """
+    return re.sub(r"[\s,，、/_\-]+", "_", str(text).strip().lower()).strip("_")
+
+
 def _as_list(value: Any) -> list[str]:
     """把模型可能给出的各种形状统一成字符串列表。
 
@@ -210,12 +220,44 @@ def normalize_tags(raw: dict) -> tuple[dict, dict]:
         table = taxonomy.VOCABULARIES.get(vocab_key, {})
         accepted: list[str] = []
         rejected: list[str] = []
-        for chunk in _as_list(raw.get(field)):
-            hit = _match(chunk, table)
-            if hit and hit not in accepted:
-                accepted.append(hit)
-            elif not hit:
-                rejected.append(chunk)
+        # ★ **整词优先**：`_as_list` 会按空白/逗号切分（模型爱写 `"black, white"`），
+        #   但有些颜色名**本身就带空格**且是合法枚举值 —— `light_blue`（浅蓝）。
+        #   先拿整个字符串试一次，认得出就当**一个值**；认不出才退回逐块匹配。
+        #
+        #   不这么做的代价（2026-10-10 实测）：`"light blue"` 被切成
+        #   `["light", "blue"]` → `light` 认不出进 `unresolved`（用户以为是噪声），
+        #   而 `blue` **静默写进库** → 浅蓝被记成蓝。**不报错**，等到按颜色统计
+        #   偏好时才发现数据不对。
+        #
+        # ⚠️ 判据必须是「**完整覆盖**」而不是「`_match` 认得出」：
+        #   `_match` 走的是**包含匹配**，`"black, white"` 整词也能命中 `black`
+        #   —— 直接用它的返回值会以为"整词命中"，于是**丢掉 white**。
+        #   （实测：`"black, white"` / `"black white"` / `"navy blue"` 全部只出 1 个色。）
+        #
+        #   完整覆盖 = 把分隔符归一（空格/逗号/斜杠/下划线/连字符 → `_`）
+        #   之后与命中 key **全等**。这样：
+        #     "light blue"   → `light_blue` == `light_blue`  ✓ 当一个值
+        #     "black, white" → `black__white` ≠ `black`      ✗ 退回切分
+        raw_value = raw.get(field)
+        whole_hit: Optional[str] = None
+        if isinstance(raw_value, str) and raw_value.strip():
+            # ★ 用**原始字符串**判，不能用切分结果 —— `"light blue"` 切完是 2 块，
+            #   用切分结果判就永远走不到这里（这正是第一版修法的错）。
+            candidate = _match(raw_value, table)
+            if candidate and _squash(raw_value) == candidate:
+                whole_hit = candidate
+
+        if whole_hit:
+            # 整词命中 → **整个字符串就是一个值**，不看切分结果。
+            # （否则 `"light blue"` 会既认成 `light_blue` 又认成切出来的 `blue`。）
+            accepted.append(whole_hit)
+        else:
+            for chunk in _as_list(raw_value):
+                hit = _match(chunk, table)
+                if hit and hit not in accepted:
+                    accepted.append(hit)
+                elif not hit:
+                    rejected.append(chunk)
         if accepted:
             clean[field] = accepted
         if rejected:
@@ -346,13 +388,25 @@ def tag_image(
     }
 
 
-def apply_tags(user_id: str, item_id: str, result: dict) -> Optional[dict]:
+def apply_tags(
+    user_id: str,
+    item_id: str,
+    result: dict,
+    *,
+    tagged_by: str = "ai",
+) -> Optional[dict]:
     """把打标结果写回单品。归一失败的字段**不会**被写入。
 
     ⚠️ 刻意**不走** `services/items.py::update()` —— 那个是"用户手改"语义，
     它会把 `tagged_by` 写成 `manual`。打标必须记成 `ai`，否则 P2 的
     "改 AI 打错的标"就分不清原始来源了。（这正是 wardrowbe 缺 `external`
     枚举导致的问题，我们不能重犯。）
+
+    ⚠️ `tagged_by` 是**整件单品的来源**，不是"这次写了哪些字段"的来源
+    （库里没有字段级来源标记）。所以只在填空模式下要小心：
+    一件用户从头手填的单品（`tagged_by='manual'`），AI 补了 1 个颜色，
+    整件就被记成 `ai` —— 用户填的品类/版型也跟着"变成 AI 填的"。
+    调用方（`tag_and_apply`）在这种情况下会传 `tagged_by='manual'` 保住原来源。
     """
     tags = {k: v for k, v in (result.get("tags") or {}).items() if k in TAG_FIELDS}
     if not tags:
@@ -373,7 +427,7 @@ def apply_tags(user_id: str, item_id: str, result: dict) -> Optional[dict]:
     args += [
         result.get("ai_confidence"),
         "tagged",
-        "ai",
+        tagged_by,
         now,
         now,
     ]
@@ -386,3 +440,221 @@ def apply_tags(user_id: str, item_id: str, result: dict) -> Optional[dict]:
         )
         row = c.execute("SELECT * FROM clothing_items WHERE id=?", (item_id,)).fetchone()
     return dict(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# 打标 + 写回（自动路径专用）
+# ---------------------------------------------------------------------------
+
+#: 视为"还没分类"的 `type` 值 —— AI 认出来的品类应该盖掉它们
+#: 这些值视作"**还没填**"，对所有字段生效（见 `_only_blank`）。
+#:
+#: `'other'` 来自词表里的"其他"占位值 —— `type` 的默认值是 `other`，
+#: `PATTERNS` 里有 `"other": "其他图案"`。它们语义上是"我没意见"，
+#: 不是用户真的选了"其他"，所以 AI 的判断应该能覆盖掉。
+_BLANK_VALUES = {"", "other"}
+
+
+def _is_blank(value: Any) -> bool:
+    """字段算不算"还没值"。空字符串 / None / 空列表都算。"""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    if isinstance(value, (list, tuple)):
+        return len(value) == 0
+    return False
+
+
+def _only_blank(tags: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+    """只保留 `item` 上**还是空**的字段。
+
+    ⚠️ 为什么不能用 `tagged_by` 判断"这个值是谁填的"：
+    `services/items.py` 在用户手改时**保留原值**（`current.get("tagged_by") or "manual"`），
+    所以用户把 AI 打错的标改对之后，`tagged_by` **仍然是 `ai`**。
+    拿它当判据会把用户刚改对的值又覆盖回 AI 的错值。
+    库里没有字段级来源标记，所以只能做到字段级"只填空"。
+
+    ★ `slot` 是 `type` 的**派生值**，必须跟 `type` 一起处理（`items.update()` 同样如此，
+    见 `services/items.py` "type 变了要同步 slot"）：
+    - `type` **不写** → `slot` 也不写（否则两者会不一致）
+    - `type` **要写** → `slot` **必须重新派生**，不能拿单品上那个旧的来判"空不空"
+
+    ⚠️ 后半句是踩过的坑：`items.get()` 走 `to_out()`，会给缺失的 `slot` 补上默认值
+    `accessory`（`schema.py` 的列默认值）。于是 `slot` 永远"非空" → 被当作用户填的
+    过滤掉 → 结果 `type='tshirt'` 但 `slot='accessory'`。
+    代价是**这件衣服永远不进任何组合**（组合数按 slot 算），而且**不报错**，
+    要等"为什么我推荐的全是配饰"才发现。P5 已经在 `other` 品类上吃过同一类亏。
+    """
+    out: dict[str, Any] = {}
+    for field, value in tags.items():
+        current = item.get(field)
+        # ★ `'other'` / `''` 一律视作"**还没填**"，对**所有**字段生效，
+        #   不只 `type`。这些是词表里的"其他"占位值（`taxonomy.PATTERNS` 有
+        #   `"other": "其他图案"`），语义上等于"我没意见"。
+        #   只特判 `type` 会漏掉 `pattern` —— AI 明明认出了"条纹"，
+        #   却因为单品默认 `pattern='other'` 被判定成"已填"而永远补不上
+        #   （2026-10-10 W4 双审查实测复现）。
+        if isinstance(current, str) and current.strip().lower() in _BLANK_VALUES:
+            current = None
+        if _is_blank(current):
+            out[field] = value
+    # ★ `slot` 只可能由下面这两行产生（循环里它必然被判"非空"而过滤掉 ——
+    #   `to_out()` 补的默认值 `accessory` 永不为空）。刻意集中在这里处理。
+    if "type" in out:
+        out["slot"] = taxonomy.slot_of(out["type"])
+    else:
+        out.pop("slot", None)
+        # ⚠️ `type` 没写，但库里的 `slot` 跟 `type` **对不上**（历史脏数据）：
+        #   照样要按 `type` 重新派生修好。
+        #
+        #   不修的代价（实测复现）：`wardrobe._by_slot()` 直接按 `it["slot"]`
+        #   分组算组合数（`services/wardrobe.py:89`），所以一件 `type=shirt`
+        #   却被存成 `slot=accessory` 的衣服，会**永远不进任何组合**，
+        #   缺口分析和补货建议一起错，而且全程不报错。
+        #
+        #   只在"确实不一致"时才写 —— 一致的话不产生任何多余 UPDATE。
+        expected = taxonomy.slot_of(str(item.get("type") or "other"))
+        if str(item.get("slot") or "") != expected:
+            out["slot"] = expected
+
+    # ★ 字段间一致性：`primary_color` **必须属于** `colors`。
+    #
+    #   逐字段判空看不出这类矛盾：用户填了 `colors=['black']`（非空 → AI 的
+    #   `colors` 被跳过），AI 认出 `primary_color='navy'`（空 → 写入），
+    #   结果「主色不属于配色」。`taxonomy._stats()` 用 `primary_color`
+    #   统计颜色多样性（`services/taxonomy.py:435`），分母会算错，且不报错。
+    #
+    #   裁决：**以用户的 `colors` 为准**，AI 的 `primary_color` 丢弃 ——
+    #   它只是个派生字段（本来就该从 `colors[0]` 来），不值得跟用户的数据打架。
+    #   反过来（用户填了 `primary_color` 但 `colors` 空）不在此处理：
+    #   `normalize_tags` 已经用 `colors[0]` 做过主色兜底了。
+    if "primary_color" in out and "colors" not in out:
+        existing = item.get("colors") or []
+        if isinstance(existing, list) and existing and out["primary_color"] not in existing:
+            out.pop("primary_color")
+    return out
+
+
+def _tag_result(
+    status: str,
+    *,
+    tags: Optional[dict] = None,
+    unresolved: Optional[dict] = None,
+    confidence: Optional[float] = None,
+    message: Optional[str] = None,
+    raw: Optional[dict] = None,
+) -> dict:
+    return {
+        "status": status,
+        "tags": tags or {},
+        "unresolved": unresolved or {},
+        "ai_confidence": confidence,
+        "message": message,
+        "raw": raw,
+        "item": None,
+    }
+
+
+def tag_and_apply(
+    user_id: str,
+    item_id: str,
+    *,
+    hint: Optional[str] = None,
+    overwrite: bool = False,
+    client: Optional[LLMClient] = None,
+) -> dict:
+    """打标 + 写回。**自动路径专用**：失败不抛异常，只回报状态。
+
+    和手动 `tag_image` + `apply_tags` 的区别：
+    - **失败不抛**：上传照片时顺手打标，打标炸了不能让上传变成 4xx/5xx
+    - 支持"只填空、不覆盖"（`overwrite=False`），保护用户已经填过的值
+    - 图片**从库里读**（`images.read_image`），与 `routes/tagging.py` 一致 ——
+      保证用的是已落库的那张图，而不是某个可能已被替换的临时文件
+
+    返回 `{"status", "tags", "unresolved", "ai_confidence", "message", "item"}`：
+      `applied` 已写库 · `empty` 没有可写的属性 · `skipped` 没配视觉模型（**不是故障**）
+      · `failed` 模型不可用 / 图片丢了（单品留在 `pending`，属性可以手填）
+    """
+    # ⚠️ 必须走 `items.get()`：它过 `to_out()`，多值字段才是列表。
+    #    直接读原始行会把 `colors` 的 JSON 文本当字符串逐字符消费（P1 踩过）。
+    item = items.get(item_id, user_id)
+    if not item:
+        return _tag_result("failed", message="单品不存在")
+
+    if not config.VISION_READY:
+        return _tag_result("skipped", message="还没配视觉模型，属性可以手动填")
+
+    try:
+        image_file = images.read_image(str(item.get("image_path") or ""))
+    except OSError as e:
+        # 磁盘层异常（文件被占用、权限、坏块）——同样不能穿透，
+        # 理由同下面的 `apply_tags` 包裹。
+        return _tag_result("failed", message=f"读图片失败：{e}")
+    if image_file is None:
+        return _tag_result("failed", message="图片文件丢了，请重新上传")
+
+    try:
+        result = tag_image(image_file, client=client, hint=hint)
+    except LLMError as e:
+        return _tag_result("failed", message=f"模型不可用：{e}")
+    except Exception as e:
+        # ⚠️ `tag_image` 内部会读文件（`_image_data_url` → `read_bytes`），
+        #   磁盘层的 `OSError`（Windows 上文件被别的进程占用 → `PermissionError`）
+        #   不属于 `LLMError`，会直接穿透 —— 上传接口就变成 500，
+        #   而**照片其实已经存好了**，用户只看到"上传失败"。
+        return _tag_result("failed", message=f"读图或识别失败：{type(e).__name__}: {e}")
+
+    unresolved = dict(result.get("unresolved") or {})
+    confidence = result.get("ai_confidence")
+    raw = result.get("raw")
+    tags = dict(result.get("tags") or {})
+    if not tags:
+        return _tag_result(
+            "empty", unresolved=unresolved, confidence=confidence, raw=raw,
+            message="这张图里我没认出可用的属性",
+        )
+
+    if not overwrite:
+        tags = _only_blank(tags, item)
+        if not tags:
+            return _tag_result(
+                "empty", unresolved=unresolved, confidence=confidence, raw=raw,
+                message="这件已经有属性了，没有需要补的",
+            )
+
+    # 来源标记：**只填空**且单品本来是用户手填的 → 保住 `manual`。
+    # 全量覆盖（手动点按钮）→ 记 `ai`（这次结果就是 AI 给的）。
+    #
+    # ⚠️ 为什么不看"这次写了哪些字段"：库里没有字段级来源标记，
+    #   `tagged_by` 是整件单品的来源。用户手填的 `type`/`fit` 不该因为
+    #   AI 补了个颜色就被记成 "ai 填的"（2026-10-10 W4 双审查实测复现）。
+    source = "ai" if overwrite or item.get("tagged_by") != "manual" else "manual"
+
+    try:
+        row = apply_tags(user_id, item_id, {**result, "tags": tags}, tagged_by=source)
+        fresh = items.get(item_id, user_id) if row else None
+    except Exception as e:
+        # ⚠️ 必须包住 `apply_tags` 和后面的重读。它会碰数据库
+        #   （`sqlite3.OperationalError` / `IntegrityError`）。
+        #   不包的话，自动路径（上传照片时顺手打标）会因为一个**写库失败**
+        #   变成 500 —— 可照片**已经存好了、旧的也已经换掉了**，
+        #   用户收到"上传失败"，重试同一张图还会再撞一次唯一索引。
+        #   （2026-10-10 W4 双审查实测复现。）
+        return _tag_result(
+            "failed",
+            tags=tags, unresolved=unresolved, confidence=confidence, raw=raw,
+            message=f"识别成功但写库失败（属性没保存，可手动填）：{type(e).__name__}: {e}",
+        )
+
+    # ⚠️ 返回的 `item` 必须**是 `to_out()` 口径**：`apply_tags` 给的是**原始行**
+    #   （`colors` 还是 JSON 文本），直接透出去会让下游拿到逐字符消费的字符串。
+    return {
+        "status": "applied",
+        "tags": tags,
+        "unresolved": unresolved,
+        "ai_confidence": confidence,
+        "message": None,
+        "raw": raw,
+        "item": fresh,
+    }

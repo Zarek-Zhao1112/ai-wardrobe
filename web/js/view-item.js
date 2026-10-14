@@ -12,6 +12,62 @@ export const label = "单品";
 /** 不出现在顶部 Tab，只通过 `#item/<id>` 进入。 */
 export const hidden = true;
 
+/**
+ * 把后端 `unresolved` 摊平成一句人话："这几个没认出来：xxx、yyy"。
+ *
+ * ⚠️ 为什么必须有它（设计文档 §10.2 承诺过）：
+ * 归一失败的值**不会**写进库（宁缺勿脏），所以它们**只存在于返回值里**。
+ * 前端不展示 = 这些信息彻底消失，用户以为模型全认出来了。
+ * 粘贴录入那条路早就展示了（`view-add.js` 的预览行），打标这条路原本漏了。
+ *
+ * `unresolved` 的值有两种形状：多值字段是**数组**（`["light"]`），
+ * 单值字段是**字符串**（`"荧光_chartreuse"`），所以要分别处理。
+ */
+function unresolvedText(unresolved) {
+  const parts = [];
+  for (const v of Object.values(unresolved || {})) {
+    if (Array.isArray(v)) {
+      parts.push(...v.map(String));
+    } else if (v !== null && v !== undefined && v !== "") {
+      parts.push(String(v));
+    }
+  }
+  return parts.join("、");
+}
+
+/** 上传照片后自动打标的提示。`tagging` 缺失（老服务）时退回旧文案。 */
+function uploadToast(tagging) {
+  if (!tagging) return "照片已更新";
+  const missed = unresolvedText(tagging.unresolved);
+  switch (tagging.status) {
+    case "applied":
+      return missed
+        ? `照片已更新，AI 认出了大部分属性（没认出来：${missed}），可以在下面改`
+        : "照片已更新，AI 已自动填好属性，可以在下面改";
+    case "empty":
+      return missed
+        ? `照片已更新，但这张图没认出可用属性（${missed}），请手动填`
+        : "照片已更新，这张图没认出可用属性，请手动填";
+    case "skipped":
+      return "照片已更新（没配视觉模型，属性请手动填）";
+    case "failed":
+      // 打标失败**不影响照片**，所以文案不能让人以为整件事失败了。
+      return `照片已更新，但自动识别失败：${tagging.message || "请手动填属性"}`;
+    default:
+      return "照片已更新";
+  }
+}
+
+/** 手动点「AI 识别属性」的提示。 */
+function tagToast(res) {
+  const missed = unresolvedText(res && res.unresolved);
+  if (res && res.status === "empty") {
+    return missed ? `没认出可用属性（${missed}）` : "没认出可用属性";
+  }
+  if (missed) return `识别完成（这几个没认出来：${missed}）`;
+  return "识别完成";
+}
+
 export async function mount(root, ctx, arg) {
   const taxonomy = ctx.taxonomy || {};
   const id = arg;
@@ -134,9 +190,13 @@ export async function mount(root, ctx, arg) {
       btn.disabled = true;
       btn.textContent = "上传中…";
       try {
-        await api.uploadImage(item.id, file);
+        const res = await api.uploadImage(item.id, file);
         const fresh = await api.getItem(item.id);
-        toast("照片已更新", "ok");
+        // ⚠️ 上传接口现在会顺手跑一次打标，返回里带 `tagging`。
+        //    **必须把它讲出来** —— 否则用户看到照片变了、属性悄悄也变了，
+        //    却什么提示都没有（静默改动比不改动更让人不放心）。
+        //    打标失败绝不影响上传结果（照片已经存好了）。
+        toast(uploadToast(res.tagging), "ok", 3600);
         render(fresh);
       } catch (err) {
         toast("上传失败：" + err.message, "error");
@@ -150,9 +210,9 @@ export async function mount(root, ctx, arg) {
       btn.disabled = true;
       btn.textContent = "识别中…";
       try {
-        await api.tagItem(item.id);
+        const res = await api.tagItem(item.id);
         const fresh = await api.getItem(item.id);
-        toast("识别完成", "ok");
+        toast(tagToast(res), "ok", 3600);
         render(fresh);
         return;
       } catch (err) {

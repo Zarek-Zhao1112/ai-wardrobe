@@ -89,6 +89,8 @@ export const api = {
     request("PATCH", `/items/${encodeURIComponent(id)}`, { json: payload }),
   deleteItem: (id) => request("DELETE", `/items/${encodeURIComponent(id)}`),
   bulkItems: (payload) => request("POST", "/items/bulk", { json: payload }),
+  /** 解析粘贴来的商品文案。**只解析，不入库** —— 用户确认后再 `bulkItems`。 */
+  parseItems: (text) => request("POST", "/items/parse", { json: { text } }),
   uploadImage: (id, file) => {
     const form = new FormData();
     form.append("file", file);

@@ -49,13 +49,39 @@ def tag_item(
     if image_file is None:
         raise HTTPException(400, f"图片文件丢了（{item['image_path']}），请重新上传")
 
-    try:
-        result = tagging_svc.tag_image(image_file, hint=hint)
-    except LLMError as e:
-        raise HTTPException(503, f"模型不可用：{e}") from e
-
     if not apply:
-        return {**result, "applied": False}
+        # 预览：只打标不写库（先看一眼模型认出了什么，再决定要不要落库）
+        try:
+            result = tagging_svc.tag_image(image_file, hint=hint)
+        except LLMError as e:
+            raise HTTPException(503, f"模型不可用：{e}") from e
+        return {**result, "applied": False, "status": "preview"}
 
-    row = tagging_svc.apply_tags(uid, item_id, result)
-    return {**result, "applied": row is not None, "item": row}
+    # 手动点「AI 识别属性」= **全量覆盖**（`overwrite=True`）：
+    # 用户主动点的，就是要拿这次结果替换旧值。
+    # 自动路径（上传照片时顺手打标）走 `overwrite=False`，只填空。
+    out = tagging_svc.tag_and_apply(uid, item_id, hint=hint, overwrite=True)
+    if out["status"] in ("failed", "skipped"):
+        # 保持既有契约：没配视觉模型 / 模型不可用一律 **503**（不是 500 —— 那通常只是还没配）。
+        #
+        # ⚠️ 为什么 `skipped` 也要 503：手动点按钮时"没配模型"就是**用不了**，
+        #    返回 200 会让前端误报"识别完成"（`view-item.js` 靠 503 区分这两种），
+        #    变成一次静默失败。`skipped` 只在**自动路径**（上传照片）里才是"正常降级"。
+        #
+        # ⚠️ `detail` 必须以「模型不可用」开头：`tests/test_routes_api.py:210` 锁住了这个串，
+        #    它是**排障线索**（一眼看出该去查配置而不是查代码）。前端只读 status 不读这句，
+        #    所以加前缀不影响用户看到的文案。前端自己的措辞在 `view-item.js:161`。
+        detail = out["message"] or "打标失败"
+        if not detail.startswith("模型不可用"):
+            detail = f"模型不可用：{detail}"
+        raise HTTPException(503, detail)
+    return {
+        "tags": out["tags"],
+        "unresolved": out["unresolved"],
+        "ai_confidence": out["ai_confidence"],
+        "raw": out["raw"],
+        "applied": out["status"] == "applied",
+        "status": out["status"],
+        "message": out["message"],
+        "item": out["item"] or item,
+    }

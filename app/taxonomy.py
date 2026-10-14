@@ -149,6 +149,21 @@ TYPE_ALIASES: Final[dict[str, str]] = {
     "shoes": "other_shoes", "shoe": "other_shoes", "footwear": "other_shoes",
     "outerwear": "other_outer", "bag": "bag", "hat": "hat", "scarf": "scarf",
     "belt": "belt", "socks": "socks", "sunglasses": "glasses",
+    # ---- W0 补（2026-10-08）：商品标题里的「版型 + 品类」复合词 ----
+    # 为什么必须显式登记：这些词里都含品类字（裤 / 裙 / 衣），但包含匹配
+    # 要求命中**完整词条**，而词表里只有「长裤 / 休闲裤 / 运动裤」这类正名
+    # →「直筒裤」「卫裤」一律落 other，槽位跟着变 accessory，
+    #   该单品就从组合数 / 缺口分析里**静默消失**。
+    # 实测（2026-10-08）：枚举 41 个常见口语品类词，**21 个落 other**。
+    # 版型词（直筒 / 阔腿 / 锥形 / 九分…）不影响品类归属 → 统一归到长裤。
+    # ⚠️「a字裙」必须写小写：resolve_type 会先 lower() 再查表。
+    "卫裤": "sweatpants", "束脚裤": "sweatpants",
+    "直筒裤": "pants", "阔腿裤": "pants", "锥形裤": "pants",
+    "烟管裤": "pants", "微喇裤": "pants", "喇叭裤": "pants",
+    "九分裤": "pants", "七分裤": "pants", "棉裤": "pants",
+    "包臀裙": "skirt", "a字裙": "skirt", "百褶裙": "skirt", "伞裙": "skirt",
+    "冲锋衣": "jacket", "皮衣": "jacket", "棉袄": "parka",
+    "马夹": "vest", "围脖": "scarf", "皮带": "belt",
 }
 
 
@@ -244,6 +259,28 @@ def label_of(type_key: str) -> str:
 _MIN_CONTAIN_LEN = 2
 
 
+def _normalize(text: str) -> str:
+    """归一化：小写 + 去掉空格 / 全角空格 / 下划线 / 连字符。
+
+    ⚠️ **匹配的两边都要过这一遍**。2026-10-08 的教训：包含匹配原来只归一化
+    输入（`s`），却拿**原样**的词表条目（`raw_s`）去比 —— 于是只对了两半：
+    - 词表里的 `T恤`（大写 T）能命中原文的 `T恤`，但命中不了小写输入
+    - 新加的 `a字裙`（小写）能命中原文的 `a字裙`，但**命中不了商品标题里的 `A字裙`**
+
+    实测漏召：`resolve_type("黑色A字裙") -> other`（槽位变成 accessory，
+    该单品从组合里静默消失），而 `resolve_type("黑色a字裙") -> skirt`。
+    """
+    return (
+        str(text or "")
+        .strip()
+        .lower()
+        .replace(" ", "")
+        .replace("\u3000", "")
+        .replace("_", "")
+        .replace("-", "")
+    )
+
+
 def resolve_type(raw: str) -> str:
     """把用户的自由输入 / AI 输出，尽力映射到受控 type_key。
 
@@ -257,14 +294,7 @@ def resolve_type(raw: str) -> str:
     if not raw:
         return "other"
     raw_s = str(raw).strip()
-    # 归一化：小写 + 去掉空格/全角空格/下划线/连字符
-    s = (
-        raw_s.lower()
-        .replace(" ", "")
-        .replace("\u3000", "")
-        .replace("_", "")
-        .replace("-", "")
-    )
+    s = _normalize(raw_s)
 
     # 1) 已经是合法 key（含带下划线/连字符的写法）
     if raw_s in CLOTHING_TYPES:
@@ -283,13 +313,16 @@ def resolve_type(raw: str) -> str:
 
     # 3) 包含匹配：只取词长 >= 2 的词，且**最长者优先**
     #    （避免 "短袖T恤" 被 "T恤" 之外的短词抢占，也避免单字词误判）
+    #    ⚠️ **两边都要归一化**（见 `_normalize` 的注释）—— 原来词表侧用的是
+    #   原样 `raw_s`，导致大写写法 `A字裙` 命中不了小写别名 `a字裙`。
     best_key, best_len = None, 0
     for table in (TYPE_ALIASES, TYPE_BY_LABEL):
         for word, key in table.items():
-            if len(word) < _MIN_CONTAIN_LEN:
+            w = _normalize(word)
+            if len(w) < _MIN_CONTAIN_LEN:
                 continue
-            if word in raw_s and len(word) > best_len:
-                best_key, best_len = key, len(word)
+            if w in s and len(w) > best_len:
+                best_key, best_len = key, len(w)
     if best_key:
         return best_key
 

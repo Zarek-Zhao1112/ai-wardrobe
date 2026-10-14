@@ -43,6 +43,7 @@ from .. import db, taxonomy
 from ..channels import InboundMessage
 from ..models import ItemCreate
 from . import feedback as feedback_svc
+from . import ingest as ingest_svc
 from . import items as item_svc
 from . import recommend as recommend_svc
 from . import wardrobe as wardrobe_svc
@@ -77,6 +78,12 @@ NUM_EMOJI = ("1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣")
 # ---------------------------------------------------------------------------
 
 _CONFIRM = {"对", "对的", "是", "是的", "好", "好的", "可以", "嗯", "没错", "正确", "确认", "ok", "okay"}
+#: ★ P5：**用户明确坚持**"品类认不出也要记"的口令 —— 单独的出口。
+#: 规格 §11.3 失败语义表：默认拒绝以 `other` 入库；**只有**用户明说才放行，
+#: 且要在单品上标出"品类未识别"。
+#: 为什么必须单独一组词、不能并进 `_CONFIRM`：并进去的话，任何一句「好」
+#: 都会静默塞一条 `type=other` 的单品进衣橱 —— 那正是闸门要防的静默污染。
+_CONFIRM_OTHER = ("就记", "就这样记", "按其他记", "按其他", "记吧", "其他也要记")
 _CORRECT = ("不对", "不是", "错了", "应该", "改成", "其实", "不是这个")
 _GAP = ("没得搭", "没什么可搭", "缺什么", "缺哪", "搭不出", "没有可搭", "没衣服穿")
 _BUY = ("想买", "值得买", "适合我吗", "要不要买", "买这件")
@@ -243,7 +250,7 @@ def classify_intent(
     """判断这条消息想干什么。**只看文本和当前上下文，不碰库。**
 
     返回：`confirm` | `correct` | `gap` | `buy` | `describe` | `match`
-         | `like` | `dislike` | `swap`
+         | `ingest` | `like` | `dislike` | `swap`
          | `learn` | `browse` | `note_pick` | `note_gen` | `note_save` | `note_drop`
          | `domain_open` | `ask`
          | `unknown`
@@ -255,9 +262,21 @@ def classify_intent(
     if not t:
         return "unknown"
 
+    # 0) **商品分享文案优先于一切** —— 必须在 `has_draft` 之前，也必须在所有
+    #    关键词判断之前。
+    #    ⚠️ 为什么：`_QUESTION_HINTS` 含 `'?'`，而分享链接形如 `...?tk=xxx`。
+    #    当标题里的品类**词表不认识**时，会一路掉到结尾的提问兜底 → 被判成
+    #    `ask`（知识库提问）：跑去答非所问，还白烧一次模型调用。
+    #    实测（2026-10-08）：真实淘宝链接就会撞上；换成词表没有的品类必现。
+    #    （P5 §11.3：预筛**必须**跑在意图分类之前。）
+    #    放在 `has_draft` 之前是因为：粘贴一条链接**永远是"新的一件"**，
+    #    不可能是对当前草稿的确认或修正（「对」这类消息里不会有 URL）。
+    if ingest_svc.is_share_like(t):
+        return "ingest"
+
     # 1) 待确认草稿优先 —— 否则"可以"会被当成对搭配的反馈
     if has_draft:
-        if t.lower() in _CONFIRM:
+        if t.lower() in _CONFIRM or t in _CONFIRM_OTHER:
             return "confirm"
         # 「我有一件…」「我刚买了…」是**新的一件**，不是对当前草稿的修正 → 交给下面
         if not _is_new_item(t):
@@ -736,6 +755,84 @@ def _reply_draft(fields: dict[str, Any], unresolved: dict[str, str], raw_text: s
     return "\n".join(lines)
 
 
+def _duplicate_hint(user_id: str, title: str) -> str:
+    """库里是否已有同名单品 → 一句提示；没有则空串。
+
+    **只提示，不阻止**（§11.3 失败语义表）—— 用户确实可能买了两件一模一样的。
+
+    ⚠️ **不能用 `image_hash` 去重**：那是**部分唯一索引**
+    （`WHERE image_hash IS NOT NULL`，见 `schema.py`），而粘贴录入**没有图**
+    → `image_hash` 永远是 NULL → 根本不去重。W0 审查抓到过这条误解
+    （当时的计划里写着"重复粘贴会被跳过"，是错的）。
+    所以这里改成按**归一化标题**比。
+    """
+    want = ingest_svc.normalize_title(title)
+    if not want:
+        return ""
+    for it in item_svc.iter_all_items(user_id):
+        if ingest_svc.normalize_title(it.get("name") or "") == want:
+            return f"（你可能已经录过「{it.get('name')}」了 —— 仍可以入库。）"
+    return ""
+
+
+def _handle_ingest(user_id: str, state: dict[str, Any], text: str) -> str:
+    """粘贴的商品分享文案 → 待确认草稿。
+
+    v1 的微信端**只记一件**：多件待确认需要另一套会话状态（"发现 3 件：1)… 回『全入』"），
+    会明显拖长第一版；批量走网页端（§11.3 已定）。
+    """
+    items = ingest_svc.build_candidates(text)
+    if not items:
+        return (
+            "这段我没读出商品名。两个办法：\n"
+            "· 把商品标题直接发我（例：「宽松直筒牛仔裤 深灰」）\n"
+            "· 或者说「我有一件 XX」"
+        )
+
+    first = items[0]
+    # ⚠️ `name` 由 `ingest.build_candidates` 设成**干净标题**，这里不再设 ——
+    #   组装逻辑归那里，因为**网页端要走同一套**；在这一层再设一遍就成了两处冗余
+    #   （去掉任一处都测不出来，W2 变异测试踩过这个坑）。
+    draft = {
+        # 与 describe 分支同义：`raw_text` = **用户原话**（回显用）。
+        # 这里原话是整段分享文案，但它不是 name。
+        "raw_text": text,
+        "fields": first.fields,
+        "unresolved": first.unresolved,
+        "at": db.now_iso(),
+    }
+    state["pending_draft"] = draft
+    # 与 describe 同样的互斥：开始记衣服时，待落盘的笔记草稿必须让位（规格 §4 硬约束 1）
+    _clear_note_draft(state)
+
+    prefix: list[str] = []
+    if len(items) > 1:
+        prefix.append(
+            f"这段里有 {len(items)} 件，我先看第一件；"
+            "其余的单独发给我（网页端可以一次多件）。"
+        )
+
+    # §11.3 管道④：本地查重（**只提示，不阻止**）
+    dup = _duplicate_hint(user_id, first.title)
+    if dup:
+        prefix.append(dup)
+
+    if first.needs_type:
+        prefix.append(f"我读到的是：{first.title}")
+        prefix.append("但**没认出这是什么品类** —— 回一句品类我就记下来。")
+        if first.pick.error:
+            prefix.append(f"（模型没接上：{first.pick.error}）")
+        return "\n".join(prefix)
+
+    prefix.append(_reply_draft(first.fields, first.unresolved, first.title))
+    # ⚠️ 这里**故意不再补**"模型没接上"的提示：
+    #   `needs_type` 为真时上面已经 return 并给过了；而
+    #   `used_llm and error` 与 `needs_type` **天然互斥**（模型降级 ⇒ 品类必为 other）。
+    #   W4 审查有两个 agent 独立撞到同一处：原来这里是裸名 `pick.error`
+    #   （未定义变量 → 潜在 NameError），而且整个分支**恒为假、永远跑不到**。已删。
+    return "\n".join(prefix)
+
+
 def _reply_help() -> str:
     return (
         "我能做这几件事：\n"
@@ -809,6 +906,27 @@ def _dispatch(
     if draft and intent == "confirm":
         payload = dict(draft.get("fields") or {})
         payload.setdefault("name", draft.get("raw_text") or "")
+        # ★ 闸门（P5 审查发现 5）：`ItemCreate.type` 默认 `"other"`、其余字段全可选
+        #   → **任何垃圾解析都能入库成功**。所以"认不出就不入库"这条**必须显式写**，
+        #   不能指望字段校验兜住。规格：`设计文档_v0.2.md` §11.3 失败语义。
+        #   触发路径有两条：粘贴来的标题、以及「我有一件 XX」里 XX 不在词表（如「汉服」）。
+        if str(payload.get("type") or "").strip() in ("", "other"):
+            # 唯一的放行出口：用户**明确**说了「就记」这类口令（规格 §11.3 失败语义表）。
+            # ⚠️ 为什么不能默认放行：`ItemCreate.type` 默认 `"other"`，一旦放行就是
+            #   静默往衣橱里塞一条说不清的记录 —— 那是这个功能最该防的污染。
+            #   放行时**必须标出**"品类未识别"，将来能被找出来重标。
+            if text.strip() in _CONFIRM_OTHER:
+                payload["type"] = "other"
+                mark = "品类未识别（粘贴录入）"
+                payload["notes"] = (
+                    f"{payload['notes']}；{mark}" if payload.get("notes") else mark
+                )
+            else:
+                return (
+                    "这件我还不知道是什么品类，先不入库。\n"
+                    "回一句就行（例如「卫裤」「衬衫」「冲锋衣」）。\n"
+                    "实在认不出、就是想先记下来，回「就记」—— 我会标成「其他」存进去。"
+                )
         try:
             created = item_svc.create(user_id, ItemCreate(**payload))
         except Exception as exc:                      # 入库失败要如实说
@@ -890,6 +1008,11 @@ def _dispatch(
             "现在可以先把衣服记进来，或问我「今天穿什么」。",
             dropped,
         )
+
+    if intent == "ingest":
+        # 放在 `dropped` 之后：粘贴新商品时若手上有旧草稿，
+        # 会自动带上"上一件草稿已放弃：XXX"的提示，**不静默丢弃**。
+        return _with_dropped(_handle_ingest(user_id, state, text), dropped)
 
     if intent == "describe":
         fields, unresolved = extract_fields(text)

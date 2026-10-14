@@ -203,6 +203,43 @@ class BulkItemsOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# 粘贴录入（P5 / 设计文档 §11.3）
+#
+# ⚠️ 这个接口**不落库、不写会话状态** —— 只解析，待确认清单由前端持有。
+# 这样"不动 conversation_state、不动 schema"（两者都在 Do-Not-Modify 里），
+# 代价是刷新页面清单会丢，可以接受。
+# ---------------------------------------------------------------------------
+class ItemParseIn(BaseModel):
+    """要解析的文本。可以是**多段**分享文案（一次粘好几件）。"""
+
+    text: str = Field(..., min_length=1, max_length=20000)
+
+
+class ParsedItemOut(BaseModel):
+    """一件商品的解析结果。**还没有入库** —— 用户确认后才提交 `/items/bulk`。"""
+
+    index: int
+    title: str                       # 干净标题（入库时当 `name`）
+    url: Optional[str] = None
+    code: Optional[str] = None       # 分享码
+    platform: Optional[str] = None
+    fields: dict[str, Any] = Field(default_factory=dict)   # 提交时原样回传
+    unresolved: dict[str, str] = Field(default_factory=dict)
+    type_key: Optional[str] = None
+    type_label: Optional[str] = None
+    needs_type: bool = False         # 认不出品类 → 前端必须让用户选，否则不许提交
+    duplicate_hint: Optional[str] = None   # 疑似重复（**只提示，不阻止**）
+    used_llm: bool = False
+    llm_error: Optional[str] = None
+
+
+class ItemsParseOut(BaseModel):
+    total: int
+    items: list[ParsedItemOut] = Field(default_factory=list)
+    message: Optional[str] = None    # 一件都没解析出来时的说明
+
+
+# ---------------------------------------------------------------------------
 # 穿着记录
 # ---------------------------------------------------------------------------
 class WearLogIn(BaseModel):

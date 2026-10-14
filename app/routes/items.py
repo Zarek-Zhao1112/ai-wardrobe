@@ -6,7 +6,7 @@ import sqlite3
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 
-from .. import db
+from .. import db, taxonomy
 from ..models import (
     BulkItemsIn,
     BulkItemsOut,
@@ -14,13 +14,17 @@ from ..models import (
     ItemCreateOut,
     ItemListOut,
     ItemOut,
+    ItemParseIn,
     ItemUpdate,
+    ItemsParseOut,
     OkOut,
     WearEventOut,
     WearLogIn,
 )
 from ..services import images as image_svc
+from ..services import ingest as ingest_svc
 from ..services import items as svc
+from ..services import tagging as tagging_svc
 from ..services import wardrobe
 from ..services import wear as wear_svc
 
@@ -124,6 +128,59 @@ def create_items_bulk(payload: BulkItemsIn) -> dict:
     }
 
 
+@router.post("/parse", response_model=ItemsParseOut)
+def parse_pasted_items(payload: ItemParseIn) -> dict:
+    """解析粘贴来的商品文案。**只解析，不落库、不写会话状态**（§11.3）。
+
+    待确认清单由**前端**持有：用户在页面上勾选/改完，一次性提交 `/items/bulk`。
+    好处是**不用动 `conversation_state`、也不用动 `schema.py`**（两者都在
+    Do-Not-Modify 清单里）。代价是刷新页面清单会丢，可以接受。
+
+    ⚠️ 声明在 `/{item_id}` **之前**：否则 `POST /items/parse` 会被
+    `/{item_id}` 当成品单 id 吃掉（跟 `/bulk` 同一个理由）。
+    """
+    uid = _uid()
+    candidates = ingest_svc.build_candidates(payload.text)
+    if not candidates:
+        return {
+            "total": 0,
+            "items": [],
+            "message": "这段我没读出商品名 —— 试试直接粘商品标题。",
+        }
+
+    # 疑似重复只看"归一化标题完全一致"。**只提示，不阻止** ——
+    # 用户确实可能买了两件一样的（§11.3 失败语义）。
+    seen = {
+        ingest_svc.normalize_title(it.get("name") or "")
+        for it in svc.iter_all_items(uid)
+    }
+    seen.discard("")
+
+    items = []
+    for idx, c in enumerate(candidates):
+        key = str(c.fields.get("type") or "other")
+        items.append(
+            {
+                "index": idx,
+                "title": c.title,
+                "url": c.url or None,
+                "code": c.code or None,
+                "platform": c.platform or None,
+                "fields": c.fields,
+                "unresolved": c.unresolved,
+                "type_key": key,
+                "type_label": taxonomy.label_of(key),
+                "needs_type": c.needs_type,
+                "duplicate_hint": (
+                    "你已经有一件同名的了" if ingest_svc.normalize_title(c.title) in seen else None
+                ),
+                "used_llm": c.pick.used_llm,
+                "llm_error": c.pick.error or None,
+            }
+        )
+    return {"total": len(items), "items": items, "message": None}
+
+
 @router.get("/{item_id}", response_model=ItemOut)
 def get_item(item_id: str) -> dict:
     got = svc.get(item_id, _uid())
@@ -180,4 +237,30 @@ def upload_item_image(item_id: str, file: UploadFile = File(...)) -> dict:
         raise HTTPException(404, str(e)) from e
     except sqlite3.IntegrityError as e:
         raise HTTPException(400, f"这张图已经录给别的单品了（图片指纹重复）：{e}") from e
-    return {**saved, "item": svc.get(item_id, uid)}
+
+    # 存图成功后顺手跑一次打标（上传即识别，认完用户能改）。
+    # ⚠️ 打标**失败绝不能让上传变成 4xx/5xx** —— 照片已经存好了，
+    #    单品留在 `pending` 就行，属性用户可以手填。所以走"只回报状态"的那个入口。
+    #
+    # ⚠️ 外面再包一层 `Exception` 兜底：`tag_and_apply` 自己已经承诺"不抛"，
+    #    但那是**约定**不是**保证** —— 万一它内部漏接了某个异常类型
+    #    （比如数据库 `OperationalError`），让上传变成 500 是最坏结果：
+    #    照片已经换成新的了，用户却收到"上传失败"，重试还会再撞一次
+    #    `image_hash` 唯一索引。这里兜住，把结果如实告诉前端。
+    try:
+        tagging = tagging_svc.tag_and_apply(uid, item_id)
+    except Exception as e:  # noqa: BLE001 —— 兜底就是这里的目的
+        tagging = {
+            "status": "failed",
+            "tags": {},
+            "unresolved": {},
+            "ai_confidence": None,
+            "message": f"识别失败（照片已保存，可手动填属性）：{type(e).__name__}",
+            "item": None,
+        }
+
+    return {
+        **saved,
+        "item": tagging.get("item") or svc.get(item_id, uid),
+        "tagging": tagging,
+    }
