@@ -1,0 +1,36 @@
+#!/bin/sh
+# ── commit-msg 防线 ─────────────────────────────────────────────────────────
+# 为什么要有它：scripts/scan_leaks.py 扫的是**文件内容**，而提交信息只存在于
+# git object 里 —— 密钥 / 私密路径写在 message 里，内容扫描永远抓不到。
+# 本钩子在**写入之前**拦住，比事后清理便宜得多。（借鉴 pharos-open 的做法）
+#
+# 安装（每台机器一次）：
+#   git config core.hooksPath .githooks
+#   chmod +x .githooks/commit-msg          # macOS / Linux 需要；Windows 不必
+#
+# 绕过（不推荐）：git commit --no-verify
+#
+# 拦什么：只在 message 里出现**高置信密钥形态**时才拒 —— 刻意**不拦**姓名 / 普通路径，
+#         那类误报率高（会把正常提交也挡了），交给 scripts/scan_leaks.py 在发布前扫。
+#
+# 零依赖：只用 Git 自带的 sh / grep / sed，不依赖 Python 或 node。
+
+MSG_FILE="$1"
+[ -z "$MSG_FILE" ] && exit 0
+[ -f "$MSG_FILE" ] || exit 0
+
+# 高置信密钥形态。{n,} 区间量词是 POSIX ERE，grep -E 支持。
+PATTERNS='ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|ghs_[A-Za-z0-9]{20,}|ghu_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9]{16,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|BEGIN [A-Z ]*PRIVATE KEY'
+
+HIT="$(grep -En "$PATTERNS" "$MSG_FILE" 2>/dev/null)"
+if [ -n "$HIT" ]; then
+  echo ""
+  echo "[拒绝] 提交信息里出现了疑似密钥 / 私钥："
+  printf '%s\n' "$HIT" | sed 's/^/    /'
+  echo ""
+  echo "  密钥应放 .env（已被 gitignore），不要写进提交信息。"
+  echo "  确认是误报可绕过：git commit --no-verify"
+  echo ""
+  exit 1
+fi
+exit 0

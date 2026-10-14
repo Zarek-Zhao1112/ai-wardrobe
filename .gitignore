@@ -36,4 +36,9 @@ docs/tasks.md
 docs/review-prompts.md
 # 历史版本，内容已过时
 docs/设计文档_v0.1.txt
+# 多 agent 协作约定：含本机路径与内部任务名
+docs/agent-collaboration.md
+
+# 脱敏扫描的个人 needle（真实姓名 / 本机路径）——脚本主体进仓库，这份不进
+scripts/leak_needles.local.txt
 

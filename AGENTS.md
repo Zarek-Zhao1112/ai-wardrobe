@@ -53,6 +53,22 @@
 - **不要用 `grep -c "check("` 数测试项** —— `def check(` 也会被数进去。
   当前真实是 **83 项**（P4 加了第 8/9 两节共 22 项；加完记得更新这里和上面两处）。
 
+## 提交 / 发布前的门禁
+
+```bash
+# 每台机器装一次：让 Git 用仓库自带的钩子（拦提交信息里的密钥）
+git config core.hooksPath .githooks
+
+# 提交 / 发布前扫一遍「git 跟踪的那些文件」有没有密钥
+.venv/Scripts/python.exe scripts/scan_leaks.py
+```
+
+- `.githooks/commit-msg` 只拦**高置信密钥形态**（`ghp_` / `sk-` / `AKIA` / 私钥 …）；
+  误报可 `git commit --no-verify` 绕过。它拦的是**提交信息**——内容扫描扫不到 message。
+- `scripts/scan_leaks.py` 只扫 `git ls-files`（即"进仓库的那一份"），自带自证，
+  **退出码非 0 就别提交**。个人 needle（真实姓名 / 本机路径）放
+  `scripts/leak_needles.local.txt`（已 gitignore，不进仓库）。
+
 ## 项目结构
 
 ```
