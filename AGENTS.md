@@ -53,6 +53,25 @@
 - **不要用 `grep -c "check("` 数测试项** —— `def check(` 也会被数进去。
   当前真实是 **83 项**（P4 加了第 8/9 两节共 22 项；加完记得更新这里和上面两处）。
 
+### 前端 UI 门禁（只读）
+
+```bash
+node scripts/cdp_ui_check.js                          # 浏览器里量
+.venv/Scripts/python.exe scripts/check_contrast.py    # 纯算，不用浏览器
+```
+
+`cdp_ui_check.js` 用 CDP 驱动真 Chrome，量**三视口**（390 / 768 / 1440）的横向溢出、
+手机端**触控目标 ≥44px**、**内容不被底部栏遮住**、Service Worker 注册、manifest，并出截图。
+前置：Node ≥ 18 + Chrome 以 `--remote-debugging-port=9333` 常驻 + 应用在 8799 上跑。
+
+`check_contrast.py` 按 WCAG 2.1 检查 token 色板上的**实际文字组合**（15 组，全部要 ≥4.5:1）。
+**对比度是肉眼查不出来的那一类缺陷** —— 别跳过它。
+
+判据见两个脚本的头部注释，规格见 `docs/ui-contract.md`。
+
+⚠️ **Chrome 的 `--user-data-dir` 必须每次用全新目录** —— 复用会踩 ES module / SW 缓存，
+表现为"改了代码却看不到变化"（假失败）。
+
 ## 提交 / 发布前的门禁
 
 ```bash

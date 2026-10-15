@@ -130,7 +130,7 @@ export async function mount(root, ctx) {
       return;
     }
     resultEl.innerHTML =
-      `<p class="faint" style="margin:0 0 10px">候选 ${esc(resp.candidates)} 套${
+      `<p class="faint mb-3">候选 ${esc(resp.candidates)} 套${
         resp.degraded ? "，AI 不可用，已退回本地排序" : ""
       }</p>` + outfits.map(outfitCardHtml).join("");
   }
@@ -163,9 +163,16 @@ export async function mount(root, ctx) {
     }
   }
 
+  /** 竞态：生成后紧接着反馈会先后发两次 `GET /outfits`，先发的慢请求后回来
+   * 会把新历史覆盖回旧状态（刚反馈的那条显示成「待反馈」）。
+   * 同 `view-wardrobe` / `view-gaps` 的写法：用序号只认最后一次请求的结果。 */
+  let historySeq = 0;
+
   async function loadHistory() {
+    const seq = ++historySeq;
     try {
       const data = await api.listOutfits(20);
+      if (seq !== historySeq) return;
       const rows = data.outfits || [];
       if (!rows.length) {
         historyEl.innerHTML = `<p class="faint">还没有生成过搭配。</p>`;
@@ -181,6 +188,7 @@ export async function mount(root, ctx) {
         )
         .join("")}</ul>`;
     } catch (err) {
+      if (seq !== historySeq) return;
       renderError(historyEl, err);
     }
   }

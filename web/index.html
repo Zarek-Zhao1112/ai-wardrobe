@@ -2,11 +2,23 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f5f7">
+  <meta name="description" content="会逐渐了解你衣橱、身材与审美的个人 AI 穿搭助手">
   <title>AI 穿搭助手</title>
+  <!-- PWA：加到主屏幕后像原生 App（独立图标 / 全屏 / 无地址栏）。见 docs/ui-contract.md -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <!-- 两个都要写：标准名给 Chromium，apple- 前缀给 iOS（Chrome 会对只写 apple- 的版本报弃用警告）。 -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="穿搭助手">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <!-- 图标内联成 SVG（data URI）：省一个文件，也免掉浏览器自动请求
        /favicon.ico 造成的 404（首次加载时控制台会红一条）。 -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%232f6f4f'/%3E%3Cpath%20d='M10%209h12M16%209v15M12%2024h8'%20stroke='white'%20stroke-width='2.4'%20stroke-linecap='round'%20fill='none'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%230066cc'/%3E%3Cpath%20d='M10%209h12M16%209v15M12%2024h8'%20stroke='white'%20stroke-width='2.4'%20stroke-linecap='round'%20fill='none'/%3E%3C/svg%3E">
+  <!-- token 层在前、组件层在后（层叠的直觉顺序）。变量只在 tokens.css 定义一处。 -->
+  <link rel="stylesheet" href="/css/tokens.css">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -19,6 +31,11 @@
   <main id="view" class="view">
     <p class="muted">加载中…</p>
   </main>
+
+  <!-- 手机端底部 tab 栏。和顶部 #nav 是**同一份导航的两种形态**：
+       桌面显示 .nav（在顶栏里），手机显示 .tabbar（固定底部）。
+       显示哪个由 CSS 决定；JS 两侧都渲染（见 app.js 的 renderNav）。 -->
+  <nav id="tabbar" class="tabbar" aria-label="主导航"></nav>
 
   <div id="toast" class="toast" hidden></div>
 

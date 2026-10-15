@@ -100,13 +100,15 @@ export async function mount(root, ctx) {
 
       <div class="panel">
         <h2>补什么最划算</h2>
-        <table class="tbl">
-          <thead><tr>
-            <th>槽位</th><th>现有</th><th>每多一件</th><th>颜色多样性</th><th>得分</th>
-          </tr></thead>
-          <tbody>${suggestionRows}</tbody>
-        </table>
-        <p class="faint" style="margin:10px 0 0">
+        <div class="tbl-wrap">
+          <table class="tbl">
+            <thead><tr>
+              <th>槽位</th><th>现有</th><th>每多一件</th><th>颜色多样性</th><th>得分</th>
+            </tr></thead>
+            <tbody>${suggestionRows}</tbody>
+          </table>
+        </div>
+        <p class="faint mt-3">
           「颜色多样性」越低，说明同色重复越多 —— 再补同色的收益会打折。
         </p>
       </div>
@@ -139,7 +141,7 @@ export async function mount(root, ctx) {
 
       <details class="panel">
         <summary>旧规则（硬编码白名单）会怎么说 —— 对照</summary>
-        <p class="faint" style="margin:10px 0 0">${esc(d.legacy_rule_verdict || "")}</p>
+        <p class="faint mt-3">${esc(d.legacy_rule_verdict || "")}</p>
         <p class="faint">
           上面那条规则只认 <code>shirt/blouse/t-shirt/top</code> 和
           <code>pants/jeans/skirt/shorts</code>；毛衣、卫衣、外套、连衣裙全不算数，

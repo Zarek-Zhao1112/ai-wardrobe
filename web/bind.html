@@ -2,25 +2,28 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f5f7">
 <title>绑定微信 · AI 穿搭助手</title>
+<!-- token 层在前、组件层在后。变量只在 tokens.css 定义一处（见 docs/ui-contract.md） -->
+<link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/style.css">
 <!-- 内联图标，省掉一次 404 请求（见 index.html 同样的处理） -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%91%95%3C/text%3E%3C/svg%3E">
 <style>
-  .bind-wrap { max-width: 520px; margin: 40px auto; padding: 0 20px; }
+  .bind-wrap { max-width: 520px; margin: var(--sp-8) auto; padding: 0 var(--sp-4); }
   .qr-box {
     display: flex; justify-content: center; align-items: center;
-    min-height: 260px; margin: 18px 0;
-    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 16px;
+    min-height: 260px; margin: var(--sp-4) 0;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: var(--sp-4);
   }
   .qr-box svg { width: 240px; height: 240px; }
   .steps { line-height: 1.9; }
   .state-line { font-weight: 600; }
   .state-wait { color: var(--text-dim); }
-  .state-scanned { color: #b45309; }
-  .state-ok { color: #0a7d33; }
+  .state-scanned { color: var(--warn); }
+  .state-ok { color: var(--accent); }
   .state-bad { color: var(--danger); }
 </style>
 </head>
@@ -35,9 +38,9 @@
     <p class="muted">加载中…</p>
   </div>
 
-  <details style="margin-top:26px">
-    <summary class="faint" style="cursor:pointer">这是什么？安全吗？</summary>
-    <div class="steps muted" style="margin-top:10px;font-size:13px">
+  <details class="mt-6">
+    <summary class="faint pointer">这是什么？安全吗？</summary>
+    <div class="steps muted t-sm mt-3">
       <p>用的是微信官方 2026 年开放的 <strong>ClawBot（iLink）</strong>通道 ——
       需要你在手机上点一次「授权」，不是模拟登录、不读聊天记录、不碰通讯录。</p>
       <p>绑定后，你在微信里给机器人发消息，它就能查你的衣橱、给你搭衣服。
@@ -51,6 +54,15 @@
 <script type="module">
 const app = document.getElementById("app");
 let qrTimer = null;
+
+/** 轮询代数。**只递增**，取消时 +1 —— 老一代的 tick 一看不是自己就自己退出。
+ *
+ * ⚠️ 光 `clearTimeout` 是**取消不掉**的：`/status` 是长轮询（服务端自己会挂最多 30 秒），
+ *    点「重新生成二维码」时前一发请求可能**还在飞**。它返回后会再挂一条 timer，
+ *    把 `qrTimer` 覆盖掉 —— 旧链从此永远取消不了：既重复打服务端，
+ *    又会把新二维码的状态文案改回旧的。W4 的 Bug 猎手抓到。
+ */
+let pollGen = 0;
 
 const esc = (v) =>
   v === null || v === undefined
@@ -66,6 +78,7 @@ const j = async (url, opt) => {
 };
 
 function stopPolling() {
+  pollGen += 1;                     // 让所有在飞的/待发的 tick 作废
   if (qrTimer) { clearTimeout(qrTimer); qrTimer = null; }
 }
 
@@ -76,7 +89,7 @@ function renderBound(info) {
     <p class="state-line state-ok">✅ 已连接</p>
     <p class="muted">机器人 ID：<code>${esc(info.bot_id || "（未知）")}</code></p>
     <p class="muted">现在可以在微信里给它发消息了，试试「今天穿什么」。</p>
-    <p style="margin-top:20px">
+    <p class="mt-6">
       <button id="unbind" class="ghost">解绑</button>
     </p>`;
   app.querySelector("#unbind").addEventListener("click", async () => {
@@ -91,7 +104,7 @@ function renderIdle() {
   stopPolling();
   app.innerHTML = `
     <p class="muted">还没绑定。绑定后就能在微信里用了。</p>
-    <p style="margin-top:16px"><button id="start">开始绑定</button></p>`;
+    <p class="mt-4"><button id="start">开始绑定</button></p>`;
   app.querySelector("#start").addEventListener("click", startLogin);
 }
 
@@ -112,15 +125,15 @@ async function startLogin() {
   app.innerHTML = `
     <div class="qr-box">${d.qr_svg}</div>
     <p class="state-line state-wait" id="st">等待扫码…</p>
-    <div class="steps muted" style="font-size:13px">
+    <div class="steps muted t-sm">
       <p>1. 打开手机微信 → 右上角「+」→ 扫一扫</p>
       <p>2. 扫上面这个码 → 点「授权」</p>
     </div>
-    <p style="margin-top:16px"><button id="again" class="ghost">重新生成二维码</button></p>`;
+    <p class="mt-4"><button id="again" class="ghost">重新生成二维码</button></p>`;
   // ⚠️ 过期后点它要**直接重新拿码** —— 以前绑的是 renderIdle，
   // 于是得先回到"开始绑定"页再点一次，按钮文案与行为不符（W4 审查抓到）。
   app.querySelector("#again").addEventListener("click", startLogin);
-  poll(d.qrcode, d.qr_svg);
+  poll(d.qrcode);
 }
 
 /** 长轮询查状态。
@@ -128,12 +141,18 @@ async function startLogin() {
  * ⚠️ 服务端 `/status` **自己会挂最多 30 秒**（上游 iLink 是长轮询）。
  * 所以这里**不能用 setInterval** —— 那会在 30 秒里堆十几个挂住的请求。
  * 正确做法：发一个、等它返回、再发下一个（下面这个 setTimeout 链）。
+ *
+ * ⚠️ 每次 `await` 回来都要**再查一遍代数** —— 因为在飞的那一发可能已经被
+ *    `stopPolling()` 取消了（用户点了「重新生成」），它不该再影响界面。
  */
-function poll(qrcode, svg) {
+function poll(qrcode) {
+  const gen = ++pollGen;
   const st = () => document.getElementById("st");
   const tick = async () => {
+    if (gen !== pollGen) return;
     try {
       const r = await j(`/channel/wechat/status?qrcode=${encodeURIComponent(qrcode)}`);
+      if (gen !== pollGen) return;
       if (r.state === "confirmed") {
         renderBound(r);
         return;
@@ -149,12 +168,14 @@ function poll(qrcode, svg) {
         el.textContent = r.state === "scanned" ? "已扫码，请在手机上点「授权」…" : "等待扫码…";
       }
     } catch (err) {
+      if (gen !== pollGen) return;
       const el = st();
       if (el) { el.className = "state-line state-bad"; el.textContent = "查询失败：" + err.message; }
       // 失败后退避久一点 —— 300ms 重排会在网络快速失败时打成紧重试（W4 审查抓到）
       qrTimer = setTimeout(tick, 3000);
       return;
     }
+    if (gen !== pollGen) return;
     qrTimer = setTimeout(tick, 300);
   };
   tick();

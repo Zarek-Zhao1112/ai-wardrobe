@@ -89,7 +89,7 @@ export async function mount(root, ctx, arg) {
     renderError(root, err);
     root.insertAdjacentHTML(
       "beforeend",
-      `<p style="margin-top:12px"><a href="#wardrobe">← 回衣橱</a></p>`
+      `<p class="mt-3"><a href="#wardrobe">← 回衣橱</a></p>`
     );
     return;
   }
@@ -189,17 +189,31 @@ export async function mount(root, ctx, arg) {
       const btn = root.querySelector("#item-upload");
       btn.disabled = true;
       btn.textContent = "上传中…";
+
+      // ★ 必须把「上传」和「重新拉取」分成两步 —— 它们的失败含义完全不同。
+      //   合在一个 try 里的话，照片明明已经存好了，却因为随后那次 GET 失败
+      //   而报「上传失败」，用户会以为白传了、重新传一遍（W4 的 Bug 猎手抓到）。
+      //   `view-add.js` 早就把这两步拆开了，这里是漏掉的一处。
+      let res;
       try {
-        const res = await api.uploadImage(item.id, file);
-        const fresh = await api.getItem(item.id);
-        // ⚠️ 上传接口现在会顺手跑一次打标，返回里带 `tagging`。
-        //    **必须把它讲出来** —— 否则用户看到照片变了、属性悄悄也变了，
-        //    却什么提示都没有（静默改动比不改动更让人不放心）。
-        //    打标失败绝不影响上传结果（照片已经存好了）。
-        toast(uploadToast(res.tagging), "ok", 3600);
-        render(fresh);
+        res = await api.uploadImage(item.id, file);
       } catch (err) {
         toast("上传失败：" + err.message, "error");
+        btn.disabled = false;
+        btn.textContent = "上传 / 替换";
+        return;
+      }
+
+      // 到这里照片**已经存好了**，下面失败不能说成"上传失败"。
+      // ⚠️ 上传接口还会顺手跑一次打标，返回里带 `tagging` ——
+      //    **必须把它讲出来**，否则用户看到照片变了、属性悄悄也变了却没提示
+      //    （静默改动比不改动更让人不放心）。打标失败绝不影响上传结果。
+      toast(uploadToast(res.tagging), "ok", 3600);
+      try {
+        const fresh = await api.getItem(item.id);
+        render(fresh);
+      } catch (err) {
+        toast("照片已更新，但页面没刷新过来：" + err.message, "error");
         btn.disabled = false;
         btn.textContent = "上传 / 替换";
       }

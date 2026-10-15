@@ -30,6 +30,7 @@ const VIEWS = [
 
 const rootEl = document.getElementById("view");
 const navEl = document.getElementById("nav");
+const tabbarEl = document.getElementById("tabbar");
 const statusEl = document.getElementById("status");
 
 /** 共享上下文。视图不必自己去取词表和健康状态。 */
@@ -42,13 +43,20 @@ function parseHash() {
   return { id: id || VIEWS[0].id, arg: rest.join("/") || null };
 }
 
+/** 渲染导航。**同一份数据写两处**：顶栏的 `#nav`（桌面）和底部的 `#tabbar`（手机）。
+ *
+ * 显示哪个**交给 CSS 断点决定** —— 这样 JS 完全不用知道"现在是手机还是桌面"，
+ * 也就不会出现"JS 判断的视口"和"CSS 实际生效的断点"不一致的经典坑。
+ */
 function renderNav(currentId) {
-  navEl.innerHTML = VIEWS.filter((v) => !v.hidden)
+  const html = VIEWS.filter((v) => !v.hidden)
     .map(
       (v) =>
         `<a class="tab${v.id === currentId ? " active" : ""}" href="#${esc(v.id)}">${esc(v.label)}</a>`
     )
     .join("");
+  navEl.innerHTML = html;
+  if (tabbarEl) tabbarEl.innerHTML = html;
 }
 
 function renderStatus() {
@@ -79,12 +87,17 @@ async function render() {
 }
 
 async function boot() {
+  let healthOk = false;
   try {
     ctx.health = await api.health();
+    healthOk = true;
   } catch (err) {
+    // 这里 err.message 是「连不上后端服务，确认它还在运行」——比 renderStatus()
+    // 那句笼统的"后端未就绪"有用得多，所以下面**不能再调 renderStatus()** 把它盖掉
+    //（W4 的 Bug 猎手抓到：具体线索被覆盖成没信息量的一句话，排障时少一条信息）。
     statusEl.innerHTML = `<span class="dot off"></span>${esc(err.message)}`;
   }
-  renderStatus();
+  if (healthOk) renderStatus();
 
   try {
     ctx.taxonomy = await api.taxonomy();
@@ -97,4 +110,21 @@ async function boot() {
 }
 
 window.addEventListener("hashchange", render);
+
+/** 注册 Service Worker（PWA：离线可用 + 可"添加到主屏幕"）。
+ *
+ * ⚠️ 只在**安全上下文**里能注册：https，或 localhost / 127.0.0.1。
+ *    所以在手机上用 `http://127.0.0.1:8787` 打开时能注册，
+ *    而用局域网 IP（`http://192.168.x.x:8787`）打开时**注册不了** ——
+ *    这是浏览器的规矩，不是我们的 bug。想让手机装成 App 就用 127.0.0.1。
+ *    失败不抛错：没有 SW 页面照样能用，只是不能离线。
+ */
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((err) => {
+      console.warn("Service Worker 注册失败（不影响使用）:", err && err.message);
+    });
+  });
+}
+
 boot();

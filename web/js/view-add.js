@@ -100,6 +100,7 @@ export async function mount(root, ctx) {
     pasteResult.innerHTML = `
       <section class="panel">
         <h2>识别到 ${rows.length} 件，确认后入库</h2>
+        <div id="paste-error"></div>
         <p class="faint">不需要的取消勾选即可。品类认不出的必须选一个才能入库。</p>
         <div id="preview-rows">
           ${rows.map((row, i) => rowHtml(row, i)).join("")}
@@ -164,7 +165,7 @@ export async function mount(root, ctx) {
         }
         ${
           row.needs_type
-            ? `<p><span class="status">没认出品类</span></p>`
+            ? `<p><span class="chip warn">没认出品类</span></p>`
             : summaryHtml({ ...row.fields, type_label: row.type_label }, taxonomy)
         }
         ${typeField}
@@ -200,18 +201,27 @@ export async function mount(root, ctx) {
     }
 
     const saveBtn = pasteResult.querySelector("#paste-save");
+    const clearBtn = pasteResult.querySelector("#paste-clear");
     saveBtn.disabled = true;
     saveBtn.textContent = "入库中…";
+    // 提交中别让「清空」还能点 —— 点了之后返回的结果面板又会把清单"复活"，看着像没清掉（W4 抓到）
+    if (clearBtn) clearBtn.disabled = true;
     try {
       const resp = await api.bulkItems({ items: picked });
       renderBulkResult(resp);
       toast(resp.failed ? "部分入库失败" : "已入库", resp.failed ? "error" : "ok");
     } catch (err) {
-      renderError(pasteResult, err);
+      // ⚠️ **不要** renderError(pasteResult, err)：那会把整块预览（用户已勾选的行、
+      //    已选好的品类）一起冲掉。清单只在前端内存里、没有别的入口，
+      //    冲掉就等于让用户从头再粘一遍（W4 的 Bug 猎手抓到）。只把错误写进专门的位置。
+      const box = pasteResult.querySelector("#paste-error");
+      if (box) box.innerHTML = `<div class="alert error">入库失败：${esc(err.message)}</div>`;
       toast("入库失败", "error");
-    } finally {
-      saveBtn.disabled = false;
-      saveBtn.textContent = "入库选中的";
+      // 按钮**重新查一遍**拿：出错路径上 DOM 可能已经不是原来那批节点了
+      const b = pasteResult.querySelector("#paste-save");
+      const c = pasteResult.querySelector("#paste-clear");
+      if (b) { b.disabled = false; b.textContent = "入库选中的"; }
+      if (c) c.disabled = false;
     }
   }
 
