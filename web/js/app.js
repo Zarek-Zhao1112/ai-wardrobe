@@ -86,6 +86,44 @@ async function render() {
   }
 }
 
+/** 后端没起来时的引导页。
+ *
+ * 为什么需要它（这是「按需启动」模式的必备件）：
+ * 首页是**后端自己发出来的** —— 后端没在跑时，浏览器连 HTML 都拿不到，
+ * 只会显示它自己那张"无法访问此网站"的白页。用户看到那个只会觉得**坏了**，
+ * 而实际只是"后端还没启动"。
+ * 现在：Service Worker 会拿缓存里的外壳兜底（见 sw.js），页面能正常渲染出来，
+ * 于是这里就能给一句**照着做就行**的话，而不是让浏览器去吓人。
+ */
+function renderBackendDown() {
+  const onServerDevice = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
+  document.title = "后端未启动 · AI 穿搭助手";
+  rootEl.innerHTML = `
+    <div class="view-head"><h1>后端还没启动</h1></div>
+    <div class="alert">这个地址上没有服务在响应：<code>${esc(location.origin)}</code></div>
+    <div class="panel">
+      <h2>${onServerDevice ? "打开 Termux 就行" : "去跑后端的那台设备上启动它"}</h2>
+      <p class="muted">${
+        onServerDevice
+          ? "点这台设备上的 <strong>Termux</strong> 图标，服务会在几秒内自动起来（不用敲命令）。" +
+            "起来之后回来点下面的「重试」。"
+          : "电脑上是 <code>.venv/Scripts/python.exe run.py</code>；手机上是打开 <strong>Termux</strong>。"
+      }</p>
+      <p class="faint">这件页面能显示出来，是 Service Worker 缓存的外壳 —— 数据仍然拿不到。</p>
+      <div class="form-actions">
+        <button id="boot-retry" class="primary">我起好了，重试</button>
+      </div>
+    </div>`;
+  const btn = rootEl.querySelector("#boot-retry");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      btn.disabled = true;
+      btn.textContent = "正在连接…";
+      boot();
+    });
+  }
+}
+
 async function boot() {
   let healthOk = false;
   try {
@@ -97,7 +135,14 @@ async function boot() {
     //（W4 的 Bug 猎手抓到：具体线索被覆盖成没信息量的一句话，排障时少一条信息）。
     statusEl.innerHTML = `<span class="dot off"></span>${esc(err.message)}`;
   }
-  if (healthOk) renderStatus();
+
+  // 后端不可用 → **不要**再让每个视图各自弹一句"加载失败"（那看着就像坏了）。
+  // 直接给一页能照做的指引。见 renderBackendDown 的注释。
+  if (!healthOk) {
+    renderBackendDown();
+    return;
+  }
+  renderStatus();
 
   try {
     ctx.taxonomy = await api.taxonomy();
