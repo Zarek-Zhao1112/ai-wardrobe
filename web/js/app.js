@@ -223,9 +223,30 @@ window.addEventListener("hashchange", render);
  */
 if ("serviceWorker" in navigator && window.isSecureContext) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((err) => {
-      console.warn("Service Worker 注册失败（不影响使用）:", err && err.message);
-    });
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => {
+        // ★ 主动检查更新（2026-10-21 加，实测踩到）。
+        // MIUI 浏览器里，页面加载时的 register() 只做"注册/复用"，**不会重新拉
+        // sw.js** —— 于是改了 sw.js 也要等浏览器自己想起来（最长 24 小时）。
+        // 表现就是"代码更新了、手机上还是旧界面"，而且怎么刷新都没用
+        // （旧 app.js 里没有新逻辑，它自己不知道自己旧）。
+        // update() 是幂等的，多拉一次只有 5 KB；服务就在本机，成本可以忽略。
+        reg.update().catch(() => undefined);
+      })
+      .catch((err) => {
+        console.warn("Service Worker 注册失败（不影响使用）:", err && err.message);
+      });
+  });
+
+  // 新 SW 接管后**自动刷新一次**，让页面立刻用上它缓存的新文件。
+  // 用 `swRefreshed` 卡住：`controllerchange` 在某些浏览器会连续触发，
+  // 不设防会变成无限刷新。
+  let swRefreshed = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (swRefreshed) return;
+    swRefreshed = true;
+    location.reload();
   });
 }
 
