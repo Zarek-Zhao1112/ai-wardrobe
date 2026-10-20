@@ -405,3 +405,11 @@ ul.hist { margin: 0; padding: 0; list-style: none; }
   .view { padding: var(--sp-4) var(--sp-4) var(--sp-6); }
   .view-head h1 { font-size: var(--fs-h2); }
 }
+
+/* 拖拽图片到页面时的落点提示（2026-10-20）。
+   用 `outline` 而不是 `border`：outline 不占布局，不会让内容跳一下。 */
+.drop-active {
+  outline: 2px dashed var(--accent);
+  outline-offset: -6px;
+  border-radius: var(--radius-sm);
+}

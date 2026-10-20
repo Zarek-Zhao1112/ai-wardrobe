@@ -19,6 +19,76 @@ import { esc, itemChipsHtml, renderError, toast } from "./ui.js";
 
 export const label = "录入";
 
+// ---------------------------------------------------------------------------
+// 粘贴 / 拖拽图片（2026-10-20 用户拍板）
+//
+// 目的：电脑上截图后不用「保存 → 点选择文件 → 找路径」，直接 Ctrl+V 就行。
+//
+// ⚠️ **全局监听只注册一次**。`mount` 每进一次录入页就跑一次，
+//   如果每次都往 `document` 上加监听，进出五次后一次粘贴会触发五次。
+//   所以用模块级 `activeAdd` 指向**当前**那个录入页，监听器只认它。
+// ---------------------------------------------------------------------------
+let activeAdd = null;
+
+function isImageFile(f) {
+  return !!f && typeof f.type === "string" && f.type.indexOf("image/") === 0;
+}
+
+function bindClipboardOnce() {
+  if (bindClipboardOnce.bound) return;
+  bindClipboardOnce.bound = true;
+
+  // ⚠️ 判据用 `fileEl.isConnected`，不是 `root.isConnected` ——
+  //   外壳容器是持久的，切走别的页面后它照样连接着；
+  //   但输入框是视图内部的节点，会随 innerHTML 替换掉。
+  const live = () => activeAdd && activeAdd.fileEl && activeAdd.fileEl.isConnected;
+  const hasFiles = (dt) => !!dt && Array.prototype.includes.call(dt.types || [], "Files");
+
+  // 粘贴：**只有剪贴板里真有图片才拦**。
+  // 否则用户往「商品文案」里粘文字会被吃掉 —— 这是最容易写错的地方。
+  document.addEventListener("paste", (ev) => {
+    if (!live()) return;
+    const bag = ev.clipboardData && ev.clipboardData.files;
+    if (!bag || !bag.length) return;
+    const img = Array.prototype.find.call(bag, isImageFile);
+    if (!img) return;
+    ev.preventDefault();
+    activeAdd.accept(img);
+  });
+
+  // 拖拽：`dragover` 不 preventDefault 的话，浏览器会把图片当网页**直接打开**，
+  // 当前页面就没了。
+  let depth = 0;
+  document.addEventListener("dragover", (ev) => {
+    if (!live()) return;
+    if (!hasFiles(ev.dataTransfer)) return;
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+  });
+  // dragenter/dragleave 会因为进入子元素反复触发 → 用计数决定高亮开关
+  document.addEventListener("dragenter", (ev) => {
+    if (!live()) return;
+    if (!hasFiles(ev.dataTransfer)) return;
+    depth += 1;
+    activeAdd.root.classList.add("drop-active");
+  });
+  document.addEventListener("dragleave", () => {
+    depth = Math.max(0, depth - 1);
+    if (depth === 0 && activeAdd) activeAdd.root.classList.remove("drop-active");
+  });
+  document.addEventListener("drop", (ev) => {
+    if (!live()) return;
+    depth = 0;
+    activeAdd.root.classList.remove("drop-active");
+    const dt = ev.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    const img = Array.prototype.find.call(dt.files, isImageFile);
+    if (!img) return;
+    ev.preventDefault(); // 否则浏览器会导航到那张图
+    activeAdd.accept(img);
+  });
+}
+
 export async function mount(root, ctx) {
   const taxonomy = ctx.taxonomy || {};
 
@@ -47,6 +117,7 @@ export async function mount(root, ctx) {
       <h2>② 或者手动填</h2>
       <label class="field field-wide"><span>照片（可选）</span>
         <input type="file" id="add-image" accept="image/*">
+        <small class="faint">电脑上可以直接 Ctrl+V 粘贴截图，或把图片拖进页面</small>
       </label>
       ${formHtml(taxonomy)}
       <div class="form-actions">
@@ -63,6 +134,27 @@ export async function mount(root, ctx) {
   const form = root.querySelector("#add-form");
   const fileEl = root.querySelector("#add-image");
   const addResult = root.querySelector("#add-result");
+
+  /** 把粘贴 / 拖拽来的图片塞进 file input，之后走的还是原来那条路：
+   *  `change` → 保存时上传 → 后端自动打标。**不另开一条上传链路**，
+   *  否则两条路早晚会走岔（一条有打标、一条没有）。 */
+  function acceptImage(file) {
+    try {
+      // `input.files` 是只读的，只能整个换掉（DataTransfer 是标准做法）
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      fileEl.files = dt.files;
+      fileEl.dispatchEvent(new Event("change", { bubbles: true }));
+      const kb = Math.max(1, Math.round(file.size / 1024));
+      toast(`已接住图片（${kb} KB）—— 保存时自动识别属性`, "ok");
+    } catch (err) {
+      // 极老的浏览器不给 `input.files` 赋值
+      toast("这张图接不住，请点「选择文件」", "error");
+    }
+  }
+
+  activeAdd = { root, fileEl, accept: acceptImage };
+  bindClipboardOnce();
 
   // ------------------------------------------------------------------
   // ① 粘贴 → 解析 → 预览 → 批量提交
