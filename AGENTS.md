@@ -75,18 +75,28 @@ node scripts/cdp_ui_check.js                          # 浏览器里量
 ## 提交 / 发布前的门禁
 
 ```bash
-# 每台机器装一次：让 Git 用仓库自带的钩子（拦提交信息里的密钥）
+# 每台机器装一次：让 Git 用仓库自带的钩子（提交信息 + 提交内容两道）
 git config core.hooksPath .githooks
-
-# 提交 / 发布前扫一遍「git 跟踪的那些文件」有没有密钥
-.venv/Scripts/python.exe scripts/scan_leaks.py
+chmod +x .githooks/pre-commit .githooks/commit-msg   # macOS / Linux 需要
 ```
 
-- `.githooks/commit-msg` 只拦**高置信密钥形态**（`ghp_` / `sk-` / `AKIA` / 私钥 …）；
-  误报可 `git commit --no-verify` 绕过。它拦的是**提交信息**——内容扫描扫不到 message。
-- `scripts/scan_leaks.py` 只扫 `git ls-files`（即"进仓库的那一份"），自带自证，
-  **退出码非 0 就别提交**。个人 needle（真实姓名 / 本机路径）放
-  `scripts/leak_needles.local.txt`（已 gitignore，不进仓库）。
+**两道钩子，都在 `git commit` 时自动跑 —— 不用手动记得**：
+
+| 钩子 | 拦什么 | 失败表现 |
+|---|---|---|
+| `commit-msg` | **提交信息**里的高置信密钥形态（`ghp_` / `sk-` / `AKIA` / 私钥 …） | 拒收，提示改 message |
+| `pre-commit` | ① `scripts/scan_leaks.py`（暂存文件里的密钥）② `scripts/check_contrast.py`（对比度 < 4.5:1） | 拒收，列出命中的行 / 不达标的配色 |
+
+- 两者都**自带自证**（先证明扫描器真能命中已知坏样本，再报结果），所以"通过"不是假绿。
+- 误报可 `git commit --no-verify` 绕过 —— 但**先确认真的是误报**。
+- `pre-commit` **找不到 Python 时只警告、不拦**（开源用户可能没建 venv）。
+  因为"环境没装好"就挡住正常提交，会让人养成习惯性 `--no-verify`，门禁等于废掉。
+- 暂存区为空时直接跳过（内容跟上次提交一样 → 上次已查过）。
+- `scripts/scan_leaks.py` 只扫 `git ls-files`（即"进仓库的那一份"）。个人 needle
+  （真实姓名 / 本机路径）放 `scripts/leak_needles.local.txt`（已 gitignore，不进仓库）。
+
+⚠️ **改门禁脚本后必须自证**：造一个假密钥 / 一个不达标的颜色，确认它真的拒收。
+2026-10-20 实测四种场景：空暂存跳过 ✓ / 干净内容放行 ✓ / 假密钥拒收 ✓ / 对比度 1.04 拒收 ✓。
 
 ## 项目结构
 

@@ -1,0 +1,96 @@
+#!/bin/sh
+# ── pre-commit 防线：每次提交前自动跑两道检查 ─────────────────────────────
+# 为什么要有它：这两道检查以前是"想起来了才手动跑"，靠人记。
+# 忘了就漏，而漏掉的后果不可逆 —— 密钥推上公开仓库，删了也留痕。
+# （2026-10-20 用户拍板：装成自动，不接受"依赖我记得"。）
+#
+# 查两道：
+#   1. scripts/scan_leaks.py   —— 暂存的文件里有没有密钥 / 私钥
+#   2. scripts/check_contrast.py —— 界面的文字/背景对比度够不够（WCAG 4.5:1）
+#
+# 安装（每台机器一次）：
+#   git config core.hooksPath .githooks
+#   chmod +x .githooks/pre-commit        # macOS / Linux 需要；Windows 不必
+#
+# 绕过（不推荐，但留条路）：
+#   git commit --no-verify
+#
+# ★ 设计取舍：**找不到 Python 时放行，只警告**。
+#   这是开源项目，别人 clone 下来可能没建 venv。因为"环境没装好"就拦住
+#   正常提交，会让这个门禁变成障碍 —— 那用户就会习惯性 `--no-verify`，
+#   门禁等于废掉。宁可诚实地说"这次没查"。
+
+set -u
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT" || exit 0
+
+# 没有暂存内容就不用查（例如 `git commit --amend --no-edit` 且无新改动）。
+# 内容跟上次提交一样 → 上次已经查过了。
+if git diff --cached --quiet 2>/dev/null; then
+  exit 0
+fi
+
+# ── 找 Python（优先项目 venv，跨平台）────────────────────────────────────
+PY=""
+for cand in \
+  "$ROOT/.venv/Scripts/python.exe" \
+  "$ROOT/.venv/bin/python" \
+  "$ROOT/.venv/bin/python3"
+do
+  if [ -x "$cand" ]; then PY="$cand"; break; fi
+done
+if [ -z "$PY" ]; then
+  for cand in python3 python; do
+    if command -v "$cand" >/dev/null 2>&1; then PY="$(command -v "$cand")"; break; fi
+  done
+fi
+
+if [ -z "$PY" ]; then
+  echo ""
+  echo "[跳过] 没找到 Python，本次**没有**跑密钥扫描和对比度检查。"
+  echo "       想做检查：建个 venv 或装上 python3 再提交。"
+  echo ""
+  exit 0
+fi
+
+FAILED=""
+
+# ── 第一道：密钥 / 隐私泄漏 ────────────────────────────────────────────
+if [ -f "scripts/scan_leaks.py" ]; then
+  if ! "$PY" scripts/scan_leaks.py >/tmp/.wardrobe_leak_$$ 2>&1; then
+    echo ""
+    echo "[拒绝] 暂存的文件里发现疑似密钥 / 私钥："
+    sed 's/^/    /' /tmp/.wardrobe_leak_$$ | tail -40
+    FAILED="leak"
+  fi
+  rm -f /tmp/.wardrobe_leak_$$ 2>/dev/null
+fi
+
+# ── 第二道：对比度（WCAG 4.5:1）────────────────────────────────────────
+if [ -f "scripts/check_contrast.py" ]; then
+  if ! "$PY" scripts/check_contrast.py >/tmp/.wardrobe_contrast_$$ 2>&1; then
+    echo ""
+    echo "[拒绝] 界面颜色对比度不达标（文字可能看不清）："
+    # 只取结果行（`FAIL ...` / `共查 ...`）。
+    # ⚠️ 不能图省事 grep "不达标" —— 脚本开头那行**自证**里就有"不达标"三个字
+    #   （"换算器能识别已知不达标组合…"），会混进结果里让人看不懂。
+    grep -E "^FAIL|^共查" /tmp/.wardrobe_contrast_$$ 2>/dev/null | sed 's/^/    /'
+    FAILED="${FAILED:+$FAILED,}contrast"
+  fi
+  rm -f /tmp/.wardrobe_contrast_$$ 2>/dev/null
+fi
+
+if [ -n "$FAILED" ]; then
+  echo ""
+  echo "  ─────────────────────────────────────────────"
+  echo "  这两道检查防的是**不可逆**的事，建议改掉再提交。"
+  echo "  密钥：挪到 .env（已 gitignore）；颜色：改 web/css/tokens.css。"
+  echo "  确认是误报可以绕过：git commit --no-verify"
+  echo "  ─────────────────────────────────────────────"
+  echo ""
+  exit 1
+fi
+
+echo "[门禁] 密钥扫描 + 对比度检查 通过 ✓"
+exit 0
