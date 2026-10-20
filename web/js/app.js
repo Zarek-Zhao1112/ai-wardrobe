@@ -152,7 +152,16 @@ function renderBackendDown() {
         console.warn("唤起 Termux 失败（请手动打开 Termux）:", err && err.message);
         termuxBtn.disabled = false;
         termuxBtn.textContent = "打开 Termux 启动服务";
+        return;
       }
+      // 同样的兜底：`location.href = "intent:..."` 在不认识的浏览器里**不抛错也不跳转**，
+      // 所以只能靠"页面还在不在"来判断 —— 2.5 秒后按钮还挂在 DOM 上，就说明没跳走。
+      setTimeout(() => {
+        if (termuxBtn.isConnected) {
+          termuxBtn.disabled = false;
+          termuxBtn.textContent = "打开 Termux 启动服务";
+        }
+      }, 2500);
     });
   }
 
