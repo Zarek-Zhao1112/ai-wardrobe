@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Final
+from typing import Final, Optional
 
 # ---------------------------------------------------------------------------
 # 槽位：一件衣服在搭配里占哪个位置
@@ -60,7 +60,7 @@ CLOTHING_TYPES: Final[dict[str, tuple[str, str]]] = {
     "base_layer":   ("打底衫/秋衣",   "top"),
     # ---- 下装 ----
     "jeans":        ("牛仔裤",       "bottom"),
-    "pants":        ("西裤/长裤",     "bottom"),
+    "pants":        ("西裤",         "bottom"),
     "casual_pants": ("休闲裤",       "bottom"),
     "sweatpants":   ("运动裤",       "bottom"),
     "shorts":       ("短裤",         "bottom"),
@@ -121,7 +121,7 @@ TYPE_ALIASES: Final[dict[str, str]] = {
     "衬衣": "shirt", "polo衫": "polo",
     "针织衫": "sweater", "毛衫": "sweater", "卫衣": "hoodie", "连帽衫": "hoodie",
     "吊带": "tank", "背心": "tank", "坎肩": "vest",
-    "长裤": "pants", "西裤": "pants", "牛仔裤": "jeans", "仔裤": "jeans",
+    "西裤": "pants", "牛仔裤": "jeans", "仔裤": "jeans",
     "休闲裤": "casual_pants", "工装裤": "casual_pants", "运动裤": "sweatpants",
     "裙": "skirt", "半裙": "skirt", "打底裤": "leggings", "紧身裤": "leggings",
     "裙装": "dress", "连身裙": "dress", "连衣裤": "jumpsuit",
@@ -151,16 +151,37 @@ TYPE_ALIASES: Final[dict[str, str]] = {
     "belt": "belt", "socks": "socks", "sunglasses": "glasses",
     # ---- W0 补（2026-10-08）：商品标题里的「版型 + 品类」复合词 ----
     # 为什么必须显式登记：这些词里都含品类字（裤 / 裙 / 衣），但包含匹配
-    # 要求命中**完整词条**，而词表里只有「长裤 / 休闲裤 / 运动裤」这类正名
+    # 要求命中**完整词条**，而词表里只有「休闲裤 / 运动裤」这类正名
     # →「直筒裤」「卫裤」一律落 other，槽位跟着变 accessory，
     #   该单品就从组合数 / 缺口分析里**静默消失**。
     # 实测（2026-10-08）：枚举 41 个常见口语品类词，**21 个落 other**。
-    # 版型词（直筒 / 阔腿 / 锥形 / 九分…）不影响品类归属 → 统一归到长裤。
-    # ⚠️「a字裙」必须写小写：resolve_type 会先 lower() 再查表。
+    #
+    # ⚠️ 2026-10-20 修订（用户反馈「西裤和长裤不能放一个品类」）：
+    #   当初图省事把「版型词」和「长度词」都归到 `pants`（那时叫"西裤/长裤"），
+    #   结果是**用户在回答"什么风格"时被迫同时回答了"多长"**，而且
+    #   「运动长裤」被判成西裤。现在拆成三个维度：
+    #     · 品类(type)  = 它是什么（牛仔裤 / 西裤 / 休闲裤 / 运动裤 …）
+    #     · 长度(length) = 多长（长裤 / 九分 / 七分 / 五分 / 三分）
+    #     · 版型(fit)    = 什么剪裁（直筒 / 阔腿 / 锥形 / 喇叭 …）
+    #   下面这些词**仍然登记**，但指向中性的 `casual_pants` 兜底 ——
+    #   目的是"别掉 other"（掉 other = 掉出组合计算），而不是给它们定风格。
+    #   真正的长度由 `LENGTH_ALIASES` 单独识别，版型由 `FITS` 识别。
     "卫裤": "sweatpants", "束脚裤": "sweatpants",
-    "直筒裤": "pants", "阔腿裤": "pants", "锥形裤": "pants",
-    "烟管裤": "pants", "微喇裤": "pants", "喇叭裤": "pants",
-    "九分裤": "pants", "七分裤": "pants", "棉裤": "pants",
+    "运动长裤": "sweatpants", "速干裤": "sweatpants", "篮球裤": "sweatpants",
+    "跑步裤": "sweatpants", "训练裤": "sweatpants", "健身裤": "sweatpants",
+    "直筒裤": "casual_pants", "阔腿裤": "casual_pants", "锥形裤": "casual_pants",
+    "烟管裤": "casual_pants", "微喇裤": "casual_pants", "喇叭裤": "casual_pants",
+    "长裤": "casual_pants", "九分裤": "casual_pants", "七分裤": "casual_pants",
+    "五分裤": "casual_pants", "三分裤": "casual_pants", "棉裤": "casual_pants",
+    # ⚠️「西装裤」必须显式登记：否则最长匹配命中的是「西装」(2字) → `blazer`
+    #   → 槽位 `outer` → 一条裤子被算成外套，**从下装组合里静默消失**。
+    #   （2026-10-20 Bug 猎手实测：西装裤 / 西装短裤 / 九分西装裤 全部判成 blazer）
+    "西装裤": "pants", "西装短裤": "shorts", "西服裤": "pants",
+    # 同批补的「X 裤」：它们都含「裤」字但词表里没有，原本一律落 other
+    "冲锋裤": "casual_pants", "皮裤": "casual_pants", "校服裤": "casual_pants",
+    "灯芯绒裤": "casual_pants", "瑜伽裤": "leggings", "健身长裤": "sweatpants",
+    "沙滩裤": "shorts", "热裤": "shorts", "工装短裤": "shorts",
+    "牛仔短裤": "shorts", "运动短裤": "shorts", "五分短裤": "shorts",
     "包臀裙": "skirt", "a字裙": "skirt", "百褶裙": "skirt", "伞裙": "skirt",
     "冲锋衣": "jacket", "皮衣": "jacket", "棉袄": "parka",
     "马夹": "vest", "围脖": "scarf", "皮带": "belt",
@@ -188,9 +209,57 @@ MATERIALS: Final[dict[str, str]] = {
 # 版型 —— wardrowbe 的 schema 里有 fit 字段、但无 DB 列且不在扁平化白名单，
 # 属于「死字段」。我们把它做成真正可持久化、可查询的列。
 FITS: Final[dict[str, str]] = {
-    "slim": "修身", "regular": "合身", "straight": "常规",
+    # `straight` 原来叫「常规」，但它和 `regular`（合身）在中文里容易混 ——
+    # 实际用户说的是「直筒」。合到一条，避免打标时二选一犹豫。
+    "slim": "修身", "regular": "合身", "straight": "直筒",
     "loose": "宽松", "oversized": "Oversize", "boxy": "廓形",
+    # 裤装版型（2026-10-20 从品类别名挪过来的：它们是剪裁，不是品类）
+    "wide_leg": "阔腿", "tapered": "锥形", "flared": "喇叭",
 }
+
+#: 裤装长度。**和品类正交** —— 「九分运动裤」= type 运动裤 + length 九分。
+#:
+#: 为什么单独一个维度（用户 2026-10-20 拍板）：原来「西裤/长裤」一个选项
+#: 同时回答了"什么风格"和"多长"两件事，于是「运动长裤」被判成西裤。
+LENGTHS: Final[dict[str, str]] = {
+    "full": "长裤",
+    "nine_tenth": "九分",
+    "seven_tenth": "七分",
+    "five_tenth": "五分",
+    "three_tenth": "三分",
+}
+
+#: 长度别名。**只用于 `resolve_length`，不参与品类识别** ——
+#: 否则「九分裤」会去抢品类，把一条运动裤判成休闲裤。
+LENGTH_ALIASES: Final[dict[str, str]] = {
+    # ⚠️ 只收**明确指裤长**的词。曾经收过「长款」「及踝」—— 但它们对
+    #   风衣（长款风衣）、裙子（及踝长裙）同样成立，会把「裤长」写到上衣上
+    #   （2026-10-20 Bug 猎手实测：「九分袖衬衫」被判出 length=nine_tenth）。
+    #   光删词还不够，`supports_length()` 那道类型闸门也必须过。
+    "长裤": "full", "全长": "full",
+    "九分": "nine_tenth", "九分裤": "nine_tenth", "9分": "nine_tenth", "9分裤": "nine_tenth",
+    "七分": "seven_tenth", "七分裤": "seven_tenth", "7分": "seven_tenth", "7分裤": "seven_tenth",
+    "五分": "five_tenth", "五分裤": "five_tenth", "5分": "five_tenth", "5分裤": "five_tenth",
+    "三分": "three_tenth", "三分裤": "three_tenth", "3分": "three_tenth", "3分裤": "three_tenth",
+}
+
+#: 能填裤长的品类。**短裤不算** —— 它本身就是"短"，再记一次长度是冗余；
+#: 裙子也不算（裙长是另一套词：长裙/中长裙/短裙，混进来只会让两套语义打架）。
+LENGTH_TYPES: Final[frozenset] = frozenset(
+    {"jeans", "pants", "casual_pants", "sweatpants", "leggings"}
+)
+
+
+def supports_length(type_key: Optional[str]) -> bool:
+    """这个品类该不该有「裤长」。
+
+    ★ 这是**必要的类型闸门**，不是可选的校验：
+    「九分」「五分」「长」这些词在别的品类上同样成立 ——
+    「九分袖衬衫」「五分袖T恤」都含「九分 / 五分」。
+    没有这道闸门，衬衫会被写上 length=nine_tenth，详情页显示「裤长：九分」，
+    而且**全程不报错**（2026-10-20 Bug 猎手实测复现）。
+    """
+    return str(type_key or "") in LENGTH_TYPES
 
 STYLES: Final[dict[str, str]] = {
     "minimal": "极简", "casual": "休闲", "commute": "通勤", "street": "街头",
@@ -235,6 +304,7 @@ VOCABULARIES: Final[dict[str, dict[str, str]]] = {
     "formality": FORMALITIES,
     "scene": SCENES,
     "pattern": PATTERNS,
+    "length": LENGTHS,
 }
 
 
@@ -327,6 +397,44 @@ def resolve_type(raw: str) -> str:
         return best_key
 
     return "other"
+
+
+def resolve_length(raw: str) -> Optional[str]:
+    """从自由文本里认「裤长」，返回 `LENGTHS` 的 key；认不出返回 None。
+
+    ⚠️ 和 `resolve_type` **分开**，不让长度词进品类别名表：
+    否则「九分裤」会去抢品类，把一条运动裤判成休闲裤。
+    （「运动长裤」正是这么被判成西裤的 —— 用户 2026-10-20 反馈。）
+
+    同一条文案里可能同时出现多个长度词（"九分裤…长裤"），取**最长命中**；
+    等长时取**先出现**的那个 —— 用户写在前面的通常才是主语。
+    """
+    if not raw:
+        return None
+
+    # ① 已经是合法 key 就直接返回。
+    #    ⚠️ 这一步不能省：**AI 打标返回的就是 key**（prompt 里列的是 `full(长裤)`，
+    #    模型经常直接回 `nine_tenth`）。少了它，打标结果会被当成"认不出"丢掉，
+    #    而且不会报错 —— 用户只会觉得"AI 有时候不填长度"。
+    raw_s = str(raw).strip().lower()
+    if raw_s in LENGTHS:
+        return raw_s
+
+    s = _normalize(raw_s)
+
+    best_key: Optional[str] = None
+    best_len = 0
+    best_pos = len(s) + 1
+    for word, key in LENGTH_ALIASES.items():
+        w = _normalize(word)
+        if len(w) < _MIN_CONTAIN_LEN:
+            continue
+        pos = s.find(w)
+        if pos < 0:
+            continue
+        if len(w) > best_len or (len(w) == best_len and pos < best_pos):
+            best_key, best_len, best_pos = key, len(w), pos
+    return best_key
 
 
 # ---------------------------------------------------------------------------

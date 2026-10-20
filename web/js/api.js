@@ -43,7 +43,14 @@ function readDetail(payload, fallback) {
   return fallback;
 }
 
-async function request(method, path, { json, form, params } = {}) {
+/** 默认超时：45 秒。
+ *
+ * 取值依据：实测解析 0.1s、打标 1–2.6s、LLM 排序约 2s
+ * （`max_tokens` 有约束时）。45s 足够覆盖正常路径，超过就是异常。
+ */
+const DEFAULT_TIMEOUT_MS = 45000;
+
+async function request(method, path, { json, form, params, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   const init = { method, headers: {} };
   if (json !== undefined) {
     init.headers["Content-Type"] = "application/json";
@@ -53,14 +60,38 @@ async function request(method, path, { json, form, params } = {}) {
     init.body = form;
   }
 
+  // ★ 超时**必须有**（2026-10-20 修）。
+  //
+  // 没有超时的时候，只要后端不响应（没起、重启中、TCP 半开），
+  // `await fetch` 会**永远挂着** → 调用方 `finally` 永不执行 →
+  // 按钮永远停在「识别中…」且 disabled → **点不动、换内容也没用**。
+  // 这不是"慢"，是**死锁**，而且界面上没有任何错误可看。
+  //
+  // 计时器覆盖到 `res.text()`：响应头回来了但 body 卡住也要算超时。
+  const controller = new AbortController();
+  init.signal = controller.signal;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   let res;
+  let text;
   try {
     res = await fetch(path + buildQuery(params), init);
+    text = await res.text();
   } catch (err) {
+    // `AbortError` = 我们自己掐断的（超时），与"网络连不上"要分开说 ——
+    // 前者告诉用户"后端可能没在跑"，后者是"根本连不上"。
+    if (err && err.name === "AbortError") {
+      throw new ApiError(
+        `请求 ${Math.round(timeoutMs / 1000)} 秒没响应 —— 确认后端服务还在运行`,
+        0,
+        null
+      );
+    }
     throw new ApiError("连不上后端服务，确认它还在运行", 0, null);
+  } finally {
+    clearTimeout(timer);
   }
 
-  const text = await res.text();
   let payload = null;
   if (text) {
     try {
@@ -89,8 +120,14 @@ export const api = {
     request("PATCH", `/items/${encodeURIComponent(id)}`, { json: payload }),
   deleteItem: (id) => request("DELETE", `/items/${encodeURIComponent(id)}`),
   bulkItems: (payload) => request("POST", "/items/bulk", { json: payload }),
-  /** 解析粘贴来的商品文案。**只解析，不入库** —— 用户确认后再 `bulkItems`。 */
-  parseItems: (text) => request("POST", "/items/parse", { json: { text } }),
+  /** 解析粘贴来的商品文案。**只解析，不入库** —— 用户确认后再 `bulkItems`。
+   *
+   * ★ 超时单独设短一点（15s）：实测只要 0.1s（纯本地解析，不调模型）。
+   * 45s 的默认值对这个动作等于"点了按钮要干等 45 秒"，体验上像卡死。
+   * 真卡住时 15 秒就给结论，比 45 秒人道。
+   */
+  parseItems: (text) =>
+    request("POST", "/items/parse", { json: { text }, timeoutMs: 15000 }),
   uploadImage: (id, file) => {
     const form = new FormData();
     form.append("file", file);

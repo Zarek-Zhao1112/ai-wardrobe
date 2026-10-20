@@ -41,6 +41,9 @@ SINGLE_VOCAB: dict[str, str] = {
     "primary_color": "color",
     "material": "material",
     "fit": "fit",
+    # 裤长是**独立维度**（2026-10-20 从品类里拆出来的）：
+    # 「九分运动裤」= type 运动裤 + length 九分。
+    "length": "length",
     "formality": "formality",
 }
 
@@ -55,7 +58,7 @@ MULTI_VOCAB: dict[str, str] = {
 #: 打标结果的属性字段（归一后只会出现这些键）
 TAG_FIELDS: tuple[str, ...] = (
     "type", "slot", "primary_color", "colors",
-    "pattern", "material", "fit", "style", "season", "formality", "scene",
+    "pattern", "material", "fit", "length", "style", "season", "formality", "scene",
 )
 
 #: 需要以 JSON 数组形式入库的字段（与 `services/items.py` 的口径一致）
@@ -204,11 +207,29 @@ def normalize_tags(raw: dict) -> tuple[dict, dict]:
         failed["type"] = raw_type
 
     for field, vocab_key in SINGLE_VOCAB.items():
-        value = _match(raw.get(field), taxonomy.VOCABULARIES.get(vocab_key, {}))
+        raw_val = raw.get(field)
+
+        if field == "length":
+            # ★ 长度有两条额外的规矩（2026-10-20 W4 双审查抓到）：
+            #   ① 走 `resolve_length`（认 `LENGTH_ALIASES`），不能只 `_match` 词表 ——
+            #      否则模型回的「9分」「7分裤」「全长」全进 unresolved，白给。
+            #   ② **必须过类型闸门**：模型可能给衬衫/上衣填长度，
+            #      而「九分袖」这种词面也会命中长度词。不是裤装就**直接丢掉** ——
+            #      不写库、也不报 unresolved（"T恤有裤长"本来就不该提，报了是噪声）。
+            if not taxonomy.supports_length(clean.get("type")):
+                continue
+            value = taxonomy.resolve_length(raw_val)
+            if value:
+                clean[field] = value
+            elif raw_val:
+                failed[field] = raw_val
+            continue
+
+        value = _match(raw_val, taxonomy.VOCABULARIES.get(vocab_key, {}))
         if value:
             clean[field] = value
-        elif raw.get(field):
-            failed[field] = raw[field]
+        elif raw_val:
+            failed[field] = raw_val
 
     pattern = _match(raw.get("pattern"), taxonomy.PATTERNS)
     if pattern:
@@ -282,6 +303,7 @@ def _vocab_lines() -> str:
         ("pattern", taxonomy.PATTERNS),
         ("material", taxonomy.MATERIALS),
         ("fit", taxonomy.FITS),
+        ("length", taxonomy.LENGTHS),
         ("style", taxonomy.STYLES),
         ("season", taxonomy.SEASONS),
         ("formality", taxonomy.FORMALITIES),
@@ -306,6 +328,7 @@ TAG_SCHEMA: dict[str, Any] = {
         "pattern": {"type": "string"},
         "material": {"type": "string"},
         "fit": {"type": "string"},
+        "length": {"type": "string"},
         "style": {"type": "array", "items": {"type": "string"}},
         "season": {"type": "array", "items": {"type": "string"}},
         "formality": {"type": "string"},
@@ -324,6 +347,8 @@ SYSTEM_PROMPT = """你是服装属性识别器。看一张衣服的照片，输�
 - `type` 必填；其余字段没有把握就省略
 - 多值字段（colors / style / season / scene）用数组
 - `season` 按这件衣服**适合穿的季节**判断；四季皆宜就写全四个
+- `length` **只对长裤类有意义**（牛仔 / 西裤 / 休闲 / 运动 / 打底裤），按裤脚位置判断；
+  短裤、裙子、上衣一律不填
 - `confidence` 给 0~1 的整数级把握度（0.9 表示很确定）
 """
 

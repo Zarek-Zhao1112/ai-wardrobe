@@ -94,7 +94,12 @@ class TestParseThreeRealBlobs:
         fields = data["items"][0]["fields"]
         assert fields["type"] == "jeans"
         assert fields["colors"] == ["black"]
-        assert fields["fit"] == "loose"
+        # ★ 2026-10-20 起是 `straight`（原来是 `loose`）。
+        #   原因：`FITS` 里的 `straight` 中文标签从「常规」改成了「直筒」——
+        #   原标题 "…直筒宽松卫裤" 里「直筒」原先**认不出**（词表没有这个 label），
+        #   只剩「宽松」命中；现在两者都能识别，且「直筒」描述得更具体。
+        #   「常规」这个旧标签本身是错的（那是 `regular` 的意思）。
+        assert fields["fit"] == "straight"
 
 
 class TestParseDoesNotWrite:
@@ -191,3 +196,106 @@ class TestBulkRoundTrip:
         r2 = client.post("/items/bulk", json={"items": [payload]})
         assert r2.json()["created"] == 1, "部分索引不覆盖 NULL image_hash → 确实会建第二条"
         assert r2.json()["skipped"] == 0
+
+
+#: 用户实际粘过的识货商品链接（2026-10-20）。
+#: 它**不含商品标题**，只有 goodsId/skuId —— 而本项目**刻意不抓网页**，
+#: 所以必然识别不出来。这条样本是用来锁"识别不出来时提示得够清楚"的。
+SHIHUO_URL = (
+    "https://m.shihuo.cn/app/assets/h5app/ShihuoDetail.html"
+    "?goodsId=7546254&goodsMode=4&kl=%C2%A5mdEBbbqgGX%C2%A5"
+    "&platform=android&skuId=1910343927&styleId=577421175"
+)
+
+
+class TestUnparsedFeedback:
+    """识别不出来时，**提示必须说清为什么、下一步做什么**。
+
+    ⚠️ 这是用户 2026-10-20 反馈的真问题：粘了个商品链接，只看到
+    "没读出商品名"，不知道是程序坏了还是自己用错了 —— 于是反复试。
+
+    提示的设计目标不是"礼貌"，是**让用户知道该改什么**：
+    - 只粘链接 → 必须讲明"我不打开网页"（否则他会以为这是 bug）
+    - 各类情况都要给一个能照抄的例子
+    """
+
+    def test_bare_url_explains_it_does_not_open_webpages(self, client):
+        """只粘链接：必须说明**不抓网页**这个设计决定，而不是含糊说"没读出"。"""
+        data = _parse(client, SHIHUO_URL)
+
+        assert data["total"] == 0
+        assert data["items"] == []
+        msg = data["message"]
+        assert "链接" in msg, f"要承认这是链接：{msg!r}"
+        assert "不会去打开" in msg or "不打开" in msg, f"要说明不抓网页：{msg!r}"
+        assert "标题" in msg, f"要告诉用户粘标题：{msg!r}"
+        assert "例如" in msg, f"要给可照抄的例子：{msg!r}"
+
+    def test_link_plus_a_few_words_still_becomes_a_candidate(self, client):
+        """⚠️ 实测的真实契约：**链接 + 任何文字**都会变成候选（title = 那点文字）。
+
+        我原本以为"没商品名 → 零候选"，实测是 1 条（`"看看这个"` 被当标题）。
+        这个设计**是对的**，不是缺陷：
+        - 宁可把候选摆出来让用户自己判断，也不要静默丢掉他粘的东西
+        - 品类认不出 → `needs_type=True` → **复选框默认不勾** +
+          必须选一个品类才能入库（`doSubmit` 里卡住）→ 不会误入库
+
+        所以这里锁的是"**不会静默入库**"，而不是"零候选"。
+        """
+        data = _parse(client, "看看这个 " + SHIHUO_URL)
+
+        assert data["total"] == 1, "链接 + 文字会成为一个候选"
+        row = data["items"][0]
+        assert row["title"] == "看看这个", f"把链接外的文字当标题：{row['title']!r}"
+        assert row["needs_type"] is True, "认不出品类 → 必须让用户选，不能硬猜"
+        assert row["url"], "链接要保留下来"
+
+    def test_nonsense_text_never_lands_in_wardrobe_silently(self, client):
+        """"啊啊啊啊"这种输入同样会成候选，但**必须卡在"选品类"这一步**。
+
+        这是防"静默入库"的最后一道：前端 `rowHtml` 对 `needs_type` 的行
+        **默认不勾选**，且 `doSubmit` 会对未选品类的行中止提交。
+        """
+        data = _parse(client, "啊啊啊啊")
+
+        assert data["total"] == 1
+        row = data["items"][0]
+        assert row["needs_type"] is True, "认不出品类必须标出来"
+        assert row["type_key"] == "other"
+
+    def test_url_with_a_real_title_parses(self, client):
+        """★ 用户真正该怎么做：把标题一起粘进来 → 就能识别。
+
+        这条是上一条提示的**闭环证明**：提示让他"补标题"，补了确实有用。
+        """
+        data = _parse(client, "特步冰感综训系列防晒衣 " + SHIHUO_URL)
+        assert data["total"] == 1, f"补了标题还识别不出：{data}"
+        assert data["items"][0]["title"], "标题不该为空"
+        assert "防晒" in data["items"][0]["title"] or "特步" in data["items"][0]["title"]
+
+
+class TestLengthExtraction:
+    """粘贴解析要能认出裤长，但**绝不能给非裤装**写。
+
+    ⚠️ 这个坑很隐蔽：`resolve_length` 只看词面，「九分袖衬衫」也含「九分」。
+    所以解析时必须**先定品类、再决定要不要认长度**。
+    """
+
+    def test_trousers_get_length(self, client):
+        data = _parse(client, "「九分运动裤 男 速干 篮球」")
+        fields = data["items"][0]["fields"]
+        assert fields["type"] == "sweatpants"
+        assert fields["length"] == "nine_tenth"
+
+    def test_upper_body_must_not_get_length(self, client):
+        """★「九分袖衬衫」不能被写上裤长（Bug 猎手 2026-10-20 实测的静默错）。"""
+        data = _parse(client, "「九分袖衬衫 男 商务 长袖」")
+        fields = data["items"][0]["fields"]
+        assert fields["type"] == "shirt", f"前置：应认成衬衫，实际 {fields['type']}"
+        assert "length" not in fields, f"衬衫被写了裤长：{fields.get('length')}"
+
+    def test_long_coat_must_not_get_length(self, client):
+        """「长款风衣」同理 —— 「长」不是裤长。"""
+        data = _parse(client, "「长款风衣 女 春秋 收腰」")
+        fields = data["items"][0]["fields"]
+        assert "length" not in fields, f"风衣被写了裤长：{fields.get('length')}"

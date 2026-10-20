@@ -15,6 +15,10 @@ const SINGLE_FIELDS = [
   ["primary_color", "主色", "color"],
   ["material", "材质", "material"],
   ["fit", "版型", "fit"],
+  // 裤长是**独立维度**（2026-10-20 从品类里拆出来）：
+  // 「九分运动裤」= 品类 运动裤 + 长度 九分。放在版型后面，
+  // 因为它俩都是"剪裁细节"，和颜色/材质不是一个层级。
+  ["length", "裤长", "length"],
   ["formality", "正式度", "formality"],
   ["pattern", "图案", "pattern"],
 ];
@@ -98,7 +102,10 @@ export function formHtml(taxonomy) {
 
 const TEXT_NAMES = [
   "type", "name", "brand", "notes",
-  "primary_color", "material", "fit", "formality", "pattern",
+  // `length` 必须在这里：`fillForm` / `readForm` 都靠这个列表遍历。
+  // 漏了它的后果不是"少一个字段"，而是**详情页打开看不到已存的值** ——
+  // 用户以为数据丢了（2026-10-20 实测：库里 `length=nine_tenth`，下拉显示"未指定"）。
+  "primary_color", "material", "fit", "length", "formality", "pattern",
 ];
 const MULTI_NAMES = ["colors", "style", "season", "scene"];
 
@@ -234,6 +241,7 @@ export function summaryHtml(item, taxonomy) {
     ["颜色", (item.colors || []).map((c) => labelOf(vocab.color, c)).join(" / ")],
     ["材质", labelOf(vocab.material, item.material)],
     ["版型", labelOf(vocab.fit, item.fit)],
+    ["裤长", labelOf(vocab.length, item.length)],
     ["正式度", labelOf(vocab.formality, item.formality)],
     ["图案", labelOf(vocab.pattern, item.pattern)],
     ["风格", (item.style || []).map((s) => labelOf(vocab.style, s)).join(" / ")],

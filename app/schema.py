@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Final
 
-SCHEMA_VERSION: Final[int] = 1
+SCHEMA_VERSION: Final[int] = 2
 
 # 首次建库（version 0 -> 1）
 _MIGRATION_001: Final[list[str]] = [
@@ -235,7 +235,23 @@ _MIGRATION_001: Final[list[str]] = [
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_conv_peer ON conversation_state(channel, peer_id)",
 ]
 
+# 2026-10-20：裤装长度独立成维度（version 1 -> 2）
+#
+# 为什么加这一列：原来「西裤/长裤」一个品类同时回答了"什么风格"和"多长"，
+# 于是「运动长裤」被判成西裤（用户实测反馈）。拆开后：
+#   type    = 牛仔裤 / 西裤 / 休闲裤 / 运动裤 …（它是什么）
+#   length  = 长裤 / 九分 / 七分 / 五分 / 三分（多长）
+#
+# ⚠️ **纯展示/筛选维度**：组合数和缺口分析只看 `slot`，不看 length。
+#    所以加这一列**不改变任何穿搭计算**，风险面很小。
+# ⚠️ 幂等：SQLite 的 `ADD COLUMN` 不支持 `IF NOT EXISTS`，
+#    迁移只在版本落后时跑一次（`db.py` 保证），不会重复执行。
+_MIGRATION_002: Final[list[str]] = [
+    "ALTER TABLE clothing_items ADD COLUMN length TEXT",
+]
+
 # 版本表：追加新迁移时在末尾加 (n, [...])，并把 SCHEMA_VERSION 改成 n
 MIGRATIONS: Final[list[tuple[int, list[str]]]] = [
     (1, _MIGRATION_001),
+    (2, _MIGRATION_002),
 ]

@@ -71,16 +71,26 @@ export async function mount(root, ctx) {
   /** 解析结果。**前端持有** —— 后端不存，这是刻意的无状态设计。 */
   let rows = [];
 
+  /** 请求代号：每发起一次 +1。回来时对不上就**丢弃**结果。
+   *
+   * 为什么需要它：用户可能在上一轮还没回来时又发起一轮（改内容就能重试）。
+   * 没有代号的话，**先发的慢响应会回来覆盖后发的结果** —— 看到的是旧链接的识别结果，
+   * 而且无法察觉（静默错）。
+   */
+  let parseGen = 0;
+
   async function doParse() {
     const text = (pasteText.value || "").trim();
     if (!text) {
       toast("先粘点东西进来", "error");
       return;
     }
+    const gen = ++parseGen;
     pasteBtn.disabled = true;
     pasteBtn.textContent = "识别中…";
     try {
       const resp = await api.parseItems(text);
+      if (gen !== parseGen) return; // 已经过期（用户改了内容 / 又点了一次）
       rows = resp.items || [];
       if (!rows.length) {
         pasteResult.innerHTML =
@@ -89,12 +99,29 @@ export async function mount(root, ctx) {
       }
       renderPreview();
     } catch (err) {
+      if (gen !== parseGen) return;
       renderError(pasteResult, err);
     } finally {
-      pasteBtn.disabled = false;
-      pasteBtn.textContent = "识别";
+      if (gen === parseGen) {
+        pasteBtn.disabled = false;
+        pasteBtn.textContent = "识别";
+      }
     }
   }
+
+  // ★ 改了输入框 → **立刻**作废在飞的那一轮，按钮马上恢复。
+  //
+  // 为什么必须有（2026-10-20 用户反馈"识别不出来的链接一直识别、不能换链接"）：
+  // 请求期间按钮是禁用的。如果那次请求迟迟不返回（后端没起 / 网络挂住），
+  // 按钮就一直停在「识别中…」，用户改了链接也点不动 —— 界面上没有任何出路。
+  // 现在把"改内容"当作"我要重来"，不用干等超时。
+  pasteText.addEventListener("input", () => {
+    if (!pasteBtn.disabled) return;
+    parseGen += 1; // 让旧请求的结果被丢弃
+    pasteBtn.disabled = false;
+    pasteBtn.textContent = "识别";
+    pasteResult.innerHTML = ""; // 上一轮的提示/预览作废，免得误当成新结果
+  });
 
   function renderPreview() {
     pasteResult.innerHTML = `

@@ -11,6 +11,25 @@ from . import taxonomy
 Slot = Literal["top", "bottom", "full", "outer", "shoes", "accessory"]
 
 
+def _normalize_length(value: Any) -> Optional[str]:
+    """把裤长统一成受控 key（`full` / `nine_tenth` / …）。
+
+    ⚠️ 这一列有**三个写入入口**：AI 打标（写 key）、粘贴解析（写 key）、
+    手工 API（用户/脚本可能写中文）。不归一的话同一列会混着
+    `nine_tenth` / `九分` / `9分` / `随便写`，统计和筛选全废 ——
+    而且**不报错**（2026-10-20 Bug 猎手实测）。
+
+    认不出 → `None`（宁缺勿脏）。不抛 422：录入不该因为一个可选字段被挡住，
+    用户填了个词表外的长度，丢掉比整条记录失败好。
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return taxonomy.resolve_length(text)
+
+
 # ---------------------------------------------------------------------------
 # 单品
 # ---------------------------------------------------------------------------
@@ -29,6 +48,9 @@ class ItemCreate(BaseModel):
     pattern: Optional[str] = None
     material: Optional[str] = None
     fit: Optional[str] = None
+    length: Optional[str] = Field(
+        None, description="裤长（受控 key：full/nine_tenth/seven_tenth/five_tenth/three_tenth）"
+    )
     style: list[str] = Field(default_factory=list)
     season: list[str] = Field(default_factory=list)
     formality: Optional[str] = None
@@ -45,6 +67,11 @@ class ItemCreate(BaseModel):
     def _norm_type(cls, v: str) -> str:
         return taxonomy.resolve_type(v)
 
+    @field_validator("length")
+    @classmethod
+    def _norm_length(cls, v: Any) -> Optional[str]:
+        return _normalize_length(v)
+
 
 class ItemUpdate(BaseModel):
     type: Optional[str] = None
@@ -59,6 +86,9 @@ class ItemUpdate(BaseModel):
     pattern: Optional[str] = None
     material: Optional[str] = None
     fit: Optional[str] = None
+    length: Optional[str] = Field(
+        None, description="裤长（受控 key：full/nine_tenth/seven_tenth/five_tenth/three_tenth）"
+    )
     style: Optional[list[str]] = None
     season: Optional[list[str]] = None
     formality: Optional[str] = None
@@ -88,6 +118,12 @@ class ItemUpdate(BaseModel):
             raise ValueError("type 不能为空；不确定品类就不要传这个字段")
         return taxonomy.resolve_type(v)
 
+    @field_validator("length")
+    @classmethod
+    def _norm_length(cls, v: Any) -> Optional[str]:
+        """`None` 要保留成 `None`（= 清空），不能被归一成别的值。"""
+        return _normalize_length(v)
+
 
 class ItemOut(BaseModel):
     id: str
@@ -105,6 +141,9 @@ class ItemOut(BaseModel):
     pattern: Optional[str] = None
     material: Optional[str] = None
     fit: Optional[str] = None
+    length: Optional[str] = Field(
+        None, description="裤长（受控 key：full/nine_tenth/seven_tenth/five_tenth/three_tenth）"
+    )
     style: list[str] = Field(default_factory=list)
     season: list[str] = Field(default_factory=list)
     formality: Optional[str] = None

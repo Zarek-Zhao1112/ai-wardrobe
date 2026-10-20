@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -142,11 +143,28 @@ def parse_pasted_items(payload: ItemParseIn) -> dict:
     uid = _uid()
     candidates = ingest_svc.build_candidates(payload.text)
     if not candidates:
-        return {
-            "total": 0,
-            "items": [],
-            "message": "这段我没读出商品名 —— 试试直接粘商品标题。",
-        }
+        # ⚠️ 失败提示要**说清为什么、下一步做什么**（2026-10-20 用户反馈：
+        #    粘了个商品链接，只看到"没读出商品名"，不知道是坏了还是自己用错）。
+        #
+        # 两种最常见的情况分开说：
+        #   ① 只粘了链接 → 用户以为"粘链接就能录"（这是很自然的预期）。
+        #      必须讲明**不抓网页**是刻意的（淘宝无登录态读不到，实测 6 条入口全被挡），
+        #      否则他会反复试、以为是 bug。
+        #   ② 文字里没标题 → 给个能直接照抄的例子。
+        text = (payload.text or "").strip()
+        has_url = "http://" in text or "https://" in text
+        has_cjk = bool(re.search(r"[\u4e00-\u9fff]", text))
+        example = "例如：宽松直筒牛仔裤 深灰"
+        if has_url and not has_cjk:
+            message = (
+                "这是个商品链接，但我读不到链接里的内容 —— 我不会去打开那个网页"
+                "（淘宝等平台在没登录时读不到）。把商品标题一起粘进来就行，" + example
+            )
+        elif has_url:
+            message = "这段里有链接，但没读出能当标题的文字 —— 补一句商品标题就行，" + example
+        else:
+            message = "这段我没读出商品名 —— 直接粘商品标题就行，" + example
+        return {"total": 0, "items": [], "message": message}
 
     # 疑似重复只看"归一化标题完全一致"。**只提示，不阻止** ——
     # 用户确实可能买了两件一样的（§11.3 失败语义）。

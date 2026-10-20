@@ -456,6 +456,15 @@ def extract_fields(text: str) -> tuple[dict[str, Any], dict[str, str]]:
             found[field] = vals[0]
             used.append(str(vocab[vals[0]]))
 
+    # ★ 裤长是**独立维度**（2026-10-20 从品类里拆出来），走自己的解析器，
+    #   不能塞进上面的词表循环：`match_vocab` 认不出「9分」，而且它不该
+    #   参与品类判定。**必须过类型闸门** —— 「九分袖衬衫」也含「九分」。
+    if "length" not in found and taxonomy.supports_length(type_key):
+        lv = taxonomy.resolve_length(rest)
+        if lv:
+            found["length"] = lv
+            used.append(str(taxonomy.LENGTHS[lv]))
+
     # ⚠️ `unresolved` 曾经**恒为空字典** —— `_reply_draft` 里"（这几个没认出来：…）"
     #    那句是**死代码**，用户永远不知道哪些词被丢掉了（W4 审查抓到）。
     #    现在把"没被任何词表消费、也不是口水话"的部分如实回报。
@@ -482,6 +491,9 @@ def describe_draft(fields: dict[str, Any]) -> str:
         "colors": "颜色",
         "material": "材质",
         "fit": "版型",
+        # 裤长必须在回显里：用户确认草稿时**看得到才改得掉**。
+        # 不回显的话，AI 把「九分」听错成「七分」也不会有人发现（静默错）。
+        "length": "裤长",
         "style": "风格",
         "season": "季节",
         "scene": "场合",
@@ -495,6 +507,7 @@ def describe_draft(fields: dict[str, Any]) -> str:
         "scene": taxonomy.SCENES,
         "material": taxonomy.MATERIALS,
         "fit": taxonomy.FITS,
+        "length": taxonomy.LENGTHS,
         "formality": taxonomy.FORMALITIES,
         "pattern": taxonomy.PATTERNS,
     }

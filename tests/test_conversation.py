@@ -444,3 +444,35 @@ class TestSessionState:
         C.handle(_msg("今天穿什么", peer=peer))
         assert _state_of(peer)["last_outfits"]
         assert _state_of("someone_else@im.wechat") == {}
+
+
+class TestLengthInWechat:
+    """微信文字录入也要认裤长（2026-10-20 与品类拆分同步）。
+
+    微信是主要入口之一。如果只有网页认长度，用户在微信里说
+    「九分运动裤」，入库后长度就是空的 —— 而且**不会报错**。
+    """
+
+    def test_text_mentioning_length_is_extracted(self):
+        found, _ = C.extract_fields("一条九分运动裤")
+        assert found.get("type") == "sweatpants", f"品类错了：{found}"
+        assert found.get("length") == "nine_tenth", f"长度没抽到：{found}"
+
+    def test_upper_body_text_never_gets_length(self):
+        """「九分袖」不是裤长 —— 类型闸门必须挡住。"""
+        found, _ = C.extract_fields("九分袖衬衫")
+        assert found.get("type") == "shirt"
+        assert "length" not in found, f"衬衫被抽了裤长：{found.get('length')}"
+
+    def test_draft_echo_shows_length(self):
+        """★ 草稿回显必须带长度：看得见才改得掉。
+
+        不回显的话，AI 把「九分」听成「七分」也不会有人发现（静默错）。
+        """
+        text = C.describe_draft({"type": "jeans", "length": "nine_tenth"})
+        assert "九分" in text, f"回显里没有长度：{text}"
+
+    def test_draft_echo_without_length_is_unchanged(self):
+        """没有长度时不该多出个孤立标签。"""
+        text = C.describe_draft({"type": "jeans"})
+        assert "裤长" not in text

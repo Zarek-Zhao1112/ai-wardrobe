@@ -286,12 +286,13 @@ _SYSTEM = """你是服装品类识别器。用户给你一段电商商品标题�
 {options}
 
 规则：
-- 只能挑大类就挑最接近的大类（例：说不清是什么裤子就挑 pants）
+- 只能挑大类就挑最接近的大类（例：**说不清风格的裤子就挑 casual_pants**；
+  `pants` 现在专指**西裤**，别拿它当所有裤子的兜底）
 - 标题里没有可识别的服装品类（例如是配饰以外的杂物、乱码）→ 回 "other"
 - 不要输出任何解释
 
 输出 JSON：
-{{"type": "pants"}}
+{{"type": "casual_pants"}}
 """
 
 _SCHEMA: dict[str, Any] = {
@@ -418,7 +419,18 @@ def build_candidates(
         #   放在这里而不是各调用方，是因为**两个入口都要** ——
         #   漏一个就会静默存出 `【淘宝】7天无理由退货 https://...` 这种脏名字。
         fields["name"] = parsed.title
+
+        # 先定品类，**再**决定要不要认裤长 —— 顺序不能反：
+        # `resolve_length` 只看词面，「九分袖衬衫」也含「九分」，
+        # 不先知道它是衬衫就会把「裤长：九分」写上去（Bug 猎手 2026-10-20 实测）。
         pick = fill_type(fields, parsed.title, client=client)
+
+        # ★ 裤长单独识别：`resolve_length` **不进品类别名表**，所以不会被自动抽到。
+        #   只在"这确实是条裤子、且没有现成长度"时才填。
+        if taxonomy.supports_length(fields.get("type")) and not fields.get("length"):
+            length = taxonomy.resolve_length(parsed.title)
+            if length:
+                fields["length"] = length
         out.append(
             Candidate(
                 title=parsed.title,

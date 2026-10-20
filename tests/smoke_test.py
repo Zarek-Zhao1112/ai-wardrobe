@@ -101,7 +101,8 @@ def main() -> int:
         r = client.get("/health")
         check("GET /health 返回 200", r.status_code == 200, f"status={r.status_code}")
         h = r.json() if r.status_code == 200 else {}
-        check("schema_version == 1", h.get("schema_version") == 1, str(h.get("schema_version")))
+        # ★ 2026-10-20：v1 -> v2（裤长独立成维度，clothing_items 加 length 列）
+        check("schema_version == 2", h.get("schema_version") == 2, str(h.get("schema_version")))
 
         r = client.get("/taxonomy")
         check("GET /taxonomy 返回 200", r.status_code == 200, f"status={r.status_code}")

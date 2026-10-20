@@ -20,7 +20,7 @@ JSON_DICT_FIELDS = ("tags",)
 # 允许被 PATCH 直接覆盖的列
 WRITABLE_COLUMNS = (
     "type", "subtype", "name", "brand",
-    "colors", "primary_color", "pattern", "material", "fit",
+    "colors", "primary_color", "pattern", "material", "fit", "length",
     "style", "season", "formality", "scene", "tags",
     "purchase_date", "purchase_price", "favorite", "notes",
     "image_path", "is_archived",
@@ -72,6 +72,11 @@ def create(user_id: str, payload: ItemCreate) -> dict:
     type_key = taxonomy.resolve_type(payload.type)
     slot = taxonomy.slot_of(type_key)
 
+    # ★ 裤长只对裤装有意义。模型/接口都可能给衬衫塞一个长度
+    #   （「九分袖」词面就命中长度词），所以**入库前**再过一道类型闸门。
+    #   这里丢弃而不是报错：可选字段不该挡住整条录入。
+    length_val = payload.length if taxonomy.supports_length(type_key) else None
+
     # 打标状态判定：只要用户提供了任何受控属性，就视为已打标完毕（来源 = manual）。
     # 只看 type != "other" 是不够的 —— 用户填了颜色/材质/风格但漏选品类很常见，
     # 那种记录会被永久计为 pending，把 /health 的 pending_tagging 顶上天。
@@ -81,6 +86,7 @@ def create(user_id: str, payload: ItemCreate) -> dict:
         or payload.primary_color
         or payload.material
         or payload.fit
+        or payload.length
         or payload.style
         or payload.season
         or payload.formality
@@ -96,7 +102,7 @@ def create(user_id: str, payload: ItemCreate) -> dict:
             INSERT INTO clothing_items (
                 id, user_id, image_path, thumbnail_path, image_hash,
                 type, subtype, slot,
-                colors, primary_color, pattern, material, fit,
+                colors, primary_color, pattern, material, fit, length,
                 style, season, formality, scene, tags,
                 name, brand, purchase_date, purchase_price, favorite, notes,
                 tagging_status, tagged_by, tagged_at,
@@ -104,7 +110,7 @@ def create(user_id: str, payload: ItemCreate) -> dict:
             ) VALUES (
                 ?,?,?,?,?,
                 ?,?,?,
-                ?,?,?,?,?,
+                ?,?,?,?,?,?,
                 ?,?,?,?,?,
                 ?,?,?,?,?,?,
                 ?,?,?,
@@ -117,6 +123,7 @@ def create(user_id: str, payload: ItemCreate) -> dict:
                 type_key, payload.subtype, slot,
                 json.dumps(payload.colors, ensure_ascii=False),
                 payload.primary_color, payload.pattern, payload.material, payload.fit,
+                length_val,
                 json.dumps(payload.style, ensure_ascii=False),
                 json.dumps(payload.season, ensure_ascii=False),
                 payload.formality,
@@ -232,14 +239,21 @@ def update(item_id: str, payload: ItemUpdate, user_id: Optional[str] = None) -> 
     args: list[Any] = []
     touched_tag = False
 
+    # 类型闸门要用**更新后的**品类：本次可能同时改 type 和 length。
+    effective_type = data.get("type") or current.get("type")
+
     for key, value in data.items():
         if key not in WRITABLE_COLUMNS:
+            continue
+        # 裤长只对裤装有意义（见 `create` 里的同款闸门）。
+        # ⚠️ 放在这里而不是交给前端：接口是公开的，模型打标也会走这条路。
+        if key == "length" and value not in (None, "") and not taxonomy.supports_length(effective_type):
             continue
         if key in JSON_LIST_FIELDS or key in JSON_DICT_FIELDS:
             value = json.dumps(value, ensure_ascii=False)
             if value not in ("[]", "{}"):
                 touched_tag = True
-        elif key in ("type", "primary_color", "fit", "material", "pattern", "formality"):
+        elif key in ("type", "primary_color", "fit", "length", "material", "pattern", "formality"):
             # 只有写入了实际内容才算"打标"；清空属性不算
             if value not in (None, ""):
                 touched_tag = True
