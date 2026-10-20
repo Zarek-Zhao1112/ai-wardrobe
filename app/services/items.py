@@ -200,6 +200,44 @@ def create_many(user_id: str, payloads: list[ItemCreate]) -> dict:
     }
 
 
+def auto_name(item: dict) -> str:
+    """按「颜色 + 材质 + 品类」拼一个能认出来的名字，如 `白色棉T恤`。
+
+    **只用于用户没填名字的情况**（纯图录入最常见：只有照片，没有商品文案）。
+    用户拍板选的是"自动起名但可以改"，所以这是**填空**，不是覆盖。
+
+    拼不出足够信息就返回空串，**不要**只返回品类名 ——
+    前端 `view-wardrobe.js` 本来就 `item.name || item.type_label`，
+    返回一个只有品类名的名字等于制造重复值（一排"T恤"）。
+
+    参数是 `items.get()` 的结果（过 `to_out()`，多值字段已是列表）。
+    """
+    type_label = str(item.get("type_label") or "").strip()
+    if not type_label or type_label == "其他":
+        return ""
+
+    parts: list[str] = []
+
+    # 颜色：优先 `primary_color`，退回第一个 `colors`。
+    color_key = item.get("primary_color")
+    if not color_key:
+        colors = item.get("colors") or []
+        color_key = colors[0] if colors else None
+    if color_key:
+        label = taxonomy.COLORS.get(str(color_key))
+        if label:
+            # 词表里是「白 / 米白 / 卡其」这类单字或双字，补个「色」更像人话
+            parts.append(label if label.endswith("色") else f"{label}色")
+
+    material = taxonomy.MATERIALS.get(str(item.get("material") or ""))
+    if material:
+        parts.append(str(material))
+
+    if not parts:
+        return ""
+    return "".join(parts) + type_label
+
+
 def get(item_id: str, user_id: Optional[str] = None) -> Optional[dict]:
     sql = "SELECT * FROM clothing_items WHERE id=?"
     args: list = [item_id]

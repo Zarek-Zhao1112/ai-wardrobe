@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .. import config, db, taxonomy
+from ..models import ItemUpdate
 from . import images, items
 from .llm.client import LLMClient, LLMError, get_client
 
@@ -581,6 +582,29 @@ def _tag_result(
     }
 
 
+def _try_auto_name(user_id: str, item_id: str) -> None:
+    """打标后，如果**用户没填名字**，自动起一个（如 `白色棉T恤`）。
+
+    为什么需要（2026-10-20 用户拍板）：纯图录入时没有商品文案，
+    `name` 会一直是空的 → 衣橱卡片退回显示品类名 → 一排"T恤"分不清。
+
+    为什么**绝不能抛异常**：这是锦上添花。写名字失败（锁库、约束、任何原因）
+    不能把"打标成功"变成"写库失败" —— 那会让用户看到一句谎话，
+    而属性其实已经存好了。
+    """
+    try:
+        current = items.get(item_id, user_id)
+        if not current:
+            return
+        if str(current.get("name") or "").strip():
+            return  # 用户自己填过，不覆盖
+        guess = items.auto_name(current)
+        if guess:
+            items.update(item_id, ItemUpdate(name=guess), user_id)
+    except Exception:  # noqa: BLE001 —— 起名失败无所谓，不能影响打标结果
+        return
+
+
 def tag_and_apply(
     user_id: str,
     item_id: str,
@@ -658,6 +682,8 @@ def tag_and_apply(
 
     try:
         row = apply_tags(user_id, item_id, {**result, "tags": tags}, tagged_by=source)
+        if row:
+            _try_auto_name(user_id, item_id)
         fresh = items.get(item_id, user_id) if row else None
     except Exception as e:
         # ⚠️ 必须包住 `apply_tags` 和后面的重读。它会碰数据库
