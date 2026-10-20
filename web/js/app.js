@@ -105,7 +105,7 @@ let waitingForBackend = false;
  *
  * 2026-10-21 加了两件事（手机实测：从桌面图标点进来只会看到这一页，
  * 用户还得自己退回桌面去找 Termux 图标）：
- *   ① 「打开 Termux 启动服务」按钮 —— 用 `intent:` 直接唤起 Termux App。
+ *   ① 「试着打开 Termux」按钮 —— 用 `intent:` 直接唤起 Termux App。
  *      Termux 一开，它的 runsvdir 就会把服务拉起来（实测 force-stop 后重开，
  *      15 秒内 8787 恢复响应），所以这一个按钮就等于"点一下就跑"。
  *      只在 Android 上显示：电脑的 hostname 同样是 127.0.0.1，会命中同一个分支，
@@ -120,20 +120,21 @@ function renderBackendDown() {
     <div class="view-head"><h1>后端还没启动</h1></div>
     <div class="alert">这个地址上没有服务在响应：<code>${esc(location.origin)}</code></div>
     <div class="panel">
-      <h2>${canWakeTermux ? "点一下，服务自己起来" : onServerDevice ? "先把服务启动起来" : "去跑后端的那台设备上启动它"}</h2>
+      <h2>${canWakeTermux ? "回桌面打开 Termux" : onServerDevice ? "先把服务启动起来" : "去跑后端的那台设备上启动它"}</h2>
       <p class="muted">${
         canWakeTermux
-          ? "下面这个按钮会打开 <strong>Termux</strong>，服务在几秒内自动起来（不用敲命令）。" +
-            "切回本页时会自动重连，不用再点「重试」。"
+          ? "服务跑在 <strong>Termux</strong> 里：回桌面点一下 Termux 图标，它会在几秒内自动起来（不用敲命令）。" +
+            "<strong>切回本页会自动重连</strong>，不用再点「重试」。"
           : onServerDevice
             ? "在项目目录执行 <code>.venv/Scripts/python.exe run.py</code>。"
             : "在跑后端的那台电脑上执行 <code>.venv/Scripts/python.exe run.py</code>。"
       }</p>
       <p class="faint">这页能显示出来，是 Service Worker 缓存的外壳 —— 数据仍然拿不到。</p>
       <div class="form-actions">
-        ${canWakeTermux ? `<button id="boot-termux" class="primary">打开 Termux 启动服务</button>` : ""}
-        <button id="boot-retry"${canWakeTermux ? "" : ' class="primary"'}>重试</button>
+        ${canWakeTermux ? `<button id="boot-termux">试着打开 Termux</button>` : ""}
+        <button id="boot-retry" class="primary">重试</button>
       </div>
+      ${canWakeTermux ? `<p class="faint">「试着打开 Termux」依赖浏览器的 App 唤起能力，部分浏览器（如 MIUI 浏览器）会拦掉；<br>点了没反应就回桌面点 Termux 图标，效果一样。</p>` : ""}
     </div>`;
 
   const termuxBtn = rootEl.querySelector("#boot-termux");
@@ -151,7 +152,7 @@ function renderBackendDown() {
         // 浏览器不支持 intent: 时不会跳转，把按钮恢复成可点，别让它卡在"等待中"
         console.warn("唤起 Termux 失败（请手动打开 Termux）:", err && err.message);
         termuxBtn.disabled = false;
-        termuxBtn.textContent = "打开 Termux 启动服务";
+        termuxBtn.textContent = "试着打开 Termux";
         return;
       }
       // 同样的兜底：`location.href = "intent:..."` 在不认识的浏览器里**不抛错也不跳转**，
@@ -159,7 +160,7 @@ function renderBackendDown() {
       setTimeout(() => {
         if (termuxBtn.isConnected) {
           termuxBtn.disabled = false;
-          termuxBtn.textContent = "打开 Termux 启动服务";
+          termuxBtn.textContent = "试着打开 Termux";
         }
       }, 2500);
     });
