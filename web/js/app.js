@@ -86,6 +86,14 @@ async function render() {
   }
 }
 
+/** 用户点了「打开 Termux」之后置 true —— 切回本页时自动重试一次。
+ *
+ * 为什么用 `visibilitychange` 而不是定时轮询：页面切到后台后，定时器会被浏览器
+ * 节流到分钟级（甚至暂停），"每 2 秒探一次"根本不成立；而"切回前台"这个时刻
+ * 恰好就是服务已经起来、该重连的时刻，信号比任何轮询都准。
+ */
+let waitingForBackend = false;
+
 /** 后端没起来时的引导页。
  *
  * 为什么需要它（这是「按需启动」模式的必备件）：
@@ -94,26 +102,60 @@ async function render() {
  * 而实际只是"后端还没启动"。
  * 现在：Service Worker 会拿缓存里的外壳兜底（见 sw.js），页面能正常渲染出来，
  * 于是这里就能给一句**照着做就行**的话，而不是让浏览器去吓人。
+ *
+ * 2026-10-21 加了两件事（手机实测：从桌面图标点进来只会看到这一页，
+ * 用户还得自己退回桌面去找 Termux 图标）：
+ *   ① 「打开 Termux 启动服务」按钮 —— 用 `intent:` 直接唤起 Termux App。
+ *      Termux 一开，它的 runsvdir 就会把服务拉起来（实测 force-stop 后重开，
+ *      15 秒内 8787 恢复响应），所以这一个按钮就等于"点一下就跑"。
+ *      只在 Android 上显示：电脑的 hostname 同样是 127.0.0.1，会命中同一个分支，
+ *      但 `intent:` 在桌面上毫无意义。
+ *   ② 从 Termux 切回来时**自动重试** —— 省掉"再点一次重试"这一下手。
  */
 function renderBackendDown() {
   const onServerDevice = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
+  const canWakeTermux = onServerDevice && /Android/i.test(navigator.userAgent);
   document.title = "后端未启动 · AI 穿搭助手";
   rootEl.innerHTML = `
     <div class="view-head"><h1>后端还没启动</h1></div>
     <div class="alert">这个地址上没有服务在响应：<code>${esc(location.origin)}</code></div>
     <div class="panel">
-      <h2>${onServerDevice ? "打开 Termux 就行" : "去跑后端的那台设备上启动它"}</h2>
+      <h2>${canWakeTermux ? "点一下，服务自己起来" : onServerDevice ? "先把服务启动起来" : "去跑后端的那台设备上启动它"}</h2>
       <p class="muted">${
-        onServerDevice
-          ? "点这台设备上的 <strong>Termux</strong> 图标，服务会在几秒内自动起来（不用敲命令）。" +
-            "起来之后回来点下面的「重试」。"
-          : "电脑上是 <code>.venv/Scripts/python.exe run.py</code>；手机上是打开 <strong>Termux</strong>。"
+        canWakeTermux
+          ? "下面这个按钮会打开 <strong>Termux</strong>，服务在几秒内自动起来（不用敲命令）。" +
+            "切回本页时会自动重连，不用再点「重试」。"
+          : onServerDevice
+            ? "在项目目录执行 <code>.venv/Scripts/python.exe run.py</code>。"
+            : "在跑后端的那台电脑上执行 <code>.venv/Scripts/python.exe run.py</code>。"
       }</p>
-      <p class="faint">这件页面能显示出来，是 Service Worker 缓存的外壳 —— 数据仍然拿不到。</p>
+      <p class="faint">这页能显示出来，是 Service Worker 缓存的外壳 —— 数据仍然拿不到。</p>
       <div class="form-actions">
-        <button id="boot-retry" class="primary">我起好了，重试</button>
+        ${canWakeTermux ? `<button id="boot-termux" class="primary">打开 Termux 启动服务</button>` : ""}
+        <button id="boot-retry"${canWakeTermux ? "" : ' class="primary"'}>重试</button>
       </div>
     </div>`;
+
+  const termuxBtn = rootEl.querySelector("#boot-termux");
+  if (termuxBtn) {
+    termuxBtn.addEventListener("click", () => {
+      // `intent:` 是 Chromium 的 App 唤起协议。Termux 的启动入口是
+      // `.app.TermuxActivity`（实测 `adb shell cmd package resolve-activity
+      // --brief com.termux` 返回它；`.HomeActivity` 是同一个页面的别名，也认）。
+      waitingForBackend = true;
+      termuxBtn.disabled = true;
+      termuxBtn.textContent = "等待服务启动…";
+      try {
+        location.href = "intent:#Intent;component=com.termux/.app.TermuxActivity;end";
+      } catch (err) {
+        // 浏览器不支持 intent: 时不会跳转，把按钮恢复成可点，别让它卡在"等待中"
+        console.warn("唤起 Termux 失败（请手动打开 Termux）:", err && err.message);
+        termuxBtn.disabled = false;
+        termuxBtn.textContent = "打开 Termux 启动服务";
+      }
+    });
+  }
+
   const btn = rootEl.querySelector("#boot-retry");
   if (btn) {
     btn.addEventListener("click", () => {
@@ -124,11 +166,17 @@ function renderBackendDown() {
   }
 }
 
+// 从 Termux 切回本页 → 服务此时通常已经起来了，自动重连一次
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && waitingForBackend) boot();
+});
+
 async function boot() {
   let healthOk = false;
   try {
     ctx.health = await api.health();
     healthOk = true;
+    waitingForBackend = false; // 连上了就别再自动重试，免得每次切回前台都打一次 /health
   } catch (err) {
     // 这里 err.message 是「连不上后端服务，确认它还在运行」——比 renderStatus()
     // 那句笼统的"后端未就绪"有用得多，所以下面**不能再调 renderStatus()** 把它盖掉
