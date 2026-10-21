@@ -40,9 +40,10 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v6";   // v5→v6：重装外壳（这次动了 view-add.js / api.js / style.css，
-                        //          它们都在 SHELL_ASSETS 里，不 +1 就会一直读旧桶）
-                        //（v4→v5：activate 不再盲目删旧桶；v3→v4 外壳请求加超时）
+const VERSION = "v7";   // v6→v7：录入页加「AI 识别」（动了 view-add.js / api.js /
+                        //          fields.js / style.css，四个都在 SHELL_ASSETS 里）
+                        //（v5→v6：重装外壳；v4→v5：activate 不再盲目删旧桶；
+                        //  v3→v4：外壳请求加超时）
 const SHELL = `wzbbti-shell-${VERSION}`;
 const IMAGES = `wzbbti-img-${VERSION}`;
 

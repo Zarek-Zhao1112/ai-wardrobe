@@ -14,10 +14,26 @@
  */
 
 import { api } from "./api.js";
-import { formHtml, readForm, summaryHtml, typeOptionsHtml } from "./fields.js";
+import { fillForm, formHtml, readForm, summaryHtml, typeOptionsHtml } from "./fields.js";
 import { esc, itemChipsHtml, renderError, toast } from "./ui.js";
 
 export const label = "录入";
+
+/** 打标返回字段 → 界面上的中文名（「识别」后提示填了哪几项用）。
+ *  只列表单里真有的：`slot` 是后端算出来的，表单上没有它，故意不列。 */
+const FIELD_LABELS = {
+  type: "品类",
+  primary_color: "主色",
+  material: "材质",
+  fit: "版型",
+  length: "裤长",
+  formality: "正式度",
+  pattern: "图案",
+  colors: "颜色",
+  style: "风格",
+  season: "季节",
+  scene: "场合",
+};
 
 // ---------------------------------------------------------------------------
 // 粘贴 / 拖拽图片（2026-10-20 用户拍板）
@@ -123,9 +139,11 @@ export async function mount(root, ctx) {
       </div>
       ${formHtml(taxonomy)}
       <div class="form-actions">
+        <button type="button" class="ghost" id="add-recognize" hidden>AI 识别</button>
         <button type="submit" class="primary" id="add-submit">保存</button>
         <span class="faint" id="add-hint">只填品类也能存 —— 颜色、材质这些以后随时能补。</span>
       </div>
+      <div class="note-line" id="add-recognize-note"></div>
     </form>
     <div id="add-result"></div>
   `;
@@ -522,6 +540,95 @@ export async function mount(root, ctx) {
     refreshHint();
   }
 
+  // ------------------------------------------------------------------
+  // 「AI 识别」按钮（2026-10-21 用户要求）
+  //
+  // 打标原来只发生在**保存之后**（上传接口顺手打）：想先看 AI 认成什么，
+  // 只能先存一件半成品再进详情页改。按钮放在保存旁边，把顺序倒过来 ——
+  // 先识别、填表、看着不对就改、再保存。
+  //
+  // ⚠️ 只填**空着的**字段（`fillForm(..., {onlyEmpty:true})`）：用户手填的
+  //    优先级永远高于 AI。这和保存时 `_only_blank` 是同一条口径 ——
+  //    点一下按钮就把已填内容冲掉，是这类按钮最容易犯的错。
+  // ------------------------------------------------------------------
+  const recognizeBtn = root.querySelector("#add-recognize");
+  const recognizeNote = root.querySelector("#add-recognize-note");
+
+  async function recognize() {
+    const file = fileEl.files && fileEl.files[0];
+    if (!file && !pickedPhoto) {
+      toast("先放一张照片：粘贴、选文件，或用「从手机相册选」", "error");
+      return;
+    }
+    recognizeBtn.disabled = true;
+    // 识别期间不许保存：否则会把"识别前那份还没填的空值"提交上去，
+    // 而用户以为等的是识别结果。两个动作共用一个 busy 位。
+    submitBtn.disabled = true;
+    const idleText = recognizeBtn.textContent;
+    recognizeBtn.textContent = "识别中…";
+    recognizeNote.innerHTML = "";
+    try {
+      // 照片可能来自两条通道：浏览器里的 File，或手机相册的 id。
+      // 后端 `/tagging/preview` 两个都收，识别结果一模一样（同一条打标链路）。
+      const res = file
+        ? await api.previewTags(file)
+        : await api.previewTagsFromAlbum(pickedPhoto.id);
+
+      // 200 但 body 不是 JSON 时，`request()` 会把**原始字符串**当 payload 返回
+      // （反代/网关改写响应就是这样）。不校验的话会走成功分支、弹一句
+      // 「没有可补的字段」—— 用户以为模型没认出来，其实请求根本没到模型。
+      if (!res || typeof res !== "object" || !res.tags || typeof res.tags !== "object") {
+        throw new Error("返回格式不对（可能被网关拦了），看下后端日志");
+      }
+
+      // 识别这几秒里用户可能已经切走页面（hash 路由会把视图整个换掉）。
+      // 改 DOM 本身无害，但 `toast()` 写的是**全局**节点 —— 会在别的页面上
+      // 弹一句「识别完成」，很莫名其妙。这里用和剪贴板监听同一套判据。
+      if (!recognizeBtn.isConnected) return;
+
+      const filled = fillForm(form, res.tags, { onlyEmpty: true });
+      refreshHint();
+
+      const names = filled.map((k) => FIELD_LABELS[k]).filter(Boolean);
+      const missed = unresolvedText(res.unresolved);
+      const conf = typeof res.ai_confidence === "number" ? res.ai_confidence : 0;
+
+      const parts = [
+        names.length
+          ? `AI 填了：${names.join("、")}`
+          : "没有可补的字段（你填过的我没动）",
+      ];
+      if (missed) parts.push(`没认出来：${missed}（没写进表单）`);
+      if (names.length && conf && conf < 0.5) parts.push("AI 把握不大，建议核对");
+      recognizeNote.textContent = parts.join(" · ");
+
+      toast(
+        names.length ? `识别完成，填了 ${names.length} 项` : "识别完成，没有可补的字段",
+        "ok"
+      );
+    } catch (err) {
+      if (!recognizeBtn.isConnected) return;
+      // 503 = 没配模型 / 模型连不上，**不是这张图的问题** —— 说清楚，
+      // 否则用户会反复换图重试（保存那条路也是同一条契约）。
+      // 后端 detail 已经是「模型不可用：…」，这里不再套第二层括号。
+      const raw = String(err.message || "识别失败").slice(0, 200);
+      const msg = err.status === 503 ? `${raw} —— 这是配置问题，换张图也没用` : raw;
+      recognizeNote.innerHTML = `<div class="alert error">${esc(msg)}</div>`;
+      toast("识别失败", "error");
+    } finally {
+      recognizeBtn.disabled = false;
+      submitBtn.disabled = false;
+      recognizeBtn.textContent = idleText;
+    }
+  }
+
+  if (ctx.health && ctx.health.vision_ready) {
+    // 没配视觉模型时**不显示**这个按钮 —— 摆一个点了就报错的按钮，
+    // 比没有按钮更让人以为是坏的（相册入口用的是同一条判断）。
+    recognizeBtn.hidden = false;
+    recognizeBtn.addEventListener("click", recognize);
+  }
+
   /**
    * 把打标返回的 `unresolved` 摊平成一句人话。
    *
@@ -599,9 +706,14 @@ export async function mount(root, ctx) {
     `;
     addResult.querySelector("#add-again").addEventListener("click", () => {
       form.reset();
+      // `form.reset()` **只还原 selected / checked，不删节点**。上一步 AI 若
+      // 认出了词表外的值（`fields.js` 会动态补 option / chip），不清就一直挂在
+      // 下拉和 chip 区里 —— 下一件能选中上一件的垃圾值。
+      form.querySelectorAll("[data-dynamic]").forEach((n) => n.remove());
       fileEl.value = "";
       pickedPhoto = null;
       renderPicked();
+      recognizeNote.innerHTML = ""; // 上一件的"AI 填了…"别留到下一件
       addResult.innerHTML = "";
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
@@ -629,6 +741,9 @@ export async function mount(root, ctx) {
     }
 
     submitBtn.disabled = true;
+    // 保存期间禁止识别：`payload` 已经读走了，这时填表只会让人以为
+    // "改的东西也一起存了"，实际存的是旧值。
+    recognizeBtn.disabled = true;
     submitBtn.textContent = "保存中…";
     try {
       const resp = await api.createItem(payload);
@@ -667,6 +782,7 @@ export async function mount(root, ctx) {
       toast("保存失败", "error");
     } finally {
       submitBtn.disabled = false;
+      recognizeBtn.disabled = false;
       submitBtn.textContent = "保存";
     }
   });

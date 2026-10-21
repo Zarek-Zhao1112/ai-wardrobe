@@ -169,6 +169,29 @@ export const api = {
   tagItem: (id, params) =>
     request("POST", `/tagging/${encodeURIComponent(id)}`, { params }),
 
+  /** **只识别、不入库**：录入页「AI 识别」按钮用。
+   *
+   * 和 `tagItem` 的区别：那个要求单品已经建好、照片已经存好；这里照片还在
+   * 浏览器里 —— 用户想先看 AI 认成什么，觉得对再保存。
+   *
+   * 后端返回 `{tags, unresolved, ai_confidence, raw, applied:false, status:"preview"}`，
+   * `tags` 的键就是表单的 name（`type` / `colors` / `material` …），可直接 `fillForm`。
+   *
+   * 超时 30s：实测 1.5~3s，30s 是给"大图 + 慢模型"留的余量；
+   * 再长用户只会觉得按钮卡死（文案停在「识别中…」）。
+   */
+  previewTags: (file) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request("POST", "/tagging/preview", { form, timeoutMs: 30000 });
+  },
+  /** 同上，但照片在手机相册里（PWA 壳点不动 `<input type=file>` 时走这条）。 */
+  previewTagsFromAlbum: (id) => {
+    const form = new FormData();
+    form.append("album_id", id);
+    return request("POST", "/tagging/preview", { form, timeoutMs: 30000 });
+  },
+
   // 偏好
   preferences: (params) => request("GET", "/preferences", { params }),
   preferenceContexts: () => request("GET", "/preferences/contexts"),

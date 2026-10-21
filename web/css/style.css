@@ -461,3 +461,17 @@ ul.hist { margin: 0; padding: 0; list-style: none; }
   background: var(--surface-2); overflow: hidden; cursor: pointer;
 }
 .album-cell > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------- 「AI 识别」结果行（2026-10-21） ----------
+ *
+ * 不用 `[hidden]`：这个 div 在 `.panel` 里，而 `.panel > .faint { display:block }`
+ * 属于**作者样式**，优先级高于 UA 的 `[hidden] { display:none }` ——
+ * 设了 hidden 照样显示（这是本项目里最容易踩的一个 CSS 反直觉点）。
+ * 改用 `:empty`：没有内容时彻底不占位，有内容时自然撑开。
+ */
+.note-line {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.note-line:empty { display: none; }

@@ -350,7 +350,6 @@ def _album_path(pid: str) -> Path:
     except (ValueError, UnicodeDecodeError) as e:
         raise HTTPException(400, "照片 id 不合法") from e
 
-    target = Path(raw)
     # 白名单判据用 `os.path.realpath` 展开 `..` 和符号链接之后再比前缀：
     # `/sdcard/DCIM/../../data/...` 这种写法过不了 map（`/sdcard/DCIM` 的
     # realpath 是 `/storage/emulated/0/DCIM`，两者都要覆盖）。
@@ -358,9 +357,11 @@ def _album_path(pid: str) -> Path:
     allowed = [Path(os.path.realpath(d)) for d in ALBUM_DIRS]
     if not any(resolved == d or d in resolved.parents for d in allowed):
         raise HTTPException(403, "这个路径不在相册目录里")
-    if not target.is_file():
+    if not resolved.is_file():
         raise HTTPException(404, "这张照片不在了（可能被删或移走）")
-    return target
+    # 返回**已解析**的路径而不是原路径：校验和真正 `open()` 之间若符号链接被
+    # 换掉，前缀检查就白做了（TOCTOU）。返回 resolved 让两步看的是同一个 inode。
+    return resolved
 
 
 def _iter_album_files() -> list[tuple[float, str, int]]:

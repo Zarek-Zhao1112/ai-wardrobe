@@ -177,12 +177,36 @@ export function readForm(root, original = {}) {
   return payload;
 }
 
-/** 把单品数据填回表单（详情页要用）。 */
-export function fillForm(root, item) {
+/** 把单品数据填回表单（详情页要用；录入页的「AI 识别」也用它）。
+ *
+ * @param root 表单容器
+ * @param item 要填进去的值（单品对象，或打标返回的 `tags`）
+ * @param onlyEmpty **只填空着的字段**（`AI 识别` 用）。
+ *   默认 `false` = 全量覆盖（详情页语义：`item` 就是权威值，缺的字段要清空）。
+ *   打开后：已有值的字段一律不动，AI 没认出来的字段也不会被清空 ——
+ *   点一下「识别」把用户手填的内容冲掉，是这类按钮最容易犯的错。
+ *
+ * @returns 真正填上的字段名数组（`["type","colors"]`），调用方拿去提示"填了哪几项"。
+ */
+export function fillForm(root, item, { onlyEmpty = false } = {}) {
+  const filled = [];
   for (const name of TEXT_NAMES) {
     const el = root.querySelector(`[name="${name}"]`);
     if (!el) continue;
     const value = item[name] === null || item[name] === undefined ? "" : String(item[name]);
+    if (onlyEmpty) {
+      // 已经有值 → 不动；AI 没认出来（空值）→ 也不动（不能借机清空）。
+      //
+      // `select` 不能只看 `value`：它的"未选"是靠首项那个 `value=""` 的占位
+      // option 表达的（`selectHtml()` 保证有）。哪天有人去掉占位项，`el.value`
+      // 会变成第一个真实选项 → 这个字段永远被判成"已有值"，AI 再也填不进去，
+      // 而且**一声不响**。所以单值下拉单独判。
+      const isEmpty =
+        el.tagName === "SELECT"
+          ? el.selectedIndex <= 0 || !el.value
+          : !String(el.value).trim();
+      if (!isEmpty || !value) continue;
+    }
     // ⚠️ **单值 select 遇到词表外的值时必须补一个 option。**
     // 否则浏览器会丢弃这次赋值（`el.value = '自定义紫'` 在没有该 option 时变成 `''`），
     // 保存时就被当成"用户清空了它" —— 实测：一个 `primary_color='自定义紫'`
@@ -191,15 +215,41 @@ export function fillForm(root, item) {
     if (value && el.tagName === "SELECT" && !hasOption(el, value)) {
       const opt = document.createElement("option");
       opt.value = value;
+      // `form.reset()` 只还原 selected/checked，**不删节点** —— 不标记的话，
+      // 录入页「再录一件」之后，上一件的垃圾选项会永久留在下拉里供人选中。
+      opt.dataset.dynamic = "1";
       opt.textContent = `${value}（不在词表里）`;
       el.append(opt);
     }
     el.value = value;
+    if (value) filled.push(name);
   }
   for (const name of MULTI_NAMES) {
     const boxes = Array.from(root.querySelectorAll(`[name="${name}"]`));
     const known = new Set(boxes.map((el) => el.value));
     const picked = new Set(item[name] || []);
+    if (onlyEmpty && !picked.size) continue; // AI 这次没给这一项 → 整组不动
+
+    const checked = boxes.filter((el) => el.checked).map((el) => el.value);
+    if (onlyEmpty && checked.length) {
+      // 用户已经勾过：**只在"他勾的都在 AI 结果里"时补差集**。
+      // - 整组跳过会把 AI 多认出来的项悄悄吞掉（他以为 AI 核对过全部四项）
+      // - 两边冲突时（他勾「冬」、AI 说「夏」）没法判断谁对 → 保留用户的选择，
+      //   与保存时 `_only_blank` 是同一条口径：手填的优先级永远高于 AI
+      if (!checked.every((v) => picked.has(v))) continue;
+      let added = 0;
+      for (const v of picked) {
+        if (checked.includes(v)) continue;
+        const box = boxes.find((el) => el.value === v);
+        if (box) {
+          box.checked = true;
+          added += 1;
+        }
+      }
+      if (added) filled.push(name);
+      continue; // 下面那行会全量重置勾选状态 —— 这里不能走
+    }
+
     boxes.forEach((el) => {
       el.checked = picked.has(el.value);
     });
@@ -209,10 +259,11 @@ export function fillForm(root, item) {
     // 也没法主动删掉它。补出来才能看见、能取消。
     const unknown = (item[name] || []).filter((v) => !known.has(v));
     const container = boxes.length ? boxes[0].closest(".chips") : null;
-    if (!unknown.length || !container) continue;
     for (const value of unknown) {
+      if (!container) break; // 补不出 chip 也不能丢值 —— `readForm` 有兜底保留
       const label = document.createElement("label");
       label.className = "chip-toggle";
+      label.dataset.dynamic = "1"; // 同 option：`form.reset()` 删不掉节点，见上
       const input = document.createElement("input");
       input.type = "checkbox";
       input.name = name;
@@ -225,7 +276,11 @@ export function fillForm(root, item) {
       label.append(input, span);
       container.append(label);
     }
+    // 只有**真写进去了**才算填上：`boxes` 为空（词表没加载到）时 chip 也补不出来，
+    // 这时候报"AI 填了颜色"，界面上却什么都没有。
+    if (picked.size && (boxes.length || container)) filled.push(name);
   }
+  return filled;
 }
 
 /** select 里有没有这个 value 的 option。 */
