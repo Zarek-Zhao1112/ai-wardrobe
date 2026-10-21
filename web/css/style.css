@@ -475,3 +475,123 @@ ul.hist { margin: 0; padding: 0; list-style: none; }
   color: var(--text-faint);
 }
 .note-line:empty { display: none; }
+
+/* ---------- 商品图裁剪窗口（2026-10-21）
+ *
+ * 独立全屏浮层，不是录入页里的小框：整张图铺满屏幕、框外压暗，
+ * 用户只看这一件事。层级高于相册选择（60），因为它是从识别流程里
+ * 主动推出来的一步。
+ *
+ * ⚠️ 遮罩用 `box-shadow` 外溢而不是另盖一层 div：
+ *    这样框和遮罩是同一个元素，拖动时**不可能出现遮罩跟不上框**的错位。
+ *    代价是 box 必须压在自己那层以上、又不能盖住顶部标题和底部按钮
+ *    → 见下面三处 z-index，删了就会出现"按钮点不到"。
+ */
+.crop-layer {
+  position: fixed; inset: 0; z-index: 70;
+  display: flex; flex-direction: column;
+  background: #0b0c10;
+  /* 触摸拖动时不许滚页面，否则手指一划整屏跟着跑 */
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+body.crop-open { overflow: hidden; }
+
+.crop-head {
+  position: relative; z-index: 3;
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  text-align: center; color: #fff;
+}
+.crop-head strong { font-size: var(--fs-lg); font-weight: 500; }
+.crop-head p { margin: var(--sp-1) 0 0; color: rgba(255, 255, 255, .62); font-size: var(--fs-xs); }
+
+.crop-stage {
+  flex: 1; min-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--sp-2) var(--sp-3);
+}
+/* 尺寸交给 max-* 决定 —— `getBoundingClientRect()` 拿到的就是图片本身的
+ * 屏幕矩形。换成 `object-fit: contain` 会把元素撑满 stage，框就对不齐了。 */
+.crop-img {
+  display: block; max-width: 100%; max-height: 100%;
+  width: auto; height: auto;
+  user-select: none; -webkit-user-drag: none;
+}
+
+.crop-box {
+  position: fixed; z-index: 2;
+  border: 1px solid rgba(255, 255, 255, .95);
+  border-radius: 2px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .62);
+  cursor: move;
+  touch-action: none;
+}
+.crop-box.dragging { border-color: var(--accent); }
+/* 三分网格：帮用户判断框里是不是只有商品。
+ * 用 repeating-linear-gradient 而不是两个伪元素 —— 后者只能各画一条线，
+ * 画不出"两条横 + 两条竖"的九宫格。 */
+.crop-box {
+  background-image:
+    repeating-linear-gradient(to right, rgba(255,255,255,.16) 0 1px, transparent 1px 33.333%),
+    repeating-linear-gradient(to bottom, rgba(255,255,255,.16) 0 1px, transparent 1px 33.333%);
+  background-origin: border-box;
+}
+
+/* 8 个手柄。刻意做成"看不见的触控区 + 看得见的小方块"：
+ * 30px 的命中区在手机上才捏得住，视觉上只有 11px。 */
+.crop-h {
+  position: absolute; width: 30px; height: 30px;
+  display: grid; place-items: center;
+  touch-action: none;
+}
+.crop-h::before {
+  content: ""; width: 11px; height: 11px;
+  background: #fff; border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .35);
+}
+.crop-h[data-h="nw"] { left: -15px; top: -15px; cursor: nwse-resize; }
+.crop-h[data-h="n"]  { left: 50%; top: -15px; margin-left: -15px; cursor: ns-resize; }
+.crop-h[data-h="ne"] { right: -15px; top: -15px; cursor: nesw-resize; }
+.crop-h[data-h="w"]  { left: -15px; top: 50%; margin-top: -15px; cursor: ew-resize; }
+.crop-h[data-h="e"]  { right: -15px; top: 50%; margin-top: -15px; cursor: ew-resize; }
+.crop-h[data-h="sw"] { left: -15px; bottom: -15px; cursor: nesw-resize; }
+.crop-h[data-h="s"]  { left: 50%; bottom: -15px; margin-left: -15px; cursor: ns-resize; }
+.crop-h[data-h="se"] { right: -15px; bottom: -15px; cursor: nwse-resize; }
+
+.crop-actions {
+  position: relative; z-index: 3;
+  display: flex; gap: var(--sp-3); justify-content: center;
+  padding: var(--sp-4) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom, 0px));
+}
+.crop-actions .ghost {
+  /* ★ 必须显式清掉背景：`button` 的基础样式给的是 `var(--surface)`（浅色），
+   *   而这里的文字是白的 —— 白底白字，按钮看起来"是个空方块"（实测截图确认）。
+   *   深色浮层里所有按钮都该走"透明底 + 白字"。 */
+  background: transparent;
+  color: rgba(255, 255, 255, .82); border-color: rgba(255, 255, 255, .3);
+}
+.crop-actions .ghost:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.crop-tip { position: relative; z-index: 3; text-align: center; padding-bottom: var(--sp-3); }
+
+@media (max-width: 520px) {
+  .crop-head strong { font-size: var(--fs-md); }
+  .crop-actions { padding-bottom: calc(var(--sp-3) + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ---------- 录入页：照片预览 + 裁剪入口（2026-10-21） ---------- */
+
+/* 两个按钮共用一行；都 `hidden` 时容器仍在，但 `margin-top` 很小，
+ * 不会撑出明显空行 —— 这里刻意不用 `:has()`，小米浏览器内核版本不可控。 */
+.photo-tools {
+  display: flex; gap: var(--sp-2); flex-wrap: wrap;
+  margin-top: var(--sp-2);
+}
+
+/* 裁剪后的预览。**必须有**：裁剪走的是全屏窗口，回到表单时若什么都不显示，
+ * 用户无法确认裁出来的到底是哪一块，只能等保存后进详情页才发现裁歪了。 */
+.add-shot { margin-top: var(--sp-3); }
+.add-shot img {
+  display: block; max-width: 100%; max-height: 300px;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--surface-2);
+}

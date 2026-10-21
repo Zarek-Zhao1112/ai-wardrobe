@@ -40,10 +40,10 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v7";   // v6→v7：录入页加「AI 识别」（动了 view-add.js / api.js /
-                        //          fields.js / style.css，四个都在 SHELL_ASSETS 里）
-                        //（v5→v6：重装外壳；v4→v5：activate 不再盲目删旧桶；
-                        //  v3→v4：外壳请求加超时）
+const VERSION = "v8";   // v7→v8：录入页加「裁剪商品图」窗口（新增 /js/crop.js，
+                        //          已加进 SHELL_ASSETS；动了 view-add.js / style.css）
+                        //（v6→v7：录入页加「AI 识别」；v5→v6：重装外壳；
+                        //  v4→v5：activate 不再盲目删旧桶；v3→v4：外壳请求加超时）
 const SHELL = `wzbbti-shell-${VERSION}`;
 const IMAGES = `wzbbti-img-${VERSION}`;
 
@@ -73,6 +73,10 @@ const SHELL_ASSETS = [
   "/js/view-wardrobe.js",
   "/js/view-item.js",
   "/js/view-add.js",
+  // ⚠️ 新增模块必须加进这份清单（`view-add.js` 会 import 它）。
+  //    漏了的话服务活着时看不出问题（网络优先拿得到），但**断网/后端没起**时
+  //    模块请求 404 → 整个 `view-add.js` 的依赖树加载失败 → 录入页白屏。
+  "/js/crop.js",
   "/js/view-gaps.js",
   "/js/view-outfits.js",
   "/icons/icon-192.png",

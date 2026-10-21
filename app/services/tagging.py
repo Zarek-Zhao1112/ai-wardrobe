@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import mimetypes
 import re
 from pathlib import Path
@@ -30,7 +31,7 @@ from typing import Any, Optional
 
 from .. import config, db, taxonomy
 from ..models import ItemUpdate
-from . import images, items
+from . import brands, images, items
 from .llm.client import LLMClient, LLMError, get_client
 
 # ---------------------------------------------------------------------------
@@ -57,8 +58,11 @@ MULTI_VOCAB: dict[str, str] = {
 }
 
 #: 打标结果的属性字段（归一后只会出现这些键）
+#:
+#: ⚠️ `brand` 是**白名单里的例外**：它不走 `taxonomy.VOCABULARIES`（品牌是开放集，
+#: 词表在 `services/brands.py`），但仍然是受控字段 —— 归一失败的品牌不会落库。
 TAG_FIELDS: tuple[str, ...] = (
-    "type", "slot", "primary_color", "colors",
+    "type", "brand", "slot", "primary_color", "colors",
     "pattern", "material", "fit", "length", "style", "season", "formality", "scene",
 )
 
@@ -181,6 +185,64 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _normalize_crop(raw: Any) -> Optional[dict]:
+    """模型给的商品图 bbox → 夹到 `[0,1]` 的归一化矩形。不可用返回 `None`。
+
+    **为什么坐标要归一化而不是像素**：模型不知道（也不需要知道）原图是
+    864×1920 还是 3024×4032 —— 让它算像素只会多一个错源。比例只跟"看图"
+    有关，是它真正擅长的东西。
+
+    **为什么要夹**（实测 2026-10-21）：模型给过 `w=1.02`（框超出右边界）。
+    不夹的话前端把框裁到图外，`drawImage` 会画出黑边。
+
+    **为什么要过面积闸**：`w/h` 太小（< 1%）基本是瞎给的，裁出来是一块
+    马赛克；太大（> 95%）说明整张图就是商品图，没有裁的必要。这两种都当
+    "没给"，让前端退回"用户自己拉"。
+
+    ⚠️ 本条**只做形状校验，不做语义判断** —— "这个框框的是不是衣服"由模型
+    负责，人眼在裁剪窗口里最终确认（AI 的框实测只有实际宽高的 60%）。
+    """
+    if not isinstance(raw, dict):
+        return None
+    try:
+        x = float(raw.get("x"))
+        y = float(raw.get("y"))
+        w = float(raw.get("w"))
+        h = float(raw.get("h"))
+    except (TypeError, ValueError):
+        return None
+
+    # ★ `float()` **不会**为 NaN 抛错（`float("nan")` 合法，JSON 里的 `NaN`
+    #   字面量 `json.loads` 也照收）。而 NaN 会穿透下面所有 clamp
+    #   （`max(nan, 0)` / `min(nan, 1)` 返回的都是 nan，`nan < 0.01` 恒 False），
+    #   最终 `crop` 里的 nan 让 Starlette 的 `JSONResponse(allow_nan=False)`
+    #   抛 `ValueError` → **整个 /tagging/preview 变成 500**。
+    #   模型偶尔会吐 NaN，这条不设就等着线上偶发 500（实测复现）。
+    if not all(math.isfinite(v) for v in (x, y, w, h)):
+        return None
+
+    # 先夹起点的合法范围，再按"剩余空间"夹宽高 —— 顺序不能反：
+    # 若先夹宽高再看 x，`x=0.9, w=0.5` 会得到 (0.9, 0.5) 这种越界矩形。
+    x = min(max(x, 0.0), 1.0)
+    y = min(max(y, 0.0), 1.0)
+    w = min(max(w, 0.0), 1.0 - x)
+    h = min(max(h, 0.0), 1.0 - y)
+
+    # 面积闸。**下限不能设太高**：模型给的框只有实际的 60% 宽高（约 0.36 倍面积），
+    # 一张 864×1920 截图里的订单缩略图（130×288 ≈ 2.3%）会被模型框到 0.8% 左右 ——
+    # 阈值取 1% 就会系统性误杀"商品图比较小"的正常情况，用户根本看不到裁剪入口。
+    # 0.5% 只用来挡"框了个图标"这种明显没意义的输出。
+    area = w * h
+    if area < 0.005 or area > 0.95:
+        return None
+    return {
+        "x": round(x, 4),
+        "y": round(y, 4),
+        "w": round(w, 4),
+        "h": round(h, 4),
+    }
+
+
 def normalize_tags(raw: dict) -> tuple[dict, dict]:
     """模型原始输出 → `(归一后的属性, 认不出的原始值)`。
 
@@ -237,6 +299,29 @@ def normalize_tags(raw: dict) -> tuple[dict, dict]:
         clean["pattern"] = pattern
     elif raw.get("pattern"):
         failed["pattern"] = raw["pattern"]
+
+    # 品牌：词表**和归一规则**都在 `services/brands.py`（理由见该文件）。
+    #
+    # ⚠️ 刻意**不走 `_match`**：它的第 4 级是"最长包含匹配"，对品类/颜色那种
+    #   封闭短词表是对的，但品牌字段的输入常常是商品标题 —— 实测会把
+    #   「骆驼绒大衣」认成「骆驼」、「奥林匹克联名」认成「匹克」、「冠军版」
+    #   认成 Champion，然后**静默写进库**。品牌写错不报错，是最坏的错误形态。
+    #   `brands.resolve()` 走 token 级全等，不做子串包含。
+    #
+    # ★ 存的是**展示名**（「维动」）而不是 key（`veidoorn`）。`brand` 在库里是
+    #   自由 TEXT 列（`schema.py:78`），用户手填写的就是「维动」；存 key 会让
+    #   同一个牌子出现两种写法，按品牌检索/统计直接分裂。
+    #
+    # ⚠️ 认不出**不进 `clean`**（宁缺勿脏），但**要进 `failed`**：让界面能说
+    #   「AI 读到了这个牌子，只是词表里没有」，用户可以手填。不报的话，这次
+    #   识别看起来像"AI 什么都没看到"，用户会以为是模型不行而不是词表缺项。
+    raw_brand = raw.get("brand")
+    if raw_brand:
+        resolved_brand = brands.resolve(raw_brand)
+        if resolved_brand:
+            clean["brand"] = resolved_brand
+        else:
+            failed["brand"] = raw_brand
 
     for field, vocab_key in MULTI_VOCAB.items():
         table = taxonomy.VOCABULARIES.get(vocab_key, {})
@@ -300,6 +385,9 @@ def _vocab_lines() -> str:
     """把受控词表排成可读的选项清单，直接嵌进 prompt。"""
     blocks: list[tuple[str, dict[str, str]]] = [
         ("type", {k: v[0] for k, v in taxonomy.CLOTHING_TYPES.items()}),
+        # 品牌是**开放集里的受控子集**：选项来自 `services/brands.py`，
+        # 不在列表里的牌子一律不填（归一失败进 `unresolved`，由用户手填）。
+        ("brand", brands.BRANDS),
         ("primary_color / colors", taxonomy.COLORS),
         ("pattern", taxonomy.PATTERNS),
         ("material", taxonomy.MATERIALS),
@@ -324,6 +412,7 @@ TAG_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "type": {"type": "string"},
+        "brand": {"type": "string"},
         "primary_color": {"type": "string"},
         "colors": {"type": "array", "items": {"type": "string"}},
         "pattern": {"type": "string"},
@@ -334,23 +423,46 @@ TAG_SCHEMA: dict[str, Any] = {
         "season": {"type": "array", "items": {"type": "string"}},
         "formality": {"type": "string"},
         "scene": {"type": "array", "items": {"type": "string"}},
+        # 商品图位置（**可选**）。只在"电商截图"场景出现，纯衣服照片不该给。
+        # 用归一化比例而不是像素：模型不需要知道原图分辨率（见 `_normalize_crop`）。
+        "crop": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "number", "description": "左边界，0~1"},
+                "y": {"type": "number", "description": "上边界，0~1"},
+                "w": {"type": "number", "description": "宽度占比，0~1"},
+                "h": {"type": "number", "description": "高度占比，0~1"},
+            },
+        },
         "confidence": {"type": "number"},
     },
     "required": ["type"],
 }
 
-SYSTEM_PROMPT = """你是服装属性识别器。看一张衣服的照片，输出它的属性。
+SYSTEM_PROMPT = """你是服装属性识别器。看一张图片（可能是衣服的照片，也可能是电商订单 /
+商品详情截图），输出这件衣服的属性。
 
 **只能从下面的选项里取值**，不要自创词。拿不准的字段直接省略，不要瞎填。
-{options}
+__OPTIONS__
 
 输出要求：
 - `type` 必填；其余字段没有把握就省略
+- **`brand` 只在图片里真的能看到品牌文字时才填** —— 商品标题、店铺名、吊牌、
+  水洗标、logo 上的字都算。选项里一个都匹配不上，或者图里根本没有品牌文字
+  → **直接省略这个字段**（不要留空字符串）。
+  **绝对不要靠款式、配色、价格去猜品牌**：猜错会让你以为这件衣服是某个牌子的，
+  比空着有害得多。
 - 多值字段（colors / style / season / scene）用数组
 - `season` 按这件衣服**适合穿的季节**判断；四季皆宜就写全四个
 - `length` **只对长裤类有意义**（牛仔 / 西裤 / 休闲 / 运动 / 打底裤），按裤脚位置判断；
   短裤、裙子、上衣一律不填
 - `confidence` 给 0~1 的整数级把握度（0.9 表示很确定）
+- 如果图片是**电商截图**（订单页 / 商品详情页），再加一个 `crop`，指向**商品主图**
+  在整张图里的位置：`{"x": 左, "y": 上, "w": 宽, "h": 高}`，四个值都是 **0~1 的比例**
+  （相对整张图，左上角是 (0,0)，右下角是 (1,1)）。
+  - 只框**商品图本身**（衣服那张展示图），不要把价格、标题、按钮、店铺信息框进去
+  - 图片本身就是一张衣服照片（整张都是衣服）→ **省略 `crop`**
+  - 框只是给用户一个**起点**，他会自己调，所以不必精确到像素，位置对就行
 """
 
 
@@ -369,7 +481,12 @@ def build_messages(image: str | Path, hint: Optional[str] = None) -> list[dict[s
     if hint:
         user_text += f"补充信息：{hint}"
     return [
-        {"role": "system", "content": SYSTEM_PROMPT.format(options=_vocab_lines())},
+        # ⚠️ 用 `replace` 而不是 `str.format`：prompt 里现在有 `{"x": …}` 这种
+        # JSON 示例，`format()` 会把花括号当占位符 —— 实测直接炸
+        # `KeyError: '"x"'`，连一次请求都发不出去。
+        # 占位符故意取成 `__OPTIONS__` 这种不会出现在自然语言里的形状，
+        # 将来往 prompt 里加任何 JSON 都不用再转义 `{{` `}}`。
+        {"role": "system", "content": SYSTEM_PROMPT.replace("__OPTIONS__", _vocab_lines())},
         {
             "role": "user",
             "content": [
@@ -394,7 +511,11 @@ def tag_image(
 
     返回：
         `{"tags": {...归一后的属性...}, "unresolved": {...认不出的原始值...},
-          "ai_confidence": 0.0~1.0, "raw": {...模型原始输出...}}`
+          "ai_confidence": 0.0~1.0, "crop": {...商品图位置...} | None, "raw": {...}}`
+
+    `crop` 只在"电商截图"里有值（模型判断），前端拿它当裁剪窗口的**初始框**。
+    实测它给的**左上角很准、宽高偏小约 40%** —— 所以它是一个起点，不是结论：
+    用户会在裁剪窗口里把框拉大（见 `web/js/crop.js`）。
 
     失败（模型不可用 / 返回不可解析）→ **抛 `LLMError`**，由调用方决定怎么降级
     （通常是把单品留在 `tagging_status='pending'`，而不是让整个请求 500）。
@@ -410,6 +531,7 @@ def tag_image(
         "tags": clean,
         "unresolved": failed,
         "ai_confidence": _as_float(raw.get("confidence")),
+        "crop": _normalize_crop(raw.get("crop")),
         "raw": raw,
     }
 

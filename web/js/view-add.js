@@ -14,6 +14,7 @@
  */
 
 import { api } from "./api.js";
+import { openCropper } from "./crop.js";
 import { fillForm, formHtml, readForm, summaryHtml, typeOptionsHtml } from "./fields.js";
 import { esc, itemChipsHtml, renderError, toast } from "./ui.js";
 
@@ -23,6 +24,10 @@ export const label = "录入";
  *  只列表单里真有的：`slot` 是后端算出来的，表单上没有它，故意不列。 */
 const FIELD_LABELS = {
   type: "品类",
+  // `brand` 必须在这里：`recognize()` 用 `FIELD_LABELS[k]` 把字段名翻成中文，
+  // 漏了它 → 提示语里会少一项（`.filter(Boolean)` 把它静默丢掉），
+  // 用户看到"AI 填了：品类、颜色"却不知道品牌也被填了。
+  brand: "品牌",
   primary_color: "主色",
   material: "材质",
   fit: "版型",
@@ -57,7 +62,15 @@ function bindClipboardOnce() {
   // ⚠️ 判据用 `fileEl.isConnected`，不是 `root.isConnected` ——
   //   外壳容器是持久的，切走别的页面后它照样连接着；
   //   但输入框是视图内部的节点，会随 innerHTML 替换掉。
-  const live = () => activeAdd && activeAdd.fileEl && activeAdd.fileEl.isConnected;
+  //
+  // ⚠️ 第二条判据（裁剪窗开着）是同一天补的：窗口里的框是按**打开那一刻**
+  //   那张图算的比例，此时再粘一张新图会写进 `fileEl`，等用户点「用这张」，
+  //   `acceptImage(crop)` 又把新图**覆盖成旧图的裁剪结果** —— 新图静默丢失。
+  const live = () =>
+    activeAdd &&
+    activeAdd.fileEl &&
+    activeAdd.fileEl.isConnected &&
+    !document.body.classList.contains("crop-open");
   const hasFiles = (dt) => !!dt && Array.prototype.includes.call(dt.types || [], "Files");
 
   // 粘贴：**只有剪贴板里真有图片才拦**。
@@ -133,8 +146,12 @@ export async function mount(root, ctx) {
       <h2>② 或者手动填</h2>
       <div class="field field-wide"><span>照片（可选）</span>
         <input type="file" id="add-image" accept="image/*">
-        <button type="button" class="ghost" id="add-album" hidden>从手机相册选</button>
+        <div class="photo-tools">
+          <button type="button" class="ghost" id="add-album" hidden>从手机相册选</button>
+          <button type="button" class="ghost" id="add-crop" hidden>裁剪商品图</button>
+        </div>
         <div class="album-picked" id="add-album-picked" hidden></div>
+        <div class="add-shot" id="add-shot" hidden><img id="add-shot-img" alt=""></div>
         <small class="faint">电脑上可以直接 Ctrl+V 粘贴截图，或把图片拖进页面</small>
       </div>
       ${formHtml(taxonomy)}
@@ -158,20 +175,29 @@ export async function mount(root, ctx) {
   /** 把粘贴 / 拖拽来的图片塞进 file input，之后走的还是原来那条路：
    *  `change` → 保存时上传 → 后端自动打标。**不另开一条上传链路**，
    *  否则两条路早晚会走岔（一条有打标、一条没有）。 */
-  function acceptImage(file) {
+  function acceptImage(file, { quiet = false } = {}) {
     try {
       // `input.files` 是只读的，只能整个换掉（DataTransfer 是标准做法）
       const dt = new DataTransfer();
       dt.items.add(file);
       fileEl.files = dt.files;
       fileEl.dispatchEvent(new Event("change", { bubbles: true }));
-      const kb = Math.max(1, Math.round(file.size / 1024));
-      toast(`已接住图片（${kb} KB）—— 保存时自动识别属性`, "ok");
+      if (!quiet) {
+        const kb = Math.max(1, Math.round(file.size / 1024));
+        toast(`已接住图片（${kb} KB）—— 保存时自动识别属性`, "ok");
+      }
+      return true;
     } catch (err) {
-      // 极老的浏览器不给 `input.files` 赋值
+      // 极老的浏览器不给 `input.files` 赋值。裁剪完走这里说明**白裁了**，
+      // 必须说出来：静默失败的话用户会以为存的是裁好的图。
       toast("这张图接不住，请点「选择文件」", "error");
+      return false;
     }
   }
+
+  const shot = root.querySelector("#add-shot");
+  const shotImg = root.querySelector("#add-shot-img");
+  const cropBtn = root.querySelector("#add-crop");
 
   activeAdd = { root, fileEl, accept: acceptImage };
   bindClipboardOnce();
@@ -201,6 +227,7 @@ export async function mount(root, ctx) {
       albumPicked.hidden = true;
       albumPicked.innerHTML = "";
       refreshHint();
+      renderShot(); // 相册那张被清掉了，预览要退回 input 里的文件（或空）
       return;
     }
     albumPicked.hidden = false;
@@ -218,6 +245,102 @@ export async function mount(root, ctx) {
       renderPicked();
     });
     refreshHint();
+    renderShot();
+  }
+
+  // ------------------------------------------------------------------
+  // 图片预览 + 裁剪（2026-10-21）
+  //
+  // ★ 为什么裁剪要**另开一个全屏窗口**（用户拍板）：录入页里这块只有一张
+  //   小缩略图，在里面拖框既看不清、又容易误触下面的表单。裁剪窗口把图铺满
+  //   屏幕、框外压暗，用户只看这一件事，确认后回到这里继续填。
+  //
+  // ★ 为什么裁剪只在**前端**做：服务端没装 Pillow（`images.py:13` 明确不引入
+  //   图像库），只为一个裁剪装它不值。canvas 本来就在浏览器里，还省一次往返。
+  //
+  // ★ 裁剪结果是**替换**而不是新增：`image_path` 一个单品只有一列
+  //   （`image_path_of` 注释：一个单品只保留一张图），保留原截图做不到。
+  // ------------------------------------------------------------------
+
+  /** 当前待录入的那张图。两条通道互斥（后选的赢），所以按优先级取一个即可。 */
+  function imageSource() {
+    const file = fileEl.files && fileEl.files[0];
+    if (file) return { src: URL.createObjectURL(file), revoke: true };
+    if (pickedPhoto) {
+      // 相册图走同源接口 —— canvas 能画。跨源图会让 `toBlob` 抛 SecurityError，
+      // 那正是"裁完没反应"这类幽灵问题的来源。
+      return { src: api.albumPhotoUrl(pickedPhoto.id), revoke: false };
+    }
+    return null;
+  }
+
+  /** 上一次预览用的 blob URL。每次重画都先 revoke，否则拖十张图就漏十个。 */
+  let shotUrl = null;
+
+  /** 把当前图渲染成一张缩略图，并决定「裁剪商品图」按钮是否出现。
+   *  没有这张预览的话，用户裁完看不到结果，只能等保存后进详情页才发现裁歪了。 */
+  function renderShot() {
+    if (shotUrl) {
+      URL.revokeObjectURL(shotUrl);
+      shotUrl = null;
+    }
+    const file = fileEl.files && fileEl.files[0];
+    if (file) {
+      shotUrl = URL.createObjectURL(file);
+      shotImg.src = shotUrl;
+      shot.hidden = false;
+    } else if (pickedPhoto) {
+      shotImg.src = api.albumPhotoUrl(pickedPhoto.id);
+      shot.hidden = false;
+    } else {
+      shotImg.removeAttribute("src");
+      shot.hidden = true;
+    }
+    cropBtn.hidden = !(file || pickedPhoto);
+  }
+
+  /** 正在裁剪。互斥位——两个浮层同时开着会互相覆盖结果：识别流程自动弹一个、
+   *  用户又点「裁剪商品图」再弹一个，后确认的那个拿**原图**重裁，
+   *  表现就是"我裁好的图又变回去了"。 */
+  let cropping = false;
+
+  /**
+   * 打开裁剪窗口。`initial` 是 AI 给的归一化框（可空）。
+   * @returns 是否真的替换了图片（用户点「保持原图」返回 false）
+   */
+  async function cropImage(initial = null) {
+    if (cropping) return false;
+    const source = imageSource();
+    if (!source) {
+      toast("先放一张照片", "error");
+      return false;
+    }
+    cropping = true;
+    try {
+      const out = await openCropper({ src: source.src, initial });
+      if (!out) return false; // 用户选了「保持原图」
+
+      // 浮层开着时用户可能按了返回键 / 点了导航。这时不能再写 `fileEl`、
+      // 也不该弹 toast —— 那会落到一个已经销毁的视图上，而且新页面上会
+      // 莫名其妙冒出一句"已裁出商品图"。
+      if (!fileEl.isConnected) return false;
+
+      const file = new File([out.blob], `crop-${Date.now()}.jpg`, {
+        type: "image/jpeg",
+      });
+      // ★ 不在这里手动清 `pickedPhoto`：`acceptImage` 派发 `change` 时，
+      //   上面那个 `fileEl.addEventListener("change")` 会处理（`files[0] &&
+      //   pickedPhoto` → 清掉 + 重画预览）。提前清的话，万一 `acceptImage`
+      //   在极老浏览器上赋值失败，两条通道就都空了 —— 用户刚选的相册图直接消失。
+      if (!acceptImage(file, { quiet: true })) return false;
+      renderShot();
+      toast(`已裁出商品图（${out.width}×${out.height}）`, "ok");
+      return true;
+    } finally {
+      cropping = false;
+      // 窗口已经关掉、canvas 已经画完，这时才安全释放
+      if (source.revoke) URL.revokeObjectURL(source.src);
+    }
   }
 
   function openAlbumPicker() {
@@ -293,9 +416,14 @@ export async function mount(root, ctx) {
   fileEl.addEventListener("change", () => {
     if (fileEl.files && fileEl.files[0] && pickedPhoto) {
       pickedPhoto = null;
-      renderPicked();
+      renderPicked(); // 内部会重画预览
+    } else {
+      renderShot();
     }
   });
+
+  // 独立的裁剪入口：不识别也能裁（用户可能只想修一下图）
+  cropBtn.addEventListener("click", () => cropImage(null));
 
   // ------------------------------------------------------------------
   // ① 粘贴 → 解析 → 预览 → 批量提交
@@ -560,10 +688,19 @@ export async function mount(root, ctx) {
       toast("先放一张照片：粘贴、选文件，或用「从手机相册选」", "error");
       return;
     }
+    // 拍一张"这一刻是哪张图"的快照。识别要等 2~30 秒，这期间用户完全可能
+    // 粘一张新图/换一个相册照片 —— 回来的 `tags` 和 `crop` 都属于**旧图**，
+    // 直接填进表单就是张冠李戴，裁剪框还会按旧图的比例套在新图上。
+    const fileSnapshot = file;
+    const photoSnapshot = pickedPhoto;
+
     recognizeBtn.disabled = true;
     // 识别期间不许保存：否则会把"识别前那份还没填的空值"提交上去，
     // 而用户以为等的是识别结果。两个动作共用一个 busy 位。
     submitBtn.disabled = true;
+    // 也别让用户开第二个裁剪窗：识别成功后会自动弹一个，两个叠在一起，
+    // 后确认的那个会拿原图重裁，把先前的成果盖掉。
+    cropBtn.disabled = true;
     const idleText = recognizeBtn.textContent;
     recognizeBtn.textContent = "识别中…";
     recognizeNote.innerHTML = "";
@@ -581,6 +718,17 @@ export async function mount(root, ctx) {
         throw new Error("返回格式不对（可能被网关拦了），看下后端日志");
       }
 
+      // 等结果期间换了图 → 这份结果不属于当前这张图，丢掉。
+      // （比对**对象引用**：File 和 pickedPhoto 每次选择都是新对象，
+      //  同一张图重新选一次也算"换了"，宁可让用户再点一次也不写错数据。）
+      if (
+        (fileEl.files && fileEl.files[0]) !== fileSnapshot ||
+        pickedPhoto !== photoSnapshot
+      ) {
+        toast("图换了，这次识别结果丢掉了 —— 对新图再点一次识别", "error");
+        return;
+      }
+
       // 识别这几秒里用户可能已经切走页面（hash 路由会把视图整个换掉）。
       // 改 DOM 本身无害，但 `toast()` 写的是**全局**节点 —— 会在别的页面上
       // 弹一句「识别完成」，很莫名其妙。这里用和剪贴板监听同一套判据。
@@ -588,6 +736,23 @@ export async function mount(root, ctx) {
 
       const filled = fillForm(form, res.tags, { onlyEmpty: true });
       refreshHint();
+
+      // ★ 识别完先走一步裁剪 —— 这是用户要的"单独一个过程"。
+      //
+      // 为什么排在报结果**之前**：裁剪窗口会盖住整页，用户从窗口回来才看到
+      // 「AI 填了…」。反过来的话，那句话在他框图的时候就已经写好了，回来还
+      // 停在那儿，像是上一条消息。
+      //
+      // 为什么面积 > 0.75 就不弹：那说明整张图就是商品图（纯衣服照片，没有
+      // 订单信息），弹一个几乎贴着图片边的框只会让人觉得这个功能很烦。
+      const crop = res.crop;
+      if (crop && crop.w * crop.h <= 0.75) {
+        recognizeNote.textContent = "识别完了 —— 先把商品图框出来";
+        await cropImage(crop);
+        // 框图那几十秒里用户可能已经切走页面了：这时别再往下写 note/toast，
+        // 否则会在别的页面上弹一句"识别完成"。
+        if (!recognizeBtn.isConnected) return;
+      }
 
       const names = filled.map((k) => FIELD_LABELS[k]).filter(Boolean);
       const missed = unresolvedText(res.unresolved);
@@ -618,6 +783,7 @@ export async function mount(root, ctx) {
     } finally {
       recognizeBtn.disabled = false;
       submitBtn.disabled = false;
+      cropBtn.disabled = false;
       recognizeBtn.textContent = idleText;
     }
   }
