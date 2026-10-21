@@ -491,26 +491,36 @@ ul.hist { margin: 0; padding: 0; list-style: none; }
 }
 .note-line:empty { display: none; }
 
-/* ---------- 商品图裁剪窗口（2026-10-21，第二轮改版同日）
+/* ---------- 商品图裁剪窗口（2026-10-21，第三轮改版：长按展开框外）
  *
  * 独立全屏浮层，不是录入页里的小框：用户只看这一件事。层级高于相册
  * 选择（60），因为它是从识别流程里主动推出来的一步。
  *
- * 两种视图（类挂在 `.crop-layer` 上，JS 切）：
- *   `.is-peek`  选区铺满显示区 —— 静息态，看到的就是"存进去的样子"
- *   `.is-edit`  整图 + 可拖的框 —— 手指按下时切过来，松手 900ms 后回去
+ * ★ 只有一个画面（用户第三次拍板）。
+ *   前两版都在"换内容"：第一版是放大镜，第二版是"静息铺满 / 按下变整图"。
+ *   用户原话：「不要分两个窗口，就是一个窗口，视角主要是在截取框内，然后
+ *   长按截取框会显示不用截取的部分（淡化颜色，不是直接溶于背景）。如果没
+ *   长按就只看截取框内的内容。」
+ *
+ *   所以现在**图片一动不动**，只让"窗口"（`.crop-window` 的 clip-path）开合：
+ *     静息 → 窗口裁得正好等于选框，看到的就是存进去的样子、且铺满显示区
+ *     长按 → 窗口放到整个舞台，选框周围一圈按**原尺寸原位置**露出来，
+ *            上面盖 58% 黑（看得出是什么，但明显退后）
  *
  * ⚠️ 三个必须一起记住的约束：
- *   ① 框外的填色（`.crop-mask`）必须**被裁**，否则会溢到标题和按钮上；
- *   ② 框的八个手柄有一半伸在框外，必须**不被裁**；
- *   ③ 于是填色放进 `.crop-clip`（overflow:hidden），框放在它外面，
- *      两者每帧由 JS 用同一组数字定位 —— 拆成两层也不会有毫秒级错位。
+ *   ① 窗口的裁剪靠 `clip-path`，**不用** `overflow:hidden` 套一层 ——
+ *      否则"窗口"只能是 `.crop-stage` 的子盒子，改尺寸就得改布局，
+ *      图片会被动跟着挪，那就又变成"换了一屏"；
+ *   ② 框的八个手柄有一半伸在框外，必须**不被裁** → `.crop-box` 放在
+ *      `.crop-window` 外面；
+ *   ③ 窗口边界和框边界必须**每帧**由同一组数字算出（`crop.js: paint()`）。
+ *      这里不允许给 clip-path / transform 写 transition —— 那份插值必须
+ *      和框的位置同步走，CSS 各转各的就会漂。
  */
 .crop-layer {
   position: fixed; inset: 0; z-index: 70;
   display: flex; flex-direction: column;
-  /* 框外的填色必须和这个底色**完全同色**，否则"未选中的区域"会露出
-   * 一条比背景深/浅的边，看起来像没对齐。所以两者共用同一个变量。 */
+  /* 窗口外面（显示区的边距）和"还没露出图片"的地方都是这个底色。 */
   background: var(--crop-bg, #0b0c10);
   /* 触摸拖动时不许滚页面，否则手指一划整屏跟着跑 */
   touch-action: none;
@@ -524,11 +534,16 @@ body.crop-open { overflow: hidden; }
  * 节点（position:fixed 不能塞进 transform/flex 容器），只有共同祖先能继承。 */
 body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
 
-/* 框外的填色：peek 用不透明底色（藏住未选中的部分），edit 换成半透明黑
- * （压暗但看得见，用户要靠它判断往哪边拖）。两档都定义在 layer 上，
- * 由 `.crop-mask` 继承 —— 改这里就同时改了两种视图的口径。 */
-.crop-layer { --crop-shade: var(--crop-bg, #0b0c10); }
-.crop-layer.is-edit { --crop-shade: rgba(0, 0, 0, .62); }
+/* 框外那一圈的颜色。★ 只有一档：**半透明黑**。
+ *
+ * 静息时框外整个被窗口裁掉了，这层颜色根本看不见；长按展开后它才露面，
+ * 所以不需要"两档切换"—— 一档就够，也就没有切换时的那一下跳变。
+ *
+ * 用户特别强调「淡化颜色，不是直接溶于背景」：所以这里**不能**用
+ * `var(--crop-bg)`。用底色的话框外和背景一个样，等于没显示出来（上一版
+ * 静息态就是这样）。58% 是实测的口径：白底订单页压成 (107,107,107)，
+ * 字还认得出，但一眼能看出它"退后了"。 */
+.crop-layer { --crop-shade: rgba(0, 0, 0, .58); }
 
 /* 入场 / 退场。220ms 是刻意的：这是个"工具窗"，不是页间导航，
  * 再慢一点每次录一件都要多等半秒。 */
@@ -545,7 +560,7 @@ body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
 .crop-head strong { font-size: var(--fs-body-lg); font-weight: 500; letter-spacing: var(--ls-snug); }
 
 /* ★ 这行提示的高度必须**写死**。
- *  它有两套文案（peek 一句、edit 一句，长度不同），一旦较长的那句在窄屏上
+ *  它有两套文案（静息一句、长按展开后一句，长度不同），一旦较长的那句在窄屏上
  *  折成两行，下面的显示区就变矮 → 图片还是按旧高度摆的 → 整张图偏移。
  *  实测偏了 9.4px，正好是半行 —— 而且只在某些机型宽度下出现，最难查。
  *  宁可省略号，也不能让提示文案去影响布局。 */
@@ -561,24 +576,30 @@ body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
   flex: 1; min-height: 0;
 }
 
-/* 显示区。尺寸/位置由 JS 按**图片比例**算好写内联（见 `crop.js: layout()`）：
- * 这样 edit 视图里图片正好铺满它，一点不浪费；peek 里选区也是这个区域
- * 能给到的最大尺寸。
- * ⚠️ 不要用 `inset` / flex 让它自适应：那会把"图片比例"和"屏幕比例"
- *    混在一起，竖版截图在宽窗口里会缩成一条。
- * `overflow` 保持 visible —— 手柄有一半伸在框外，必须露出来。 */
-.crop-frame { position: absolute; }
+/* 窗口：整块显示区，实际"看得见哪一格"由 `clip-path` 决定（JS 每帧写）。
+ *
+ * ★ 为什么用 clip-path 而不是"一个有尺寸的盒子 + overflow:hidden"：
+ *   盒子方案要改 `width/height/left/top` 才能开合，那是**布局**变化，图片
+ *   作为子元素会被带着一起挪 —— 用户看到的就是"换了一屏"。clip-path 只改
+ *   "裁到哪"，被裁的内容在屏幕上的位置一个像素都不动。
+ *   `will-change: clip-path` 让它在合成层里跑，手机上不掉帧。 */
+.crop-window {
+  position: absolute; inset: 0;
+  /* 初值：全裁掉（图片还没加载完，别闪一块出来）。JS 第一次 paint 就覆盖它。 */
+  clip-path: inset(50% 50% 50% 50%);
+  will-change: clip-path;
+}
 
-/* 裁图层：图片和"框外填色"都被它裁住。手柄不在里面，所以不会被裁。 */
-.crop-clip { position: absolute; inset: 0; overflow: hidden; }
-
-/* 变换层：尺寸 = 图片铺进来之后的尺寸，`transform` 由 JS 写。
- * 图片和填色都挂在它下面 —— 两件事必须在**同一个坐标系**里，
- * 否则放大之后"框外"那块会算出偏差，把没选中的内容漏出来。 */
+/* 变换层。宽高 = 图片的**原图像素**，`transform` 里带缩放（JS 写）。
+ *
+ * 图片和填色都挂在它下面 —— 两件事必须在**同一个坐标系**里，否则缩放之后
+ * "框外"那块会算出偏差，把没选中的内容漏出来。
+ *
+ * ⚠️ 这里也不许给 transform 写 transition：开合动画由 `crop.js: to()` 逐帧
+ *    插值，CSS 再插一次就会双重缓动、和窗口不同步。 */
 .crop-view {
   position: absolute; left: 0; top: 0;
   transform-origin: 0 0;
-  will-change: transform;
 }
 
 /* ⚠️ 这里**不能**留 `max-width:100%` 之类：尺寸完全由 `.crop-view` 决定，
@@ -590,26 +611,25 @@ body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
   user-select: none; -webkit-user-drag: none; -webkit-user-select: none;
 }
 
-/* 框外的填色。`box-shadow` 外溢 9999px 把框以外的整片显示区涂满。
+/* 框外那圈填色。`box-shadow` 外溢 9999px 把框以外的整片区域涂上 `--crop-shade`。
  *
- * ★ 它挂在 `.crop-view` 里（图片本地坐标），不是挂在帧上：
+ * ★ 它挂在 `.crop-view` 里（**图片本地坐标**），不是挂在窗口上：
  *   放大的时候选区也在放大，填色必须跟着一起变 —— 否则放大后的"框外"
  *   会露出没被选中的内容（第一版就是这个 bug，实测截图里左右各露出一截
- *   订单页的白边）。跟着 transform 走，才在任何视图、任何动画中间都对得上。
+ *   订单页的白边）。跟着 transform 走，才在任何缩放、任何动画中间都对得上。
  *
- * ★ 颜色分两档，这是两种视图的**分界线**：
- *   peek：不透明的底色 —— 未选中的部分彻底看不见，看到的就是"存进去的样子"
- *   edit：半透明黑 —— 未选中的部分要**露出来**（压暗而已），否则用户没法
- *         判断该往哪边拖。用户原话："拖动裁剪框时，框外原本隐藏的未选中
- *         部分需实时显示出来"。
+ * ★ 静息时它整个在窗口外面（窗口 = 选框），所以看不见；长按展开后它才露面，
+ *   颜色已经是半透明黑。一档颜色、不切换 —— 切开合时不会闪。
  * 它自己不接事件（拖动只认框和手柄），所以 `pointer-events: none`。 */
 .crop-mask {
   position: absolute; pointer-events: none;
-  box-shadow: 0 0 0 9999px var(--crop-shade, #0b0c10);
+  box-shadow: 0 0 0 9999px var(--crop-shade, rgba(0, 0, 0, .58));
 }
 
+/* 框：边框 + 八个手柄。位置/尺寸由 JS 每帧写（`transform` + `width/height`），
+ * 所以在窗口开合的动画里它和窗口边界始终是同一组数字。 */
 .crop-box {
-  position: absolute; z-index: 2;
+  position: absolute; left: 0; top: 0; z-index: 2;
   border: 1px solid rgba(255, 255, 255, .95);
   border-radius: 2px;
   cursor: move;
@@ -617,15 +637,15 @@ body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
 }
 .crop-box.dragging { border-color: var(--crop-accent); }
 
-/* peek = 选区铺满，框和手柄不该露面（填色要留着，见 `.crop-mask` 的注释）。
- * 用 opacity 而不是 `display:none`：切到 edit 时要它淡进来。 */
-.crop-layer.is-peek .crop-box { opacity: 0; pointer-events: none; }
-.crop-box { transition: opacity .16s ease; }
-.crop-layer.is-edit .crop-box { opacity: 1; }
+/* 静息态框边**就是**窗口边，再画一圈框等于描了个黑边，所以隐掉。
+ * 用 opacity 而不是 `display:none`：长按时要它淡进来，而且拖动中
+ * 命中判定看的是几何、不是这个元素的可见性（见 `crop.js: hitTest()`）。 */
+.crop-box { opacity: 0; pointer-events: none; transition: opacity .18s ease; }
+.crop-layer.is-open .crop-box { opacity: 1; pointer-events: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .crop-layer, .crop-layer.leaving { animation: none; }
-  .crop-box, .crop-mask { transition: none; }
+  .crop-box { transition: none; }
 }
 /* 三分网格：帮用户判断框里是不是只有商品。
  * 用 repeating-linear-gradient 而不是两个伪元素 —— 后者只能各画一条线，

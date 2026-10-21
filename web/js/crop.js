@@ -10,28 +10,30 @@
  * 还省了一次上传往返。
  *
  * ------------------------------------------------------------------
- * 两种视图（2026-10-21 第二轮改版，用户要的）
+ * 只有一个画面（2026-10-21 第三轮改版，用户拍板）
  * ------------------------------------------------------------------
- * `peek`（静息态）：**框里那块铺满整个显示区**，框外的部分用与背景相同的
- *   颜色盖掉。用户不用眯着眼看缩略图，直接看到"存进衣橱的会是这个样子"，
- *   而且是屏幕上能给到的最大尺寸。
- * `edit`（调整态）：整张图缩到显示区里，框 + 八个手柄 + 框外填底色。
- *   手指一按下就切过来，**松手后再切回 peek**，于是"拖动时能看见框外被
- *   藏起来的那部分"和"平时看到的是放大后的选区"两件事同时成立。
+ * 上一版做成"两个视图"：静息是选区铺满、按下切换成整图 1:1。用户否了：
+ * 「不要分两个窗口，就是一个窗口，视角主要是在截取框内，然后长按截取框会
+ *   显示不用截取的部分（淡化颜色，不是直接溶于背景）。如果没长按就只看
+ *   截取框内的内容。」
  *
- * ★ 为什么切到 edit 是**瞬间**的、回 peek 才有动画：
- *   peek 里那张图被放大过（几张到十几张），edit 才是 1:1。拖动的手感必须
- *   按 1:1 算，否则"挪 1px 框跳 8px"。如果 edit 也做过渡，那过渡的这 200ms
- *   里框（按 1:1 定位）和图片（还在缩放途中）是**错位**的，一按下去就看见
- *   两个框在打架。回 peek 没有精度要求，才做成动画。
+ * 所以现在的做法是**图片一动不动**，只让"窗口"本身开合：
+ *   · 静息：窗口裁得正好等于选框 → 看到的就是"存进去的样子"，铺满整个显示区
+ *   · 长按：窗口放到整个舞台 → 选框周围那一圈**以原尺寸、原位置**露出来，
+ *     上面盖一层 58% 黑（看得出来是什么，但明显退后）
+ *   · 松手：窗口收回选框，缩放同时归位（框被拖过的话，重新铺满）
  *
- * ★ 为什么"框外填底色"要和图片挂在**同一个变换层**（`.crop-view`）里：
- *   填色如果留在帧上、按屏幕坐标画，那么 peek 放大之后它的位置就是**旧的**
- *   —— 实测表现为选区左右各露出一截没选中的订单页白边。放进变换层、用
- *   图片本地坐标，它就永远贴着"选中的那块"，任何视图、任何动画中间都对。
- *   而框的八个手柄**不能**放在变换层里：有一半伸在框外，会被裁剪容器切掉，
- *   而且 peek 里会跟着放大好几倍。所以手柄留在帧上，只出现在 edit 视图
- *   （那时变换就是纯平移，两套坐标只差一个 `ox/oy`）。
+ * ★ 为什么这样就不"分两个窗口"了：变的东西只有两个 —— 窗口的 `clip-path`
+ *   和那层填色的深浅。图片的 `transform` 在开合过程中**完全不变**（除非框
+ *   被拖过、需要在收起时重新铺满），所以框里的内容不会放大缩小、也不会平移，
+ *   看上去就是"同一张图，周围那圈打开了"。上一版之所以像另一个窗口，是因为
+ *   它把整张图缩进显示区，画面主体从"商品"换成了"整页订单"。
+ *
+ * ★ 为什么开合用 JS 逐帧算（而不是 CSS transition）：
+ *   开合时"窗口裁剪到哪"和"框画在哪"必须**每帧**用同一组数字算出来。拆成
+ *   CSS 各转各的，只要有 1px 不同步，框边就会从窗口边上"漂"出去（这个 bug
+ *   在上一版的放大镜时期已经踩过一次）。所以这里只有一处几何计算 `paint()`，
+ *   动画只是把状态 `{s, x, y, open}` 插值后再调它。
  *
  * 用法：
  *   const out = await openCropper({ src, initial, grow });
@@ -45,26 +47,39 @@
  * `SecurityError`。相册图走的是 `/items/album/photo`，同源，没问题。
  */
 
-/** 框的最小边长（像素）。44 是移动端触控目标的经验下限，再小手指捏不住。 */
+/** 框的最小边长（屏幕像素）。44 是移动端触控目标的经验下限，再小手指捏不住。 */
 const MIN_PX = 44;
 
 /** 输出图片的最长边。订单截图的商品图本来就不大，1600 足够卡片和详情页用，
  *  又不会让裁剪后的文件比原图还大（`MAX_IMAGE_BYTES` 是 10 MB）。 */
 const MAX_SIDE = 1600;
 
-/** peek 推近（整图 → 选区铺满）的时长。**只用于进场和"松手回弹"**，
- *  切到 edit 是瞬间的，理由见文件头。 */
-const ZOOM_MS = 460;
+/** 最大放大倍数。框极小（AI 偶尔给 2%）时，"铺满"会算出 ×20 —— 那样只是把
+ *  几个像素放大成一堵马赛克墙，既看不清也没意义。到 4 倍就停，窗口小一点、
+ *  周围留底色，反而是更诚实的预览。 */
+const MAX_SCALE = 4;
 
-/** 松手后多久回到 peek。
- *  不是 0：用户经常要连着调两下（拖完整体再收一个角），立刻放大回去会让人
- *  看不清刚才调到了哪儿。也不是 2 秒以上：那样松手后画面停在那儿不动，
- *  像是"卡住了"。这段时间内再按下去会取消回弹，继续在 edit 里调。 */
-const PEEK_DELAY = 900;
+/** 长按判定。360ms 比 Android 系统长按（500ms）短一档 —— 这个动作是
+ *  "看一眼"，等半秒会有明显的迟滞感；再短又容易和"点一下"混起来。 */
+const HOLD_MS = 360;
+
+/** 长按之前的抖动容差（屏幕像素）。手指按下去总有几像素漂移，超过这个数
+ *  就判定"用户是想拖，不是想长按"。 */
+const MOVE_TOL = 10;
+
+/** 窗口开合时长。快一点：它是个"看一眼"的动作，慢吞吞的反而不像同一张图。 */
+const OPEN_MS = 260;
+
+/** 拖完之后让窗口多开一会儿，好让用户看清刚调成什么样。 */
+const LINGER_MS = 520;
 
 /** 显示区四周留给手柄的余量（px）。手柄 30px、中心压在框边上，
- *  所以每边 14px 刚好让最外侧那半个方块不越出舞台。 */
-const PAD = 14;
+ *  所以每边 16px 刚好让最外侧那半个方块不越出舞台。 */
+const PAD = 16;
+
+/** 边缘命中宽度（px）。手柄在静息态是隐身的（框 == 窗口，没有多余的边），
+ *  要给足容差用户才摸得到。 */
+const EDGE = 26;
 
 /** 把 AI 给的框往外扩。
  *
@@ -98,6 +113,10 @@ const DEFAULT_BOX = { x: 0.2, y: 0.2, w: 0.6, h: 0.6 };
 
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
+/** 三次缓出。和 CSS 的 `cubic-bezier(.22,.68,.16,1)` 观感接近 —— 收尾快、
+ *  起步稍缓，适合"窗口展开"这种有明确终点的动作。 */
+const easeOut = (p) => 1 - (1 - p) ** 3;
+
 /**
  * 打开裁剪窗口。
  *
@@ -110,8 +129,7 @@ const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 export function openCropper({ src, initial = null, grow = true }) {
   return new Promise((resolve) => {
     const layer = document.createElement("div");
-    // 一开始就是 peek：图还没加载时是一块纯底色，不会闪一下整张截图。
-    layer.className = "crop-layer is-peek";
+    layer.className = "crop-layer";
     layer.innerHTML = `
       <div class="crop-head">
         <strong>框出商品图</strong>
@@ -120,18 +138,20 @@ export function openCropper({ src, initial = null, grow = true }) {
         <p class="faint" data-hint>正在读取照片…</p>
       </div>
       <div class="crop-stage">
-        <div class="crop-frame">
-          <div class="crop-clip">
-            <div class="crop-view">
-              <img class="crop-img" alt="">
-              <div class="crop-mask" aria-hidden="true" hidden></div>
-            </div>
+        <!-- 窗口：clip-path 决定"看得见哪一块"。静息时裁成正好等于选框的
+             矩形（框内铺满），长按时放到整个舞台（框外露出来）。
+             ⚠️ 它是唯一被裁的东西，.crop-box 必须放在**外面** —— 八个手柄
+             有一半伸在框外，放进去会被切掉。 -->
+        <div class="crop-window">
+          <div class="crop-view">
+            <img class="crop-img" alt="">
+            <div class="crop-mask" aria-hidden="true" hidden></div>
           </div>
-          <div class="crop-box" hidden>
-            <i class="crop-h" data-h="nw"></i><i class="crop-h" data-h="n"></i><i class="crop-h" data-h="ne"></i>
-            <i class="crop-h" data-h="w"></i><i class="crop-h" data-h="e"></i>
-            <i class="crop-h" data-h="sw"></i><i class="crop-h" data-h="s"></i><i class="crop-h" data-h="se"></i>
-          </div>
+        </div>
+        <div class="crop-box" hidden>
+          <i class="crop-h" data-h="nw"></i><i class="crop-h" data-h="n"></i><i class="crop-h" data-h="ne"></i>
+          <i class="crop-h" data-h="w"></i><i class="crop-h" data-h="e"></i>
+          <i class="crop-h" data-h="sw"></i><i class="crop-h" data-h="s"></i><i class="crop-h" data-h="se"></i>
         </div>
       </div>
       <div class="crop-actions">
@@ -147,8 +167,8 @@ export function openCropper({ src, initial = null, grow = true }) {
 
     const img = layer.querySelector(".crop-img");
     const view = layer.querySelector(".crop-view");
+    const win = layer.querySelector(".crop-window");
     const stage = layer.querySelector(".crop-stage");
-    const frame = layer.querySelector(".crop-frame");
     const maskEl = layer.querySelector(".crop-mask");
     const boxEl = layer.querySelector(".crop-box");
     const hint = layer.querySelector("[data-hint]");
@@ -165,36 +185,45 @@ export function openCropper({ src, initial = null, grow = true }) {
     let box = initial
       ? expand(initial, grow ? 1.5 : 1)
       : { ...DEFAULT_BOX };
-    /** `"peek"` = 选区铺满显示区；`"edit"` = 整图 + 可拖的框。 */
-    let mode = "peek";
+    // 0 宽/0 高的框会让 `plan()` 除出 Infinity。2% 是纯防御，正常路径到不了。
+    box.w = Math.max(0.02, box.w);
+    box.h = Math.max(0.02, box.h);
+    box.x = clamp(box.x, 0, 1 - box.w);
+    box.y = clamp(box.y, 0, 1 - box.h);
+
+    /** ★ 整个画面的**唯一**状态。
+     *  `s`    屏幕像素 / 原图像素
+     *  `x, y` 图片左上角在舞台里的坐标
+     *  `open` 0 = 窗口贴着框；1 = 窗口放到整个舞台
+     *  开合动画只是把这个对象插值，画面永远是它的一次函数 —— 所以"窗口裁到哪"
+     *  和"框画在哪"不可能错位。 */
+    let st = { s: 1, x: 0, y: 0, open: 0 };
+
     /** 图片量出来了、可以交互。 */
     let ready = false;
     /** 已经关窗（含淡出的那 170ms）。所有异步回调都要先看它。 */
     let done = false;
-
-    // ---- 几何：图片在 edit 视图下（1:1）的布局 ----
-    // `w0/h0` 是图片铺进显示区后的尺寸，`ox/oy` 是它在帧里的左上角
-    // （显示区按图片比例定尺寸，所以这两个恒为 0，留着只为看懂坐标系）。
-    // 拖动换算和框的定位**全部**基于它们，与当前视觉缩放无关 —— 所以
-    // 从 peek 切到 edit 的那一刻不会算错。
-    let w0 = 0;
-    let h0 = 0;
-    let ox = 0;
-    let oy = 0;
+    /** 舞台的屏幕矩形。拖动过程中每帧都读 `getBoundingClientRect()` 会强制
+     *  同步布局（那一帧刚写过 transform），手感会掉帧 —— 按下时量一次就够。 */
+    let rect = null;
 
     let drag = null;
-    let peekTimer = 0;
-    /** 进场动画进行中。这时 `mode` 已经是 peek，但画面上要停在"整图"。 */
-    let intro = false;
-    /** peek 的放大倍数，只用来写提示文案。 */
-    let peekZoom = 1;
-    let firstPaint = true;
+    let holdTimer = 0;
+    let lingerTimer = 0;
+    let raf = 0;
+    let animFrom = null;
+    let animTo = null;
+    let animT0 = 0;
 
     const finish = (value) => {
       if (done) return;
       done = true;
-      clearTimeout(peekTimer);
-      peekTimer = 0;
+      cancelAnimationFrame(raf);
+      raf = 0;
+      animTo = null;
+      clearTimeout(holdTimer);
+      clearTimeout(lingerTimer);
+      holdTimer = lingerTimer = 0;
       drag = null;
       // 所有挂在 window 上的监听都要摘。`finish` 有四条路（取消 / 确认 /
       // Esc / 路由切换），漏摘任何一条都会让浮层关掉之后还在响应。
@@ -221,95 +250,167 @@ export function openCropper({ src, initial = null, grow = true }) {
       }, 170);
     };
 
-    // -- 布局 -------------------------------------------------------------
+    // -- 几何 -------------------------------------------------------------
 
-    /** 量一次舞台，按**图片比例**定出显示区，再算出图片在 edit 视图下的尺寸。
-     *  图片加载完、窗口尺寸变化（手机转屏 / 地址栏收起）都要重来。
-     *
-     *  ★ 显示区的尺寸跟着图片走（而不是写死一条边距让它自己撑）：
-     *    edit 视图里图片**正好铺满**显示区，一点不浪费；peek 里选区也是
-     *    这个区域能给到的最大尺寸。写成 `inset: 14px` 的话，竖版订单截图
-     *    在宽窗口里左右会空掉一大半，"铺满"就成了空话。 */
-    function layout() {
-      const stageW = stage.clientWidth;
-      const stageH = stage.clientHeight;
-      if (!stageW || !stageH || !img.naturalWidth || !img.naturalHeight) return false;
-      // 给手柄留的余量：手柄 30px、中心压在框边上，所以每边 14px 刚好不越界
-      const availW = Math.max(1, stageW - PAD * 2);
-      const availH = Math.max(1, stageH - PAD * 2);
-      const fit = Math.min(availW / img.naturalWidth, availH / img.naturalHeight);
-      // 图片被压成 0 尺寸时 `fit` 会是 0 → 后面 `dx = 位移 / 0` 得到
-      // Infinity，框跳到边界或冻在 `NaNpx`。宁可这一帧不画。
-      if (!isFinite(fit) || fit <= 0) return false;
-      w0 = img.naturalWidth * fit;
-      h0 = img.naturalHeight * fit;
-      frame.style.width = `${w0}px`;
-      frame.style.height = `${h0}px`;
-      frame.style.left = `${(stageW - w0) / 2}px`;
-      frame.style.top = `${(stageH - h0) / 2}px`;
-      // 显示区就是图片本身的大小，所以帧内偏移恒为 0；这两个变量留着是为了
-      // 让 `renderBox()` / `applyTransform()` 的坐标系一眼看得懂。
-      ox = 0;
-      oy = 0;
-      view.style.width = `${w0}px`;
-      view.style.height = `${h0}px`;
-      return true;
+    /** 选框在舞台坐标系里的矩形（**当前**缩放，含动画中间态）。 */
+    function boxRect() {
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      return {
+        x: st.x + box.x * nw * st.s,
+        y: st.y + box.y * nh * st.s,
+        w: box.w * nw * st.s,
+        h: box.h * nh * st.s,
+      };
     }
 
-    function setTransition(on) {
-      const v = on && !reduced ? `transform ${ZOOM_MS}ms cubic-bezier(.22, .68, .16, 1)` : "none";
-      if (view.style.transition !== v) view.style.transition = v;
+    /** 算出"让当前选框正好铺满舞台"的缩放和图片位置。**不改状态**，只算 ——
+     *  收起时要往这儿走，拖动中也可能随时拿来算。 */
+    function plan() {
+      const sw = stage.clientWidth;
+      const sh = stage.clientHeight;
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      const maxW = Math.max(1, sw - PAD * 2);
+      const maxH = Math.max(1, sh - PAD * 2);
+      let s = Math.min(maxW / (box.w * nw), maxH / (box.h * nh));
+      if (!isFinite(s) || s <= 0) s = 1;
+      s = Math.min(s, MAX_SCALE);
+      return {
+        s,
+        // 选框中心 → 舞台中心
+        x: sw / 2 - (box.x + box.w / 2) * nw * s,
+        y: sh / 2 - (box.y + box.h / 2) * nh * s,
+        open: 0,
+      };
     }
 
-    /** 按当前视图画图片的位置与缩放。
-     *
-     *  peek：把框里的那块按**能放下的最大倍数**放大（`contain`），看上去就是
-     *        "选区铺满了显示区"。比例和显示区不完全一致时，短的那一边会留出
-     *        底色 —— 宁可留白，也不裁掉用户刚框进来的内容。
-     *  edit：整图，1:1。 */
-    function applyTransform() {
-      if (mode === "peek" && !intro) {
-        // 显示区就是 `w0 × h0` 那块（见 `layout()`），所以目标框就是它。
-        // 下限只为防 0 除；框本身有 MIN_PX 兜着，正常不会到这里。
-        const bw = Math.max(0.001, box.w * w0);
-        const bh = Math.max(0.001, box.h * h0);
-        const z = Math.min(w0 / bw, h0 / bh);
-        peekZoom = isFinite(z) && z > 0 ? z : 1;
-        // `transform-origin` 是 0 0，所以"框中心挪到显示区中心"就是
-        // 直接把框中心的本地坐标乘上 `z` 再从中心减掉。
-        const tx = w0 / 2 - z * (box.x * w0 + bw / 2);
-        const ty = h0 / 2 - z * (box.y * h0 + bh / 2);
-        view.style.transform = `translate(${tx}px, ${ty}px) scale(${z})`;
-      } else {
-        peekZoom = 1;
-        view.style.transform = `translate(${ox}px, ${oy}px)`;
-      }
-    }
-
-    /** 框（边框 + 手柄）和框外填色。
-     *
-     * ★ 两者坐标系不一样，这是刻意的：
-     *  · 填色在 `.crop-view` 里，用**图片本地坐标** —— 它跟着 `transform`
-     *    一起缩放平移，所以"选区以外"在任何视图、任何动画中间都被盖成底色，
-     *    不可能露出没选中的内容。
-     *  · 边框手柄在 `.crop-frame` 里，用**帧坐标** —— 它必须不被 `.crop-clip`
-     *    裁剪，否则框贴到图片边上时手柄会被切掉一半（那一半正好在框外）。
-     *    peek 里它是隐身的，位置随便停在 edit 的坐标上就行。
-     */
-    function renderBox() {
+    /** 唯一的绘制入口。任何状态下都调它，别在别处写内联样式。 */
+    function paint() {
       if (!ready) return;
-      const lx = box.x * w0;
-      const ly = box.y * h0;
-      const lw = box.w * w0;
-      const lh = box.h * h0;
-      maskEl.style.left = `${lx}px`;
-      maskEl.style.top = `${ly}px`;
-      maskEl.style.width = `${lw}px`;
-      maskEl.style.height = `${lh}px`;
-      boxEl.style.left = `${ox + lx}px`;
-      boxEl.style.top = `${oy + ly}px`;
-      boxEl.style.width = `${lw}px`;
-      boxEl.style.height = `${lh}px`;
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      const sw = stage.clientWidth;
+      const sh = stage.clientHeight;
+
+      view.style.transform =
+        `translate3d(${st.x.toFixed(2)}px, ${st.y.toFixed(2)}px, 0) scale(${st.s.toFixed(5)})`;
+
+      // 窗口 = 选框矩形 ——(按 open)→ 整个舞台。四个 inset 分别插值，
+      // 于是"窗口边界恰好压在框边上"（open=0）和"完全打开"（open=1）之间的
+      // 每一帧都是有意义的，不会出现框露在窗口外。
+      const r = boxRect();
+      const k = 1 - st.open;
+      win.style.clipPath =
+        `inset(${Math.max(0, r.y * k)}px ${Math.max(0, (sw - r.x - r.w) * k)}px ` +
+        `${Math.max(0, (sh - r.y - r.h) * k)}px ${Math.max(0, r.x * k)}px)`;
+
+      // 框（边框 + 手柄）在舞台坐标系里，不受窗口裁剪 —— 手柄要能伸出去。
+      boxEl.style.transform = `translate3d(${r.x}px, ${r.y}px, 0)`;
+      boxEl.style.width = `${r.w}px`;
+      boxEl.style.height = `${r.h}px`;
+
+      // 填色在 `.crop-view` 里，用**图片本地坐标**（原图像素）：它跟着
+      // transform 一起缩放平移，所以"选框以外"在任何缩放、任何动画中间
+      // 都严丝合缝地贴着框。写屏幕坐标的话，一放大就会露出没选中的内容。
+      maskEl.style.left = `${box.x * nw}px`;
+      maskEl.style.top = `${box.y * nh}px`;
+      maskEl.style.width = `${box.w * nw}px`;
+      maskEl.style.height = `${box.h * nh}px`;
+    }
+
+    /** 把状态插到 `next`，然后重画。`ms = 0` 直接就位。 */
+    function to(next, ms) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+      animTo = null;
+      if (!ms) {
+        st = next;
+        paint();
+        updateHint();
+        return;
+      }
+      animFrom = { ...st };
+      animTo = next;
+      animT0 = performance.now();
+      const step = () => {
+        const p = Math.min(1, (performance.now() - animT0) / ms);
+        const e = easeOut(p);
+        st = {
+          s: animFrom.s + (animTo.s - animFrom.s) * e,
+          x: animFrom.x + (animTo.x - animFrom.x) * e,
+          y: animFrom.y + (animTo.y - animFrom.y) * e,
+          open: animFrom.open + (animTo.open - animFrom.open) * e,
+        };
+        paint();
+        updateHint(); // ★ 必须跟着 `st` 走 —— `open` 是**动画中**才变成 1 的
+        if (p < 1) {
+          raf = requestAnimationFrame(step);
+        } else {
+          st = animTo;
+          animTo = null;
+          raf = 0;
+        }
+      };
+      raf = requestAnimationFrame(step);
+    }
+
+    /** 动画还在跑就直接跳到终点。新手势开始前必须调一次 —— 否则拖动基准
+     *  会取到动画中间态的 `s`，手指一动框就跳一段。 */
+    function settle() {
+      if (!animTo) return;
+      cancelAnimationFrame(raf);
+      raf = 0;
+      st = animTo;
+      animTo = null;
+      paint();
+      updateHint();
+    }
+
+    /** 把框夹回合法范围：不小于 44px（手指捏得住）、不越出图片。
+     *
+     * ★ `MIN_PX / (nw * s)` 是"44 屏幕像素等于多少比例"，随缩放变 —— 所以
+     *   必须在 `s` 定下来之后才能算。
+     *
+     * ★ 还要防 `clamp(v, lo, hi)` 在 `hi < lo` 时**返回 `hi`** 这个坑：框小于
+     *   44px 时，`b.x + b.w - minW` 会小于 0，于是按下就跳、甚至跳到负坐标
+     *   （画面上还框着，`output()` 却把源区域夹回 0，裁出来的不是框住那块）。
+     *   所以下面每个 `clamp` 的 hi 都带了 `Math.max(...)` 兜底。
+     */
+    function keepBoxInBounds() {
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      const minW = Math.min(1, MIN_PX / (nw * st.s));
+      const minH = Math.min(1, MIN_PX / (nh * st.s));
+      box.w = clamp(box.w, minW, 1);
+      box.h = clamp(box.h, minH, 1);
+      box.x = clamp(box.x, 0, 1 - box.w);
+      box.y = clamp(box.y, 0, 1 - box.h);
+    }
+
+    /** 首屏（以及窗口尺寸变化后）：重新铺满 + 修掉过小的框。 */
+    function fit() {
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      // ★ `.crop-view` 的宽高必须是**原图像素**：它的子元素（img / mask）都按
+      //   这个尺寸百分比铺开，漏写的话 img 就是 0×0 —— 画面全黑，而
+      //   `boxRect()` 还照常算得出框，看起来像"功能没好"（实测踩过）。
+      //   缩放交给 `transform: scale()`，这样开合时可以逐帧插值。
+      view.style.width = `${nw}px`;
+      view.style.height = `${nh}px`;
+      let p = plan();
+      const minW = Math.min(1, MIN_PX / (nw * p.s));
+      const minH = Math.min(1, MIN_PX / (nh * p.s));
+      if (box.w < minW || box.h < minH) {
+        box.w = Math.max(box.w, minW);
+        box.h = Math.max(box.h, minH);
+        box.x = clamp(box.x, 0, 1 - box.w);
+        box.y = clamp(box.y, 0, 1 - box.h);
+        p = plan(); // 框变大了，缩放要重算 —— 否则窗口会溢出去
+      }
+      keepBoxInBounds();
+      st = p;
+      paint();
       updateHint();
     }
 
@@ -330,129 +431,74 @@ export function openCropper({ src, initial = null, grow = true }) {
       };
     }
 
-    /** 标题下面那行提示。它承担了"解释现在看到的是什么"的职责 ——
-     *  peek 里画面被放大了好几倍，不写一句"已放大 ×3.4"，用户会以为
-     *  这张图本来就是糊的。 */
+    /** 标题下面那行提示。它承担了"告诉用户这里能长按"的职责 —— 不说的话
+     *  没有人会想到去长按一块图片。高度由 CSS 写死，换文案不会推动布局。 */
     function updateHint() {
-      if (!ready || intro) return;
-      if (mode === "peek") {
-        const z = peekZoom >= 1.05 ? `×${peekZoom.toFixed(1)}` : "原尺寸";
-        hint.textContent = `已放大 ${z} · 点一下画面调整选区`;
-      } else {
-        const o = output();
-        hint.textContent = `拖动四角或四边 · 输出 ${o.outW}×${o.outH} px`;
-      }
+      if (!ready) return;
+      const o = output();
+      hint.textContent =
+        st.open > 0.5
+          ? `松开收起 · 拖动边角调整 · 输出 ${o.outW}×${o.outH}`
+          : `长按查看框外 · 输出 ${o.outW}×${o.outH} px`;
     }
 
-    // -- 视图切换 ---------------------------------------------------------
+    // -- 开合 -------------------------------------------------------------
 
-    function enterEdit({ animate = false } = {}) {
-      if (done) return;
-      clearTimeout(peekTimer);
-      peekTimer = 0;
-      intro = false;
-      if (mode === "edit") return;
-      mode = "edit";
-      layer.classList.remove("is-peek");
-      layer.classList.add("is-edit");
-      setTransition(animate);
-      applyTransform();
-      renderBox();
-    }
-
-    function enterPeek({ animate = true } = {}) {
-      if (done) return;
-      clearTimeout(peekTimer);
-      peekTimer = 0;
-      if (mode === "peek") return;
-      intro = false;
-      mode = "peek";
-      layer.classList.add("is-peek");
-      layer.classList.remove("is-edit");
-      setTransition(animate);
-      applyTransform();
-      updateHint();
-    }
-
-    /** 进场：先给一帧"整图"，再推近到选区。
-     *  两个作用：① 告诉用户这是从哪张图里裁的；② 让"铺满"这个结果
-     *  有个来处，不会一打开就是一张莫名放大的图。 */
-    function startIntro() {
-      mode = "peek";
-      intro = true;
-      layer.classList.add("is-peek");
-      layer.classList.remove("is-edit");
-      setTransition(false);
-      applyTransform();
-      // 先摆一次框：不然 `maskEl` 会是一个 0×0、贴在左上角的元素，
-      // 它那 9999px 的外溢阴影正好糊住整个画面（第一次淡入时才会暴露）。
-      renderBox();
-      if (reduced) {
-        intro = false;
-        applyTransform();
-        updateHint();
-        return;
-      }
-      // 双 rAF：第一帧把"整图"这个起点真正画出去，第二帧才改成推近后的
-      // transform。同一帧里连着改两次内联样式会被合并成一次计算样式，
-      // transition 没有起点 —— 表现就是"直接跳过去，没有动画"。
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (done || !intro) return;
-          intro = false;
-          setTransition(true);
-          applyTransform();
-          updateHint();
-        });
-      });
-    }
-
-    /** 把框拉回合法范围：不小于 44px（手指捏得住）、不越出图片。
+    /** 把窗口放到整个舞台（长按 / 开始拖动时）。
      *
-     * ★ 必须在每次量完布局后跑一遍。AI 偶尔给出极小的框（比如高 2%），
-     *   `MIN_PX / h0` 就比框本身还大，于是拖动里 `clamp(v, lo, hi)` 出现
-     *   `hi < lo` —— 而 `clamp` 在那种情况下返回 `hi`：一按下框就自己跳，
-     *   甚至跳到负坐标（画面上还框着，`output()` 却把源区域夹回 0，裁出来
-     *   的不是框住的那块）。 */
-    function keepBoxInBounds() {
-      const minW = Math.min(1, MIN_PX / w0);
-      const minH = Math.min(1, MIN_PX / h0);
-      box.w = clamp(box.w, minW, 1);
-      box.h = clamp(box.h, minH, 1);
-      box.x = clamp(box.x, 0, 1 - box.w);
-      box.y = clamp(box.y, 0, 1 - box.h);
+     *  ★ 这里**不碰** `st.s / st.x / st.y` —— 图片一动不动，"打开"的只是窗口。
+     *    这是整套改版的核心：用户看到的是同一张图揭掉了周围那圈布，而不是
+     *    换了一屏内容。 */
+    function reveal(animate) {
+      if (st.open === 1 && !animTo) return;
+      layer.classList.add("is-open");
+      // 提示由 `to()` 的动画帧负责更新（`open` 要等插值到位才是 1），
+      // 这里再调一次只会拿到还是 0 的旧值。
+      to({ ...st, open: 1 }, animate && !reduced ? OPEN_MS : 0);
     }
 
-    /** 重新量一遍再重画。图片加载完、窗口尺寸变化都走这里。 */
-    function remeasure() {
-      if (!img.naturalWidth) return;
-      if (!layout()) {
-        ready = false;
-        boxEl.hidden = true;
-        maskEl.hidden = true;
-        okBtn.disabled = true;
-        return;
-      }
-      ready = true;
-      keepBoxInBounds();
-      boxEl.hidden = false;
-      maskEl.hidden = false;
-      okBtn.disabled = false;
-      if (firstPaint) {
-        firstPaint = false;
-        startIntro();
-        return;
-      }
-      // 转屏 / 键盘收起：直接落到新位置，别放动画（动画期间拖动会算歪）
-      setTransition(false);
-      applyTransform();
-      renderBox();
+    /** 收回窗口，同时把缩放归位（框被拖过的话要重新铺满舞台）。 */
+    function conceal() {
+      if (done) return;
+      layer.classList.remove("is-open");
+      to(plan(), reduced ? 0 : OPEN_MS);
     }
 
-    // -- 拖动 -------------------------------------------------------------
-    //
-    // 用 Pointer Events 而不是 mouse/touch 两套：一套代码同时吃鼠标、触摸屏、
-    // 触控笔，还自带 setPointerCapture（手指划出框外也不会丢事件）。
+    // -- 命中 / 拖动 -------------------------------------------------------
+
+    /** 舞台坐标系里的点。 */
+    function localPoint(ev) {
+      const r = rect || (rect = stage.getBoundingClientRect());
+      return { x: ev.clientX - r.left, y: ev.clientY - r.top };
+    }
+
+    /** 判定按下的位置：八个手柄之一 / 整体移动 / 无效（返回 null）。
+     *
+     *  ★ 静息态框边**就是**窗口边，手上没有可见的手柄可抓 —— 所以容差给到
+     *    26px，用户"按住边缘"就能起手。这比画一圈看得见但很丑的手柄更省地方。
+     *  ⚠️ 容差不能超过框的 1/3：框很小的时候，否则整个框都算"角"，永远拖不动
+     *    整体。 */
+    function hitTest(p) {
+      const r = boxRect();
+      const e = Math.min(EDGE, r.w / 3, r.h / 3);
+      if (p.x < r.x - e || p.x > r.x + r.w + e || p.y < r.y - e || p.y > r.y + r.h + e) return null;
+      const L = p.x - r.x <= e;
+      const R = r.x + r.w - p.x <= e;
+      const T = p.y - r.y <= e;
+      const B = r.y + r.h - p.y <= e;
+      if (L && T) return "nw";
+      if (R && T) return "ne";
+      if (L && B) return "sw";
+      if (R && B) return "se";
+      if (L) return "w";
+      if (R) return "e";
+      if (T) return "n";
+      if (B) return "s";
+      const outside = p.x < r.x || p.x > r.x + r.w || p.y < r.y || p.y > r.y + r.h;
+      // 框内、离边都还远 → 整体挪。按在框外那一圈又不是边上 → 不做事
+      // （否则想收个角会先把框拖跑）。
+      return outside ? null : "move";
+    }
 
     function onDown(ev) {
       if (!ready || done) return;
@@ -460,40 +506,33 @@ export function openCropper({ src, initial = null, grow = true }) {
       // 第二根手指不参与：不然双指捏合 / 误触会让框跳到另一根手指的位置，
       // 而且任意一根抬起都会结束拖动。
       if (ev.isPrimary === false) return;
-      // ★ 只有**显示区里**的按下才算"调整选区"。
-      //   不圈定范围的话，点标题、点「用这张」也会先瞬间切到 edit 并开始一次
-      //   拖动 —— 触屏点按抖动几像素是常态，框就被悄悄挪了，用户完全看不出
-      //   （点确认的那一刻框已经变了）。这条是实测之外的必然推论，必须挡。
+      // ★ 只有**显示区里**的按下才算"查看 / 调整"。
+      //   不圈定范围的话，点标题、点「用这张」也会起一个长按计时器 —— 手指
+      //   抖几像素就是一次改框，用户完全看不出（点确认那一刻框已经变了）。
       if (!stage.contains(ev.target)) return;
 
-      const wasPeek = mode === "peek";
-      const handle = ev.target.closest ? ev.target.closest("[data-h]") : null;
-      let kind = handle ? handle.dataset.h : null;
-      if (!kind) {
-        // peek 里整屏都是选区，用户"按在图上"的意图就是拖这个框；
-        // edit 里只有框内才能整体拖，按在框外（那片压暗区）不做事 ——
-        // 否则想收个角会先把框拖跑。
-        if (wasPeek || boxEl.contains(ev.target)) kind = "move";
-      }
-      // 按在框外：什么都不做，也**不动**那个待回弹的计时器（让它照常到点回 peek）
+      settle();
+      const p = localPoint(ev);
+      const kind = hitTest(p);
       if (!kind) return;
 
       ev.preventDefault();
-      // 一按下就切到 edit（瞬间），这样手指还没动就能看见框外被藏起来的部分
-      if (wasPeek) enterEdit({ animate: false });
-      // 真正开始拖了才取消回弹：否则拖到一半画面自己放大回 peek
-      clearTimeout(peekTimer);
-      peekTimer = 0;
-
+      clearTimeout(lingerTimer);
+      lingerTimer = 0;
       drag = {
         kind,
         pointerId: ev.pointerId,
-        lastX: ev.clientX,
-        lastY: ev.clientY,
-        startX: ev.clientX,
-        startY: ev.clientY,
+        startX: p.x,
+        startY: p.y,
+        lastX: p.x,
+        lastY: p.y,
         box: { ...box },
+        moved: false,
       };
+      // 长按 → 展开看框外。**不移动**才算长按，所以先起计时器；
+      // 手指一动就取消（那种情况按"开始拖动"处理，见 onMove）。
+      clearTimeout(holdTimer);
+      holdTimer = window.setTimeout(onHold, HOLD_MS);
       // 捕获到 layer：手指移出窗口也能继续收到 move/up。
       // ⚠️ 必须包 try：`setPointerCapture` 对**合成事件**（自动化测试派发的
       // PointerEvent）会抛 NotFoundError，不包就会让第一次按下就中断拖动。
@@ -502,7 +541,12 @@ export function openCropper({ src, initial = null, grow = true }) {
       } catch {
         /* 拿不到捕获也能拖，只是手指移出窗口时会断 —— 不该因此报错 */
       }
-      boxEl.classList.add("dragging");
+    }
+
+    function onHold() {
+      holdTimer = 0;
+      if (!drag || done) return;
+      reveal(true);
     }
 
     function onMove(ev) {
@@ -510,45 +554,67 @@ export function openCropper({ src, initial = null, grow = true }) {
       // 只认发起这次拖动的那个指针。不校验的话，中途落下的第二根手指
       // 会按自己的坐标算出巨大的位移，框直接飞走。
       if (ev.pointerId !== drag.pointerId) return;
-      drag.lastX = ev.clientX;
-      drag.lastY = ev.clientY;
-      // 1:1 视图下的换算基准。**不能用 `getBoundingClientRect()`** ——
-      // 那是"当前视觉尺寸"，peek 里被放大过，用它算出的位移会小好几倍。
-      const dx = (ev.clientX - drag.startX) / w0;
-      const dy = (ev.clientY - drag.startY) / h0;
+      const p = localPoint(ev);
+      drag.lastX = p.x;
+      drag.lastY = p.y;
+
+      const dx = p.x - drag.startX;
+      const dy = p.y - drag.startY;
+      if (!drag.moved && st.open < 1) {
+        // 还没展开：先看看是不是"想拖"（位移超过抖动容差）
+        if (Math.hypot(dx, dy) < MOVE_TOL) return;
+        clearTimeout(holdTimer);
+        holdTimer = 0;
+        // 立刻展开，不给动画：手指已经在动，窗口再花 260ms 慢慢开会让整个
+        // 手势发黏，而且拖动基准会落在动画中间态上。
+        reveal(false);
+      }
+      drag.moved = true;
+      boxEl.classList.add("dragging");
+      applyMove(dx, dy);
+    }
+
+    function applyMove(dxPx, dyPx) {
+      const nw = img.naturalWidth;
+      const nh = img.naturalHeight;
+      // 屏幕像素 → 比例。**不能用 `getBoundingClientRect()`** 换算：那是
+      // "当前视觉尺寸"，和 `st.s` 一旦不同步，框就走得比手指快或慢。
+      const dx = dxPx / (nw * st.s);
+      const dy = dyPx / (nh * st.s);
       const b = drag.box;
-      const minW = MIN_PX / w0;
-      const minH = MIN_PX / h0;
+      const minW = Math.min(1, MIN_PX / (nw * st.s));
+      const minH = Math.min(1, MIN_PX / (nh * st.s));
       const m = drag.kind;
 
       if (m === "move") {
         box = {
           ...b,
-          x: clamp(b.x + dx, 0, 1 - b.w),
-          y: clamp(b.y + dy, 0, 1 - b.h),
+          x: clamp(b.x + dx, 0, Math.max(0, 1 - b.w)),
+          y: clamp(b.y + dy, 0, Math.max(0, 1 - b.h)),
         };
       } else {
         let { x, y, w, h } = b;
         // 拖左边：左边界动，同时从宽度里扣掉同样的量（右边界固定）
         if (m.includes("w")) {
-          const nx = clamp(b.x + dx, 0, b.x + b.w - minW);
+          const nx = clamp(b.x + dx, 0, Math.max(0, b.x + b.w - minW));
           w = b.x + b.w - nx;
           x = nx;
         }
         if (m.includes("e")) {
-          w = clamp(b.w + dx, minW, 1 - b.x);
+          w = clamp(b.w + dx, minW, Math.max(minW, 1 - b.x));
         }
         if (m.includes("n")) {
-          const ny = clamp(b.y + dy, 0, b.y + b.h - minH);
+          const ny = clamp(b.y + dy, 0, Math.max(0, b.y + b.h - minH));
           h = b.y + b.h - ny;
           y = ny;
         }
         if (m.includes("s")) {
-          h = clamp(b.h + dy, minH, 1 - b.y);
+          h = clamp(b.h + dy, minH, Math.max(minH, 1 - b.y));
         }
         box = { x, y, w, h };
       }
-      renderBox();
+      paint();
+      updateHint();
     }
 
     /** @param ev 可空（`blur` 那条路没有事件） */
@@ -556,20 +622,31 @@ export function openCropper({ src, initial = null, grow = true }) {
       if (!drag) return;
       // 抬起的不是发起拖动的那个指针 → 不结束（另一根手指抬起不该打断）
       if (ev && ev.pointerId !== undefined && ev.pointerId !== drag.pointerId) return;
+      const moved = drag.moved;
       drag = null;
+      clearTimeout(holdTimer);
+      holdTimer = 0;
       boxEl.classList.remove("dragging");
-      if (done || mode !== "edit") return;
-      // 松手 → 过一会儿回到"选区铺满"。这期间再按下去会取消它（继续调），
-      // 于是"连续微调"和"松手看效果"两种节奏都能走通。
-      clearTimeout(peekTimer);
-      peekTimer = window.setTimeout(() => enterPeek({ animate: true }), PEEK_DELAY);
+      if (done) return;
+      // 静息态按了一下就松（没到长按时长、也没拖动）→ 什么都没发生，不用收。
+      if (st.open === 0) return;
+      clearTimeout(lingerTimer);
+      // 拖过就多开一会儿让用户看清结果；只是长按看了一眼就马上收。
+      // 不写 0 是因为 `pointerup` 和合成的 click 之间可能还隔一帧，窗口闪一下
+      // 反而像故障。
+      lingerTimer = window.setTimeout(conceal, moved ? LINGER_MS : 60);
     }
 
     // 用 `function` 声明而不是 `const`：`finish()` 里要摘这几个监听，
     // 而 `finish` 定义在上面。函数声明会提升，`const` 不会（TDZ）。
     function onResize() {
-      remeasure();
-      // 拖动途中换了布局（手机地址栏收起 / 转屏）：`w0/h0` 变了，而
+      rect = null;
+      if (!img.naturalWidth) return;
+      settle();
+      if (!stage.clientWidth || !stage.clientHeight) return;
+      ready = true;
+      fit();
+      // 拖动途中换了布局（手机地址栏收起 / 转屏）：`s` 变了，而
       // `drag.startX` 是像素坐标 —— 不重设基准的话，下一次 `pointermove`
       // 会拿"旧起点 + 新系数"算，框直接跳一段。
       if (drag) {
@@ -591,7 +668,7 @@ export function openCropper({ src, initial = null, grow = true }) {
     }
     /** 窗口失焦（Alt+Tab / 切到别的 App / 拖出浏览器窗口）：很可能收不到
      *  `pointerup`。不自己收尾的话 `drag` 会一直挂着 —— 之后鼠标划过浮层就
-     *  无声改框，而且**永远不回 peek**（没人再排那个计时器了）。 */
+     *  无声改框，而且长按计时器 / 收起计时器也不会再被排上。 */
     function onBlur() {
       endDrag();
     }
@@ -608,10 +685,27 @@ export function openCropper({ src, initial = null, grow = true }) {
     window.addEventListener("keydown", onKey);
     window.addEventListener("hashchange", onHash);
 
-    img.addEventListener("load", remeasure);
+    /** 图片量出来了：解锁交互、铺满、写提示。 */
+    function remeasure() {
+      rect = null;
+      if (!stage.clientWidth || !stage.clientHeight) return;
+      ready = true;
+      boxEl.hidden = false;
+      maskEl.hidden = false;
+      okBtn.disabled = false;
+      // 图还在加载时用户就转了屏 → `load` 之后舞台尺寸可能已经变了，
+      // 所以这里不是"用上次量的数字"，而是按当前尺寸重算一遍。
+      fit();
+    }
+
+    img.addEventListener("load", () => {
+      if (done || !img.naturalWidth) return;
+      remeasure();
+    });
     img.addEventListener("error", () => {
       tip.hidden = false;
       okBtn.disabled = true;
+      hint.textContent = "这张图读不出来";
     });
     img.src = src;
 
