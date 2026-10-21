@@ -25,6 +25,11 @@ const MIN_PX = 44;
  *  又不会让裁剪后的文件比原图还大（`MAX_IMAGE_BYTES` 是 10 MB）。 */
 const MAX_SIDE = 1600;
 
+/** 放大镜的倍数（相对**屏幕**上的显示尺寸）。
+ *  2.5 是权衡：手机上一张 864px 宽的截图显示在 390px 宽的屏上（≈0.45 倍），
+ *  再乘 2.5 就是 1.1 倍原图像素 —— 刚好到"能看清边缘"又不至于糊成马赛克。 */
+const ZOOM = 2.5;
+
 /** 把 AI 给的框往外扩。
  *
  * **为什么必须扩**（2026-10-21 实测，同一张维动订单截图）：
@@ -68,9 +73,15 @@ export function openCropper({ src, initial = null }) {
     layer.innerHTML = `
       <div class="crop-head">
         <strong>框出商品图</strong>
-        <p class="faint">拖四角或四边调整，框里那部分才会存进衣橱</p>
+        <p class="faint">拖四角或四边，放大镜会跟着你拖的那个角走</p>
       </div>
-      <div class="crop-stage"><img class="crop-img" alt=""></div>
+      <div class="crop-stage">
+        <img class="crop-img" alt="">
+        <div class="crop-zoom" aria-hidden="true">
+          <div class="crop-zoom-frame"><canvas></canvas></div>
+          <span class="crop-zoom-cap">放大镜 <b>—</b></span>
+        </div>
+      </div>
       <div class="crop-box" hidden>
         <i class="crop-h" data-h="nw"></i><i class="crop-h" data-h="n"></i><i class="crop-h" data-h="ne"></i>
         <i class="crop-h" data-h="w"></i><i class="crop-h" data-h="e"></i>
@@ -91,6 +102,10 @@ export function openCropper({ src, initial = null }) {
     const boxEl = layer.querySelector(".crop-box");
     const okBtn = layer.querySelector("[data-ok]");
     const tip = layer.querySelector(".crop-tip");
+    const zoomEl = layer.querySelector(".crop-zoom");
+    const zoomFrame = layer.querySelector(".crop-zoom-frame");
+    const zoomCanvas = zoomEl.querySelector("canvas");
+    const zoomCap = zoomEl.querySelector(".crop-zoom-cap b");
 
     /** 当前框，**存的是相对图片的比例**（0~1），不是像素。
      *  这样窗口大小变了、图片重新布局了，框都还贴在同一个位置。 */
@@ -99,10 +114,22 @@ export function openCropper({ src, initial = null }) {
     /** 拖动中的临时状态。`null` = 没在拖。 */
     let drag = null;
     let done = false;
+    /** 首帧标志：第一次量出图片尺寸时放一次「整图 → 目标框」的推近动画，
+     *  之后的 resize 只重画，不再放动画。 */
+    let firstPaint = true;
+    /** 入场动画的进行态（`null` = 已收敛）。放动画时 `box` 是**整张图**，
+     *  `intro.target` 才是真正的目标框 —— 中途被打断就靠它立刻归位。 */
+    let intro = null;
+    let zoomRaf = 0;
+    /** 放大镜对准的点（归一化）。`null` = 对准框中心；
+     *  拖过手柄之后会一直停在那个角上，方便反复微调同一处。 */
+    let focus = null;
 
     const finish = (value) => {
       if (done) return;
       done = true;
+      intro = null;
+      if (zoomRaf) cancelAnimationFrame(zoomRaf);
       // 所有挂在 window 上的监听都要摘。`finish` 有四条路（取消 / 确认 /
       // Esc / 路由切换），漏摘任何一条都会让浮层关掉之后还在响应。
       window.removeEventListener("resize", onResize);
@@ -110,8 +137,15 @@ export function openCropper({ src, initial = null }) {
       window.removeEventListener("hashchange", onHash);
       window.removeEventListener("pointerup", endDrag);
       document.body.classList.remove("crop-open");
-      layer.remove();
-      resolve(value);
+      // 淡出 160ms 再真正删掉：直接 `remove()` 是"啪一下消失"，从全屏黑底
+      // 切回白底表单会闪一下。
+      // ⚠️ 这 170ms 里 `resolve` 还没发出去，调用方会一直等 —— 所以 `done`
+      //    必须先置 true，否则连点两下会走两遍。
+      layer.classList.add("leaving");
+      window.setTimeout(() => {
+        layer.remove();
+        resolve(value);
+      }, 170);
     };
 
     /** 把比例框转成屏幕坐标（视口坐标系，因为 box 元素是 `position: fixed`）。 */
@@ -121,6 +155,123 @@ export function openCropper({ src, initial = null }) {
       boxEl.style.top = `${imgRect.top + box.y * imgRect.height}px`;
       boxEl.style.width = `${box.w * imgRect.width}px`;
       boxEl.style.height = `${box.h * imgRect.height}px`;
+      scheduleZoom();
+    }
+
+    /** 入场动画：从整张图缩到目标框，像镜头推近。
+     *  除了好看，它同时回答了"AI 圈的是哪一块" —— 用户不用满屏找框。 */
+    function startIntro() {
+      const target = box;
+      box = { x: 0, y: 0, w: 1, h: 1 };
+      renderBox();
+      boxEl.classList.add("animating");
+      // 用局部引用 `me` 而不是到处写 `intro.xxx`：`settleIntro` 会先把
+      // `intro` 置 null，若这期间 rAF 才回调，`intro.raf = …` 就是
+      // "给 null 赋值" 的 TypeError。
+      const me = { target, timer: 0, raf: 0 };
+      intro = me;
+      me.raf = requestAnimationFrame(() => {
+        if (!intro) return;
+        // 双 rAF：第一帧只把"整张图"这个起点画出去，第二帧才改成目标框。
+        // 同一帧里连着改两次内联样式，浏览器会把它们合并成一次计算样式，
+        // transition 没有起点 —— 表现为"框直接出现，没有动画"。
+        me.raf = requestAnimationFrame(() => {
+          if (!intro) return;
+          box = target;
+          renderBox();
+          me.timer = window.setTimeout(settleIntro, 470);
+        });
+      });
+    }
+
+    /** 让入场动画立刻收敛到目标框。
+     *  拖动或关闭时必须调用：否则 `box` 还停在"整张图"，一按就跳。 */
+    function settleIntro() {
+      if (!intro) return;
+      const t = intro;
+      intro = null;
+      cancelAnimationFrame(t.raf);
+      clearTimeout(t.timer);
+      box = t.target;
+      boxEl.classList.remove("animating");
+      renderBox();
+      placeZoom(null);
+      zoomEl.classList.add("show");
+      drawZoom();
+    }
+
+    /** 画右上角的「框内放大」。
+     *  rAF 合帧：拖动时 `pointermove` 一秒几十次，每次都 `drawImage` 是白烧 CPU，
+     *  而屏幕一帧只看得见一次。 */
+    function scheduleZoom() {
+      if (zoomRaf) return;
+      zoomRaf = requestAnimationFrame(() => {
+        zoomRaf = 0;
+        drawZoom();
+      });
+    }
+
+    function drawZoom() {
+      // 入场动画途中不画：那时 `box` 还是整张图，画出来是从大缩到小，没意义。
+      if (done || !imgRect || !img.naturalWidth || intro) return;
+      const cw = zoomFrame.clientWidth;
+      const ch = zoomFrame.clientHeight;
+      if (!cw || !ch) return;
+
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const bw = Math.round(cw * dpr);
+      const bh = Math.round(ch * dpr);
+      // 只在尺寸真变了才赋值：给 `canvas.width` 赋值会清空画布
+      if (zoomCanvas.width !== bw) zoomCanvas.width = bw;
+      if (zoomCanvas.height !== bh) zoomCanvas.height = bh;
+      const ctx = zoomCanvas.getContext("2d");
+      if (!ctx) return;
+
+      // 主图 1 个屏幕像素 = 多少原图像素。横竖相等（图片没被拉伸），取宽度算即可。
+      const natPerCss = img.naturalWidth / imgRect.width;
+      // 面板（正方形）要盖住多宽的一块原图：**CSS 尺寸** ÷ 倍数。
+      // ⚠️ 这里必须用 CSS 像素（cw），不能用画布缓冲尺寸（bw）—— bw = cw × dpr，
+      //    在 2 倍屏上会把 span 算大一倍，实际倍数就变成 ZOOM/dpr（实测手机 ×1.3）。
+      // 也不能超过原图本身，否则 `drawImage` 会画出图片外的空白。
+      const span = clamp(
+        (Math.min(cw, ch) * natPerCss) / ZOOM,
+        1,
+        Math.min(img.naturalWidth, img.naturalHeight)
+      );
+
+      const c = focus || { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+      // 贴近图片边界时**平移**取景窗，而不是压缩到边界内 ——
+      // 压缩会让边缘那圈变形，正好是要看细节的地方。
+      const sx = clamp(c.x * img.naturalWidth - span / 2, 0, img.naturalWidth - span);
+      const sy = clamp(c.y * img.naturalHeight - span / 2, 0, img.naturalHeight - span);
+
+      ctx.fillStyle = "#0b0c10";
+      ctx.fillRect(0, 0, bw, bh);
+      try {
+        ctx.drawImage(img, sx, sy, span, span, 0, 0, bw, bh);
+      } catch {
+        // 画布被跨源图片污染（SecurityError）。两条图源都同源，理论上不会发生；
+        // 真发生了也只是少个放大镜，不能让拖动跟着挂掉。
+        return;
+      }
+
+      // 十字线：没有它就不知道放大镜中心对着哪一点，画面在动但看不出在拖哪儿。
+      ctx.strokeStyle = "rgba(99, 179, 255, .85)";
+      ctx.lineWidth = Math.max(1, Math.round(dpr));
+      ctx.beginPath();
+      ctx.moveTo(bw / 2, 0);
+      ctx.lineTo(bw / 2, bh);
+      ctx.moveTo(0, bh / 2);
+      ctx.lineTo(bw, bh / 2);
+      ctx.stroke();
+      // 交点挖个小洞，双眼更容易对准
+      const hole = 2 * dpr;
+      ctx.fillStyle = "rgba(11, 12, 16, .92)";
+      ctx.fillRect(bw / 2 - hole, bh / 2 - hole, hole * 2, hole * 2);
+
+      // 实际倍数 = 画布每个原图像素占几个缓冲像素 ÷ 每个屏幕像素占几个缓冲像素
+      const actual = ((bw / span) * natPerCss) / dpr;
+      zoomCap.textContent = `×${actual.toFixed(1)}`;
     }
 
     /** 重新量图片位置。图片加载完、窗口尺寸变化（手机转屏）都要调。 */
@@ -139,7 +290,12 @@ export function openCropper({ src, initial = null }) {
       imgRect = rect;
       boxEl.hidden = false;
       okBtn.disabled = false;
-      renderBox();
+      if (firstPaint) {
+        firstPaint = false;
+        startIntro();
+      } else if (!intro) {
+        renderBox();
+      }
     }
 
     img.addEventListener("load", measure);
@@ -157,12 +313,40 @@ export function openCropper({ src, initial = null }) {
     }
     window.addEventListener("resize", onResize);
 
+    /** 手柄 → 它所在的那个角（归一化坐标）。
+     *  放大镜跟着这个点走：拖右下角，看的就是右下角那片像素。 */
+    function cornerOf(mode) {
+      const x = mode.includes("w") ? box.x
+        : mode.includes("e") ? box.x + box.w
+        : box.x + box.w / 2;
+      const y = mode.includes("n") ? box.y
+        : mode.includes("s") ? box.y + box.h
+        : box.y + box.h / 2;
+      return { x, y };
+    }
+
+    /** 放大镜该躲到哪个角：拖哪个手柄就躲到**对面**，别盖住手指。
+     *  手机上图片铺满屏宽，面板一压就是压在手柄上 —— 这条不是润色。 */
+    const AVOID = {
+      nw: "br", n: "br", ne: "bl",
+      w: "tr", e: "tl",
+      sw: "tr", s: "tr", se: "tl",
+    };
+
+    function placeZoom(mode) {
+      const pos = (mode && AVOID[mode]) || "tr";
+      if (zoomEl.dataset.pos !== pos) zoomEl.dataset.pos = pos;
+    }
+
     // -- 拖动 -------------------------------------------------------------
     //
     // 用 Pointer Events 而不是 mouse/touch 两套：一套代码同时吃鼠标、触摸屏、
     // 触控笔，还自带 setPointerCapture（手指划出框外也不会丢事件）。
     layer.addEventListener("pointerdown", (ev) => {
       if (!imgRect || done) return;
+      // 入场动画还没走完就按下了：先让框立刻归位再进入拖动。
+      // 不归位的话 `drag.box` 拿到的是"整张图"，手指一动框会跳回全屏。
+      settleIntro();
       const handle = ev.target.closest("[data-h]");
       const onBox = ev.target.closest(".crop-box");
       // 框内既有手柄也有空白：手柄优先，其次是"拖动整体"
@@ -184,6 +368,10 @@ export function openCropper({ src, initial = null }) {
       } catch {
         /* 拿不到捕获也能拖，只是手指移出窗口时会断 —— 不该因此报错 */
       }
+      // 放大镜对准正在拖的那个角；拖整框时回到中心
+      focus = mode === "move" ? null : cornerOf(mode);
+      placeZoom(mode);
+      scheduleZoom();
       boxEl.classList.add("dragging");
     });
 
@@ -222,6 +410,8 @@ export function openCropper({ src, initial = null }) {
           h = clamp(b.h + dy, minH, 1 - b.y);
         }
         box = { x, y, w, h };
+        // 角跟着框动，放大镜要一直盯着这个角
+        focus = cornerOf(m);
       }
       renderBox();
     });

@@ -156,7 +156,7 @@ export async function mount(root, ctx) {
       </div>
       ${formHtml(taxonomy)}
       <div class="form-actions">
-        <button type="button" class="ghost" id="add-recognize" hidden>AI 识别</button>
+        <button type="button" class="ai" id="add-recognize" hidden>AI 识别</button>
         <button type="submit" class="primary" id="add-submit">保存</button>
         <span class="faint" id="add-hint">只填品类也能存 —— 颜色、材质这些以后随时能补。</span>
       </div>
