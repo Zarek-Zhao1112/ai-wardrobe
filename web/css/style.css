@@ -413,3 +413,51 @@ ul.hist { margin: 0; padding: 0; list-style: none; }
   outline-offset: -6px;
   border-radius: var(--radius-sm);
 }
+
+/* ---------- 相册选择（2026-10-21） ----------
+ *
+ * 桌面图标的 PWA 壳没有实现 WebView 的 `onShowFileChooser`，
+ * `<input type=file>` 点下去毫无反应。所以另开了一条「后端直接读手机相册」
+ * 的通道，这里管那条通道的浮层与已选缩略图。
+ */
+.album-picked { margin-top: var(--sp-2); }
+.album-chip { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.album-chip > img {
+  width: 64px; height: 64px; flex: none;
+  object-fit: cover; border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.album-chip-body { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.album-chip-name {
+  font-size: var(--fs-sm); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.album-layer {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: flex-end;
+  background: rgba(0, 0, 0, .55);
+}
+.album-sheet {
+  width: 100%; max-height: 82vh;
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+.album-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-3); padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--border);
+}
+.album-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 2px; padding: 2px; overflow-y: auto;
+}
+.album-grid > p { grid-column: 1 / -1; padding: var(--sp-4); margin: 0; }
+.album-cell {
+  padding: 0; border: 0; aspect-ratio: 1;
+  background: var(--surface-2); overflow: hidden; cursor: pointer;
+}
+.album-cell > img { display: block; width: 100%; height: 100%; object-fit: cover; }

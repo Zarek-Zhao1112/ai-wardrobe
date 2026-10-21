@@ -115,10 +115,12 @@ export async function mount(root, ctx) {
 
     <form id="add-form" class="panel" novalidate>
       <h2>② 或者手动填</h2>
-      <label class="field field-wide"><span>照片（可选）</span>
+      <div class="field field-wide"><span>照片（可选）</span>
         <input type="file" id="add-image" accept="image/*">
+        <button type="button" class="ghost" id="add-album" hidden>从手机相册选</button>
+        <div class="album-picked" id="add-album-picked" hidden></div>
         <small class="faint">电脑上可以直接 Ctrl+V 粘贴截图，或把图片拖进页面</small>
-      </label>
+      </div>
       ${formHtml(taxonomy)}
       <div class="form-actions">
         <button type="submit" class="primary" id="add-submit">保存</button>
@@ -155,6 +157,127 @@ export async function mount(root, ctx) {
 
   activeAdd = { root, fileEl, accept: acceptImage };
   bindClipboardOnce();
+
+  // ------------------------------------------------------------------
+  // 照片：原生「选择文件」+ 手机相册兜底（2026-10-21）
+  //
+  // 桌面图标打开的是小米浏览器的 PWA 壳，它**没有实现** WebView 的
+  // `onShowFileChooser` —— 点 `<input type=file>` 毫无反应，连 `change`
+  // 都不会来（同一个地址在同一台手机的浏览器里是正常的，所以不是页面的错）。
+  // 浏览器沙箱不给页面直接读本地文件，纯前端绕不过去；但服务就跑在这台
+  // 手机上，于是让后端去读相册目录，页面只负责挑一张 + 回传 id。
+  //
+  // 电脑上没有 `/sdcard`，接口返回 `available: false`，按钮不会出现。
+  // ------------------------------------------------------------------
+  const albumBtn = root.querySelector("#add-album");
+  const albumPicked = root.querySelector("#add-album-picked");
+  /** 相册里选中的那张 `{id, name}`。与 `fileEl.files` **互斥**，后选的赢。 */
+  let pickedPhoto = null;
+  /** 「传了照片就不用选品类」那句提示的刷新钩子。
+   *  真正的实现写在下面（要读 `ctx.health.vision_ready`），
+   *  这里先占位 —— 相册的选择动作发生得比它早。 */
+  let refreshHint = () => {};
+
+  function renderPicked() {
+    if (!pickedPhoto) {
+      albumPicked.hidden = true;
+      albumPicked.innerHTML = "";
+      refreshHint();
+      return;
+    }
+    albumPicked.hidden = false;
+    albumPicked.innerHTML = `
+      <div class="album-chip">
+        <img src="${esc(api.albumPhotoUrl(pickedPhoto.id))}" loading="lazy" decoding="async" alt="">
+        <div class="album-chip-body">
+          <div class="album-chip-name">${esc(pickedPhoto.name)}</div>
+          <button type="button" class="ghost" id="album-clear">不用这张</button>
+        </div>
+      </div>
+    `;
+    albumPicked.querySelector("#album-clear").addEventListener("click", () => {
+      pickedPhoto = null;
+      renderPicked();
+    });
+    refreshHint();
+  }
+
+  function openAlbumPicker() {
+    const layer = document.createElement("div");
+    layer.className = "album-layer";
+    layer.innerHTML = `
+      <div class="album-sheet">
+        <div class="album-head">
+          <strong>选一张照片</strong>
+          <button type="button" class="ghost" data-close>关闭</button>
+        </div>
+        <div class="album-grid"><p class="faint">正在读相册…</p></div>
+      </div>
+    `;
+    document.body.appendChild(layer);
+
+    const close = () => layer.remove();
+    layer.addEventListener("click", (ev) => {
+      if (ev.target === layer) close();
+    });
+    layer.querySelector("[data-close]").addEventListener("click", close);
+
+    const grid = layer.querySelector(".album-grid");
+    grid.addEventListener("click", (ev) => {
+      const cell = ev.target.closest(".album-cell");
+      if (!cell) return;
+      pickedPhoto = { id: cell.dataset.id, name: cell.dataset.name };
+      fileEl.value = ""; // 两条路互斥：选了相册就不用 input 里那份
+      renderPicked();
+      close();
+      toast("照片已选好 —— 保存时自动识别属性", "ok");
+    });
+
+    api
+      .albumPhotos(36)
+      .then((res) => {
+        const photos = (res && res.photos) || [];
+        if (!photos.length) {
+          const dirs = (res && res.dirs) || [];
+          grid.innerHTML = `<p class="faint">没读到照片。${
+            dirs.length
+              ? `找到的目录：${esc(dirs.join("、"))}`
+              : "相册目录都没找到 —— Termux 可能没拿到存储权限"
+          }</p>`;
+          return;
+        }
+        // 用原图当缩略图（服务不装 Pillow），靠 lazy 只加载滚到的那几张
+        grid.innerHTML = photos
+          .map(
+            (p) => `<button type="button" class="album-cell"
+              data-id="${esc(p.id)}" data-name="${esc(p.name)}">
+              <img src="${esc(api.albumPhotoUrl(p.id))}" loading="lazy" decoding="async" alt="">
+            </button>`
+          )
+          .join("");
+      })
+      .catch((err) => {
+        grid.innerHTML = `<p class="faint">读相册失败：${esc(err.message)}</p>`;
+      });
+  }
+
+  albumBtn.addEventListener("click", openAlbumPicker);
+
+  // 只有真读得到相册才显示入口 —— 电脑上不该摆一个点了没用的按钮
+  api
+    .albumPhotos(1)
+    .then((res) => {
+      if (res && res.available) albumBtn.hidden = false;
+    })
+    .catch(() => undefined);
+
+  // 用 input 选文件 / 粘贴 / 拖拽 → 都说明用户走的是另一条路
+  fileEl.addEventListener("change", () => {
+    if (fileEl.files && fileEl.files[0] && pickedPhoto) {
+      pickedPhoto = null;
+      renderPicked();
+    }
+  });
 
   // ------------------------------------------------------------------
   // ① 粘贴 → 解析 → 预览 → 批量提交
@@ -387,16 +510,16 @@ export async function mount(root, ctx) {
   //   只在真能生效时才说（`vision_ready`）—— 没配视觉模型却说"我来认"，
   //   用户会一直等一个不会发生的事。
   if (ctx.health && ctx.health.vision_ready) {
-    const syncHint = () => {
-      const has = !!(fileEl.files && fileEl.files[0]);
+    refreshHint = () => {
+      const has = !!(fileEl.files && fileEl.files[0]) || !!pickedPhoto;
       const typePicked = !!readForm(form).type;
       addHint.textContent = has && !typePicked
         ? "传了照片就不用选品类了 —— 保存时我来看图认，认错了再改。"
         : "只填品类也能存 —— 颜色、材质这些以后随时能补。";
     };
-    fileEl.addEventListener("change", syncHint);
-    form.addEventListener("change", syncHint);
-    syncHint();
+    fileEl.addEventListener("change", refreshHint);
+    form.addEventListener("change", refreshHint);
+    refreshHint();
   }
 
   /**
@@ -477,6 +600,8 @@ export async function mount(root, ctx) {
     addResult.querySelector("#add-again").addEventListener("click", () => {
       form.reset();
       fileEl.value = "";
+      pickedPhoto = null;
+      renderPicked();
       addResult.innerHTML = "";
       window.scrollTo({ top: 0, behavior: "smooth" });
     });
@@ -496,7 +621,7 @@ export async function mount(root, ctx) {
     // 有照片时先按 `other` 建单品，随后打标会**把它改成真品类**
     // （`tag_and_apply` 的 `_only_blank` 特判 `other` = 还没填）。
     if (!payload.type) {
-      if (!file) {
+      if (!file && !pickedPhoto) {
         toast("先选一个品类（或者传张照片，让我来认）", "error");
         return;
       }
@@ -519,6 +644,14 @@ export async function mount(root, ctx) {
       if (file) {
         try {
           const up = await api.uploadImage(resp.item.id, file);
+          tagging = up.tagging || null;
+        } catch (err) {
+          imageError = err;
+        }
+      } else if (pickedPhoto) {
+        // 相册那条路：只传 id，字节由后端自己从磁盘读（浏览器没碰过文件）
+        try {
+          const up = await api.importFromAlbum(resp.item.id, pickedPhoto.id);
           tagging = up.tagging || null;
         } catch (err) {
           imageError = err;

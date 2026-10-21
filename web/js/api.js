@@ -138,6 +138,19 @@ export const api = {
     return request("POST", `/items/${encodeURIComponent(id)}/image`, { form });
   },
 
+  // 手机相册（2026-10-21）
+  //
+  // 桌面图标的 PWA 壳没有实现 WebView 的 `onShowFileChooser`，
+  // `<input type=file>` 点下去毫无反应 —— 而服务就跑在同一台手机上，
+  // 所以改成让后端直接读相册目录。电脑上没有 `/sdcard`，
+  // `albumPhotos()` 会返回 `available: false`，前端据此把入口藏起来。
+  albumPhotos: (limit) =>
+    request("GET", "/items/album/photos", { params: { limit }, timeoutMs: 15000 }),
+  /** 相册原图的 URL（当缩略图用）。**不走 `request`** —— 那是 JSON 通道。 */
+  albumPhotoUrl: (id) => `/items/album/photo?id=${encodeURIComponent(id)}`,
+  importFromAlbum: (itemId, id) =>
+    request("POST", `/items/${encodeURIComponent(itemId)}/image-from-album`, { json: { id } }),
+
   // 穿着记录
   logWear: (payload) => request("POST", "/items/wear", { json: payload }),
   listWearEvents: (limit) => request("GET", "/items/wear/events", { params: { limit } }),

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import base64
+import os
 import re
 import sqlite3
+from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 
 from .. import db, taxonomy
 from ..models import (
@@ -238,15 +242,12 @@ def list_wear_events(limit: int = 50) -> list[dict]:
     return wear_svc.list_wear_events(_uid(), limit=limit)
 
 
-@router.post("/{item_id}/image")
-def upload_item_image(item_id: str, file: UploadFile = File(...)) -> dict:
-    """给单品传一张照片。**会覆盖旧图**（一个单品只保留一张）。
+def _save_and_tag(uid: str, item_id: str, data: bytes) -> dict:
+    """落盘一张图 + 顺手打标。**上传接口与「从相册导入」共用这一段**。
 
-    类型靠**读文件头**判断，不信 `content_type` —— 微信转发的图片
-    有时报 `application/octet-stream`，信它会把正常图片拒之门外。
+    分成两个入口却共用实现，是为了不让两条上传路径慢慢走岔
+    （一条有打标、一条没有 —— 这种事最难被发现）。
     """
-    uid = _uid()
-    data = file.file.read()
     try:
         saved = image_svc.save_image(uid, item_id, data)
     except image_svc.ImageError as e:
@@ -282,3 +283,167 @@ def upload_item_image(item_id: str, file: UploadFile = File(...)) -> dict:
         "item": tagging.get("item") or svc.get(item_id, uid),
         "tagging": tagging,
     }
+
+
+@router.post("/{item_id}/image")
+def upload_item_image(item_id: str, file: UploadFile = File(...)) -> dict:
+    """给单品传一张照片。**会覆盖旧图**（一个单品只保留一张）。
+
+    类型靠**读文件头**判断，不信 `content_type` —— 微信转发的图片
+    有时报 `application/octet-stream`，信它会把正常图片拒之门外。
+    """
+    return _save_and_tag(_uid(), item_id, file.file.read())
+
+
+# ---------------------------------------------------------------------------
+# 手机相册直读（2026-10-21）
+#
+# **为什么要有这条看起来多余的通道**
+#
+# 桌面图标打开的是小米浏览器的 PWA 壳（`PWAActivity`）。它没有实现 WebView
+# 的 `onShowFileChooser`，所以 `<input type=file>` 点下去**毫无反应** ——
+# 不弹选择器、不报错、连 `change` 都不会来。同一个地址在同一台手机的
+# 浏览器里却是正常的（实测能弹出「相机/文件」），所以这不是页面代码的问题。
+#
+# 浏览器沙箱不给页面直接读本地文件，前端怎么改都绕不过去。但服务本身就
+# 跑在这台手机上（Termux），于是改成：**后端去读相册目录，页面只负责展示
+# 缩略图 + 回传一个 id**。拍照打标的链路完全不变，仍然走 `_save_and_tag`。
+#
+# ⚠️ 电脑上没有 `/sdcard`，这些目录一个都不存在 → `dirs` 为空、
+#    `count` 为 0，前端据此把入口藏起来，不会在电脑上露出一个不能用的按钮。
+# ---------------------------------------------------------------------------
+
+#: 扫描的相册目录。**顺序只影响同 mtime 时的稳定排序**，结果统一按时间倒序。
+ALBUM_DIRS: tuple[str, ...] = (
+    "/sdcard/DCIM/Camera",
+    "/sdcard/DCIM",
+    "/sdcard/Pictures",
+    "/sdcard/Download",
+)
+
+#: 认得的后缀。**不收 HEIC** —— 浏览器显示不了，`images.sniff()` 也不认，
+#: 列出来只会让用户选中后收到一个"认不出图片格式"。
+ALBUM_EXTS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp", ".gif"})
+
+#: 单次扫描的文件上限。`/sdcard/Pictures` 里可能有几万张，
+#: 全扫一遍会让一次相册请求变成秒级 IO。
+ALBUM_SCAN_LIMIT: int = 3000
+
+
+def _album_id(path: str) -> str:
+    """把绝对路径编码成一个不透明 id。
+
+    不用明文路径：路径里带 `/`，直接当 query 参数会被各种转义规则折腾；
+    更重要的是**不透明 id 能挡住手改参数去读任意文件**（虽然 `_album_path`
+    还有白名单兜底，两层更稳）。
+    """
+    return base64.urlsafe_b64encode(path.encode("utf-8")).decode("ascii").rstrip("=")
+
+
+def _album_path(pid: str) -> Path:
+    """反解 id → 磁盘路径。**只认白名单目录下的真实文件**。"""
+    if not pid:
+        raise HTTPException(400, "缺少照片 id")
+    try:
+        pad = "=" * (-len(pid) % 4)
+        raw = base64.urlsafe_b64decode(pid + pad).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as e:
+        raise HTTPException(400, "照片 id 不合法") from e
+
+    target = Path(raw)
+    # 白名单判据用 `os.path.realpath` 展开 `..` 和符号链接之后再比前缀：
+    # `/sdcard/DCIM/../../data/...` 这种写法过不了 map（`/sdcard/DCIM` 的
+    # realpath 是 `/storage/emulated/0/DCIM`，两者都要覆盖）。
+    resolved = Path(os.path.realpath(raw))
+    allowed = [Path(os.path.realpath(d)) for d in ALBUM_DIRS]
+    if not any(resolved == d or d in resolved.parents for d in allowed):
+        raise HTTPException(403, "这个路径不在相册目录里")
+    if not target.is_file():
+        raise HTTPException(404, "这张照片不在了（可能被删或移走）")
+    return target
+
+
+def _iter_album_files() -> list[tuple[float, str, int]]:
+    """按修改时间倒序列出相册里的图片。`(mtime, 绝对路径, 字节数)`。
+
+    只往下走 2 层：`/sdcard/DCIM` 下面有 `Camera/`、`Screenshots/`，
+    `/sdcard/Pictures` 下面有 `WeiXin/`、`Screenshots/`。再深就不是相册了。
+    """
+    found: list[tuple[float, str, int]] = []
+    seen: set[str] = set()
+    for base in ALBUM_DIRS:
+        if not os.path.isdir(base):
+            continue
+        base_depth = len(Path(base).parts)
+        for root, dirs, names in os.walk(base):
+            if len(Path(root).parts) - base_depth >= 2:
+                dirs[:] = []
+            for name in names:
+                if len(found) >= ALBUM_SCAN_LIMIT:
+                    break
+                if os.path.splitext(name)[1].lower() not in ALBUM_EXTS:
+                    continue
+                full = os.path.join(root, name)
+                real = os.path.realpath(full)
+                if real in seen:
+                    continue
+                try:
+                    st = os.stat(real)
+                except OSError:
+                    continue
+                seen.add(real)
+                found.append((st.st_mtime, real, st.st_size))
+    found.sort(key=lambda r: r[0], reverse=True)
+    return found
+
+
+@router.get("/album/photos")
+def album_photos(limit: int = Query(24, ge=1, le=60)) -> dict:
+    """列出手机相册里最近的几张照片。
+
+    `dirs` / `available` 一起返回是**故意的**：相册读不到时前端要能说清
+    "为什么是空的"（Termux 没拿到存储权限 vs 相册本来就没照片），
+    否则用户只会看到一个空列表。
+    """
+    rows = _iter_album_files()
+    return {
+        "available": bool(rows),
+        "dirs": [d for d in ALBUM_DIRS if os.path.isdir(d)],
+        "total": len(rows),
+        "photos": [
+            {
+                "id": _album_id(path),
+                "name": Path(path).name,
+                "mtime": int(mtime),
+                "bytes": size,
+            }
+            for mtime, path, size in rows[:limit]
+        ],
+    }
+
+
+@router.get("/album/photo")
+def album_photo_file(id: str = Query(...)) -> FileResponse:
+    """取相册原图（前端当缩略图用）。
+
+    没做缩略图：项目不装 Pillow，而 `/sdcard` 和进程在同一台机器上，
+    `localhost` 传原图的代价比引入一个图像库小得多。前端用
+    `loading="lazy"` 保证只加载滚到的那几张。
+    """
+    target = _album_path(id)
+    return FileResponse(str(target))
+
+
+@router.post("/{item_id}/image-from-album")
+def import_image_from_album(item_id: str, body: dict = Body(...)) -> dict:
+    """把相册里的一张照片直接装到单品上。**绕开文件选择器**。
+
+    前端只传 `{"id": "..."}`，真实字节由后端自己从磁盘读 ——
+    这就是这条通道存在的意义：整个过程中浏览器一次都没碰过本地文件。
+    """
+    target = _album_path(str(body.get("id") or ""))
+    try:
+        data = target.read_bytes()
+    except OSError as e:
+        raise HTTPException(400, f"读不到这张照片：{e.strerror or e}") from e
+    return _save_and_tag(_uid(), item_id, data)
