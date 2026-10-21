@@ -108,9 +108,13 @@ async function request(method, path, { json, form, params, timeoutMs = DEFAULT_T
 }
 
 export const api = {
-  // 元信息
-  health: () => request("GET", "/health"),
-  taxonomy: () => request("GET", "/taxonomy"),
+  // 元信息。
+  // ★ 这两个**必须给短超时**（2026-10-21 加）：`boot()` 拿 /health 判断"后端在不在"，
+  //   用 45 秒的默认值意味着服务被系统挂起时要**白等 45 秒**才显示引导页 ——
+  //   期间页面一直停在"加载中…"，PWA 的原生闪屏也不退，用户只会觉得"打不开"。
+  //   本机回环正常时是 10ms 级，6 秒已经极宽松；超时就当"没起"，立刻给指引。
+  health: () => request("GET", "/health", { timeoutMs: 6000 }),
+  taxonomy: () => request("GET", "/taxonomy", { timeoutMs: 10000 }),
 
   // 单品
   listItems: (params) => request("GET", "/items", { params }),

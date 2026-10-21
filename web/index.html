@@ -40,5 +40,30 @@
   <div id="toast" class="toast" hidden></div>
 
   <script type="module" src="/js/app.js"></script>
+
+  <!-- ★ 启动看门狗（2026-10-21 加，手机实测踩到）。
+       为什么必须是**内联**脚本：CSS / 模块脚本整批加载失败时，app.js 一行都不会执行，
+       任何写在 app.js 里的兜底都不会生效。现象就是 PWA 的原生启动闪屏一直不退、
+       用户只能去划掉 Termux —— 明明后端只是"被系统挂起了"。
+       这里 7 秒后检查主区域是不是还停在"加载中…"，是就直接给一个能点的重试。
+       7 秒的依据：app.js 里 /health 超时是 6 秒，正常路径一定已经渲染出内容了。 -->
+  <script>
+    (function () {
+      setTimeout(function () {
+        var v = document.getElementById("view");
+        if (!v) return;
+        var text = (v.textContent || "").trim();
+        if (text && text.indexOf("加载中") === -1) return; // 已经有内容，什么都不做
+        v.innerHTML =
+          '<div class="panel" style="margin:16px">' +
+          "<h2>后端没响应</h2>" +
+          '<p class="faint">Termux 里的服务可能被系统挂起了。' +
+          "回到桌面打开一次 Termux（不用改任何设置），再点下面重试。</p>" +
+          '<div class="form-actions">' +
+          '<button type="button" class="primary" onclick="location.reload()">重试</button>' +
+          "</div></div>";
+      }, 7000);
+    })();
+  </script>
 </body>
 </html>

@@ -187,6 +187,12 @@ async function boot() {
     ctx.health = await api.health();
     healthOk = true;
     waitingForBackend = false; // 连上了就别再自动重试，免得每次切回前台都打一次 /health
+    // 页面确实起来了 → 清掉"自动刷新过几次"的计数，下次发版还能自动刷一次
+    try {
+      sessionStorage.removeItem("swReloads");
+    } catch {
+      /* 同上，拿不到就算了 */
+    }
   } catch (err) {
     // 这里 err.message 是「连不上后端服务，确认它还在运行」——比 renderStatus()
     // 那句笼统的"后端未就绪"有用得多，所以下面**不能再调 renderStatus()** 把它盖掉
@@ -247,6 +253,19 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (swRefreshed) return;
     swRefreshed = true;
+    // ★ 跨 reload 去重（2026-10-21 加，手机实测踩到）：
+    //   `swRefreshed` 只活在本页的 JS 上下文里，**reload 之后就重置了**。
+    //   如果新 SW 又接管一次（更新期间很常见），就会再刷一次 → 反复刷新，
+    //   表现是"点开 PWA 一直闪、始终进不去"，只能重启 App 才停。
+    //   sessionStorage 跟着标签页走、刷新不丢，用它在多次加载之间计数：
+    //   一次会话里最多自动刷 1 次，之后交给用户手动刷新。
+    try {
+      const n = Number(sessionStorage.getItem("swReloads") || "0");
+      if (n >= 1) return;
+      sessionStorage.setItem("swReloads", String(n + 1));
+    } catch {
+      // 隐私模式 / 某些 WebView 不给 sessionStorage：退回"只防本页循环"
+    }
     location.reload();
   });
 }

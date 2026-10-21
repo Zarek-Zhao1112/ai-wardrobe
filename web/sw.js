@@ -40,10 +40,23 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v3";   // v2→v3：清掉 2026-10-15 那次安装留下的旧外壳桶
-                        //（v1→v2 是图片「缓存优先」改「网络优先」，同理靠 +1 清桶）
+const VERSION = "v4";   // v3→v4：外壳请求加超时（见 NET_TIMEOUT_MS），顺便重建一次桶
+                        //（v2→v3 清 2026-10-15 旧外壳桶；v1→v2 是图片改网络优先）
 const SHELL = `wzbbti-shell-${VERSION}`;
 const IMAGES = `wzbbti-img-${VERSION}`;
+
+/** 单次网络请求的超时（毫秒）。**这是本文件最重要的一个数字。**
+ *
+ * ★ 为什么必须有（2026-10-21 手机实测，用户报「点 PWA 图标打不开，得重启 Termux」）：
+ *   Android 会挂起后台的 Termux —— 进程还活着、CPU 也在跑，但新连接迟迟不被处理。
+ *   这种状态下 `fetch(request)` **不会立刻失败**，而是一直挂着等浏览器自己的超时
+ *   （可达数分钟）。后果链条是：
+ *       请求挂住 → 页面外壳（/ 、/js/app.js）拿不到 → 连 HTML 都渲染不出来
+ *       → PWA 的原生启动闪屏一直不退 → 用户看到的就是「打不开」。
+ *   给了上限之后，超时即**回落缓存**：页面 3 秒内就能渲染出来，再由 app.js 显示
+ *   「后端还没启动」的引导页。用户至少有出路，不用再去划掉 Termux。
+ */
+const NET_TIMEOUT_MS = 3000;
 
 /* 预缓存清单：与 index.html 里引用的资源保持一致（手动维护，别漏）。 */
 const SHELL_ASSETS = [
@@ -64,15 +77,26 @@ const SHELL_ASSETS = [
   "/icons/icon-512.png",
 ];
 
+/** 带超时的 `cache.add`。**不能直接用 `cache.add`**：它没有超时参数，
+ *  服务不响应时会一直挂着 → `Promise.all` 永远不 resolve → `install` 事件不完成
+ *  → 新 SW 永远卡在 installing，`skipWaiting()` 也不会执行。
+ *  那样连"更新"这个动作本身都会把 PWA 卡死一次。 */
+function addWithTimeout(cache, url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), NET_TIMEOUT_MS);
+  return cache
+    .add(new Request(url, { signal: ctrl.signal }))
+    .catch(() => undefined)
+    .finally(() => clearTimeout(timer));
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(SHELL)
-      .then((cache) =>
-        // 逐个 add 而不是 addAll：addAll 里任何一个 404 都会让整批失败，
-        // 而这份清单是手工维护的 —— 漏一个文件就整个 SW 装不上，很难查。
-        Promise.all(SHELL_ASSETS.map((url) => cache.add(url).catch(() => undefined)))
-      )
+      // 逐个 add 而不是 addAll：addAll 里任何一个 404 都会让整批失败，
+      // 而这份清单是手工维护的 —— 漏一个文件就整个 SW 装不上，很难查。
+      .then((cache) => Promise.all(SHELL_ASSETS.map((url) => addWithTimeout(cache, url))))
       .then(() => self.skipWaiting())
   );
 });
@@ -90,11 +114,15 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-/** 网络优先：成功就顺手更新缓存；失败（离线）回落缓存。 */
+/** 网络优先：成功就顺手更新缓存；失败**或超时**回落缓存。 */
 async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
+  // ★ 用 `new Request(request, {signal})` 覆盖 signal，而不是给 fetch 传第二参：
+  //   后者在部分 Chromium 版本里不会替换原 request 自带的 signal，超时就掐不断。
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), NET_TIMEOUT_MS);
   try {
-    const res = await fetch(request);
+    const res = await fetch(new Request(request, { signal: ctrl.signal }));
     if (res && res.ok) cache.put(request, res.clone());
     return res;
   } catch (err) {
@@ -106,6 +134,8 @@ async function networkFirst(request, cacheName) {
       if (shell) return shell;
     }
     throw err;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
