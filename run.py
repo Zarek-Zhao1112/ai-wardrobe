@@ -75,6 +75,13 @@ def _install_stack_dump() -> None:
         # 必须保持文件对象存活，否则 register 拿到的是已关闭的 fd
         fh = open(path, "a", encoding="utf-8")  # noqa: SIM115
         faulthandler.register(sig, file=fh, all_threads=True, chain=False)
+
+        # 可选的定时转储：`STACK_DUMP_EVERY=120` 表示每 120 秒写一次全线程栈。
+        # 用途是判断"整机无响应"到底是①应用自己卡在某一行，还是②进程被系统
+        # 冻住了 —— ②的情况下连这个定时器都不会写，日志时间戳会直接断档。
+        every = os.environ.get("STACK_DUMP_EVERY", "").strip()
+        if every.isdigit() and int(every) > 0:
+            faulthandler.dump_traceback_later(int(every), repeat=True, file=fh)
     except OSError:
         pass          # 落盘失败不该让服务起不来
 
