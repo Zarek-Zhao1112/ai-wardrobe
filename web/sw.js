@@ -40,9 +40,9 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v9";   // v8→v9：裁剪窗加「推近动画 + 框内放大预览」（动了 crop.js /
-                        //          style.css / view-add.js），AI 按钮改成强调色
-                        //（v7→v8：录入页加「裁剪商品图」窗口，新增 /js/crop.js；
+const VERSION = "v10";  // v9→v10：裁剪窗改成「选区铺满显示区 / 按下才展开整图」双态，
+                        //          去掉放大镜（动了 crop.js / style.css / view-add.js）
+                        //（v8→v9：推近动画 + 框内放大预览；v7→v8：新增 /js/crop.js；
                         //  v6→v7：录入页加「AI 识别」；v5→v6：重装外壳；
                         //  v4→v5：activate 不再盲目删旧桶；v3→v4：外壳请求加超时）
 const SHELL = `wzbbti-shell-${VERSION}`;

@@ -491,21 +491,27 @@ ul.hist { margin: 0; padding: 0; list-style: none; }
 }
 .note-line:empty { display: none; }
 
-/* ---------- 商品图裁剪窗口（2026-10-21）
+/* ---------- 商品图裁剪窗口（2026-10-21，第二轮改版同日）
  *
- * 独立全屏浮层，不是录入页里的小框：整张图铺满屏幕、框外压暗，
- * 用户只看这一件事。层级高于相册选择（60），因为它是从识别流程里
- * 主动推出来的一步。
+ * 独立全屏浮层，不是录入页里的小框：用户只看这一件事。层级高于相册
+ * 选择（60），因为它是从识别流程里主动推出来的一步。
  *
- * ⚠️ 遮罩用 `box-shadow` 外溢而不是另盖一层 div：
- *    这样框和遮罩是同一个元素，拖动时**不可能出现遮罩跟不上框**的错位。
- *    代价是 box 必须压在自己那层以上、又不能盖住顶部标题和底部按钮
- *    → 见下面三处 z-index，删了就会出现"按钮点不到"。
+ * 两种视图（类挂在 `.crop-layer` 上，JS 切）：
+ *   `.is-peek`  选区铺满显示区 —— 静息态，看到的就是"存进去的样子"
+ *   `.is-edit`  整图 + 可拖的框 —— 手指按下时切过来，松手 900ms 后回去
+ *
+ * ⚠️ 三个必须一起记住的约束：
+ *   ① 框外的填色（`.crop-mask`）必须**被裁**，否则会溢到标题和按钮上；
+ *   ② 框的八个手柄有一半伸在框外，必须**不被裁**；
+ *   ③ 于是填色放进 `.crop-clip`（overflow:hidden），框放在它外面，
+ *      两者每帧由 JS 用同一组数字定位 —— 拆成两层也不会有毫秒级错位。
  */
 .crop-layer {
   position: fixed; inset: 0; z-index: 70;
   display: flex; flex-direction: column;
-  background: #0b0c10;
+  /* 框外的填色必须和这个底色**完全同色**，否则"未选中的区域"会露出
+   * 一条比背景深/浅的边，看起来像没对齐。所以两者共用同一个变量。 */
+  background: var(--crop-bg, #0b0c10);
   /* 触摸拖动时不许滚页面，否则手指一划整屏跟着跑 */
   touch-action: none;
   overscroll-behavior: contain;
@@ -514,9 +520,15 @@ body.crop-open { overflow: hidden; }
 
 /* 深色浮层上另开一档"强调色"。`--accent`(#0066cc) 在 #0b0c10 上偏暗，
  * 拖动中的框边几乎看不见 —— 这里单独往上提一档亮度。
- * 定义在 body 上而不是 .crop-layer 上：`.crop-box` 是 layer 的**兄弟**节点
- * （position:fixed 不能塞进 transform/flex 容器），只有共同祖先能继承到它。 */
-body.crop-open { --crop-accent: #63b3ff; }
+ * 定义在 body 上而不是 .crop-layer 上：`.crop-box` 曾经是 layer 的**兄弟**
+ * 节点（position:fixed 不能塞进 transform/flex 容器），只有共同祖先能继承。 */
+body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
+
+/* 框外的填色：peek 用不透明底色（藏住未选中的部分），edit 换成半透明黑
+ * （压暗但看得见，用户要靠它判断往哪边拖）。两档都定义在 layer 上，
+ * 由 `.crop-mask` 继承 —— 改这里就同时改了两种视图的口径。 */
+.crop-layer { --crop-shade: var(--crop-bg, #0b0c10); }
+.crop-layer.is-edit { --crop-shade: rgba(0, 0, 0, .62); }
 
 /* 入场 / 退场。220ms 是刻意的：这是个"工具窗"，不是页间导航，
  * 再慢一点每次录一件都要多等半秒。 */
@@ -531,101 +543,89 @@ body.crop-open { --crop-accent: #63b3ff; }
   text-align: center; color: #fff;
 }
 .crop-head strong { font-size: var(--fs-body-lg); font-weight: 500; letter-spacing: var(--ls-snug); }
-.crop-head p { margin: var(--sp-1) 0 0; color: rgba(255, 255, 255, .62); font-size: var(--fs-xs); }
+
+/* ★ 这行提示的高度必须**写死**。
+ *  它有两套文案（peek 一句、edit 一句，长度不同），一旦较长的那句在窄屏上
+ *  折成两行，下面的显示区就变矮 → 图片还是按旧高度摆的 → 整张图偏移。
+ *  实测偏了 9.4px，正好是半行 —— 而且只在某些机型宽度下出现，最难查。
+ *  宁可省略号，也不能让提示文案去影响布局。 */
+.crop-head p {
+  margin: var(--sp-1) 0 0;
+  color: rgba(255, 255, 255, .62); font-size: var(--fs-xs);
+  height: 1.4em; line-height: 1.4em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 .crop-stage {
   position: relative;
   flex: 1; min-height: 0;
-  display: flex; align-items: center; justify-content: center;
-  padding: var(--sp-2) var(--sp-3);
 }
-/* 尺寸交给 max-* 决定 —— `getBoundingClientRect()` 拿到的就是图片本身的
- * 屏幕矩形。换成 `object-fit: contain` 会把元素撑满 stage，框就对不齐了。 */
+
+/* 显示区。尺寸/位置由 JS 按**图片比例**算好写内联（见 `crop.js: layout()`）：
+ * 这样 edit 视图里图片正好铺满它，一点不浪费；peek 里选区也是这个区域
+ * 能给到的最大尺寸。
+ * ⚠️ 不要用 `inset` / flex 让它自适应：那会把"图片比例"和"屏幕比例"
+ *    混在一起，竖版截图在宽窗口里会缩成一条。
+ * `overflow` 保持 visible —— 手柄有一半伸在框外，必须露出来。 */
+.crop-frame { position: absolute; }
+
+/* 裁图层：图片和"框外填色"都被它裁住。手柄不在里面，所以不会被裁。 */
+.crop-clip { position: absolute; inset: 0; overflow: hidden; }
+
+/* 变换层：尺寸 = 图片铺进来之后的尺寸，`transform` 由 JS 写。
+ * 图片和填色都挂在它下面 —— 两件事必须在**同一个坐标系**里，
+ * 否则放大之后"框外"那块会算出偏差，把没选中的内容漏出来。 */
+.crop-view {
+  position: absolute; left: 0; top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* ⚠️ 这里**不能**留 `max-width:100%` 之类：尺寸完全由 `.crop-view` 决定，
+ *   再让图片自适应一次就会出现"元素 100%、实际绘制尺寸不一致"的错位。 */
 .crop-img {
-  display: block; max-width: 100%; max-height: 100%;
-  width: auto; height: auto;
-  user-select: none; -webkit-user-drag: none;
+  position: absolute; inset: 0;
+  display: block; width: 100%; height: 100%;
+  max-width: none; max-height: none;
+  user-select: none; -webkit-user-drag: none; -webkit-user-select: none;
+}
+
+/* 框外的填色。`box-shadow` 外溢 9999px 把框以外的整片显示区涂满。
+ *
+ * ★ 它挂在 `.crop-view` 里（图片本地坐标），不是挂在帧上：
+ *   放大的时候选区也在放大，填色必须跟着一起变 —— 否则放大后的"框外"
+ *   会露出没被选中的内容（第一版就是这个 bug，实测截图里左右各露出一截
+ *   订单页的白边）。跟着 transform 走，才在任何视图、任何动画中间都对得上。
+ *
+ * ★ 颜色分两档，这是两种视图的**分界线**：
+ *   peek：不透明的底色 —— 未选中的部分彻底看不见，看到的就是"存进去的样子"
+ *   edit：半透明黑 —— 未选中的部分要**露出来**（压暗而已），否则用户没法
+ *         判断该往哪边拖。用户原话："拖动裁剪框时，框外原本隐藏的未选中
+ *         部分需实时显示出来"。
+ * 它自己不接事件（拖动只认框和手柄），所以 `pointer-events: none`。 */
+.crop-mask {
+  position: absolute; pointer-events: none;
+  box-shadow: 0 0 0 9999px var(--crop-shade, #0b0c10);
 }
 
 .crop-box {
-  position: fixed; z-index: 2;
+  position: absolute; z-index: 2;
   border: 1px solid rgba(255, 255, 255, .95);
   border-radius: 2px;
-  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .62);
   cursor: move;
   touch-action: none;
 }
 .crop-box.dragging { border-color: var(--crop-accent); }
 
-/* 「从整张图缩到 AI 给的框」——
- * 这条动画不只是好看：它在一瞬间讲清"AI 圈的是哪块"，用户不用先满屏找框。
- * 不能用 transform 做（框的位置是量像素算出来的），所以过渡四个方向值。 */
-.crop-box.animating {
-  transition: left .46s cubic-bezier(.22, .68, .16, 1),
-              top .46s cubic-bezier(.22, .68, .16, 1),
-              width .46s cubic-bezier(.22, .68, .16, 1),
-              height .46s cubic-bezier(.22, .68, .16, 1);
-  border-color: var(--crop-accent);
-}
-/* 手柄跟着一起藏起来：动画途中它贴在屏幕边缘，露出来只会误导人去点。 */
-.crop-h { opacity: 1; transition: opacity .25s ease; }
-.crop-box.animating .crop-h { opacity: 0; }
-
-/* ---------- 「框内放大」放大镜 ----------
- *
- * 为什么需要：手机上整张图缩到 390px 宽，商品那一块框只有 120px 左右，
- * 手指挪 1px ≈ 商品边长 1/120 —— 边界根本对不准。
- *
- * ⚠️ 这里**不做"整块预览"**：一张 864×1920 的订单截图，裁出来的商品块
- *    在屏幕上约 185×214，而面板最多也就 200×200 —— 整块塞进去只能缩到
- *    ×0.7，比原图还小，"放大"是假的（实测过一次，标签显示 ×0.3）。
- *    所以面板固定 **2.5 倍**，只放框内**一个角周围**，拖哪个角放大哪个角。
- *
- * ⚠️ `pointer-events: none` 是硬要求：它压在图上，能接事件的话那块区域就拖不动了。
- */
-.crop-zoom {
-  position: absolute; top: 0; right: 0; z-index: 4;
-  width: clamp(112px, 28vw, 200px);
-  padding: 5px 5px 4px;
-  display: flex; flex-direction: column; gap: 3px;
-  background: rgba(16, 18, 22, .88);
-  border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: var(--radius);
-  pointer-events: none;
-  /* 等主图那段"缩到框"的动画快走完再淡进来 —— 两段动画同时抢注意力会乱 */
-  opacity: 0; transform: translateY(-6px) scale(.96);
-  transition: opacity .3s ease .18s, transform .3s cubic-bezier(.2, .8, .2, 1) .18s;
-}
-.crop-zoom.show { opacity: 1; transform: none; }
-/* 面板贴在哪个角，由 JS 按"正在拖的手柄"决定（`data-pos`）：
- * 拖右上角时它躲到左下角 —— 否则正好盖住手指要捏的那个手柄。
- * 手机上没有图片外的空白可用，这条躲让是必须的，不是锦上添花。 */
-.crop-zoom[data-pos="tr"] { top: 0; right: 0; left: auto; bottom: auto; }
-.crop-zoom[data-pos="tl"] { top: 0; left: 0; right: auto; bottom: auto; }
-.crop-zoom[data-pos="bl"] { bottom: 0; left: 0; right: auto; top: auto; }
-.crop-zoom[data-pos="br"] { bottom: 0; right: 0; left: auto; top: auto; }
-/* 用 padding-top 撑正方形而不是 aspect-ratio：老内核不认 aspect-ratio 时
- * 容器高度会塌成 0，canvas 量出 0 尺寸就永远画不出东西。
- * 正方形是有原因的：面板的宽高比必须等于"覆盖的原图区域"的宽高比，
- * 否则放大倍数在横竖两个方向上不一样，看着会像被拉扁。 */
-.crop-zoom-frame {
-  position: relative; width: 100%; padding-top: 100%;
-  border-radius: 7px; overflow: hidden; background: #0b0c10;
-}
-.crop-zoom canvas {
-  position: absolute; inset: 0; display: block;
-  width: 100%; height: 100%;
-}
-.crop-zoom-cap {
-  color: rgba(255, 255, 255, .58); font-size: var(--fs-xs); line-height: 1.3;
-  text-align: center; white-space: nowrap;
-}
-.crop-zoom-cap b { color: #fff; font-weight: 500; }
+/* peek = 选区铺满，框和手柄不该露面（填色要留着，见 `.crop-mask` 的注释）。
+ * 用 opacity 而不是 `display:none`：切到 edit 时要它淡进来。 */
+.crop-layer.is-peek .crop-box { opacity: 0; pointer-events: none; }
+.crop-box { transition: opacity .16s ease; }
+.crop-layer.is-edit .crop-box { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
   .crop-layer, .crop-layer.leaving { animation: none; }
-  .crop-box.animating { transition: none; }
-  .crop-zoom { transition: none; }
+  .crop-box, .crop-mask { transition: none; }
 }
 /* 三分网格：帮用户判断框里是不是只有商品。
  * 用 repeating-linear-gradient 而不是两个伪元素 —— 后者只能各画一条线，

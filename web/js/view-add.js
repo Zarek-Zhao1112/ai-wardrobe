@@ -174,14 +174,18 @@ export async function mount(root, ctx) {
 
   /** 把粘贴 / 拖拽来的图片塞进 file input，之后走的还是原来那条路：
    *  `change` → 保存时上传 → 后端自动打标。**不另开一条上传链路**，
-   *  否则两条路早晚会走岔（一条有打标、一条没有）。 */
-  function acceptImage(file, { quiet = false } = {}) {
+   *  否则两条路早晚会走岔（一条有打标、一条没有）。
+   *
+   *  `fromCrop`：这次替换是**裁剪流程自己**干的（把裁好的图塞回来）。
+   *  「换了张新图就忘记裁剪记录」那条逻辑必须能把它和"用户真的换了图"
+   *  区分开 —— 不然每裁一次就把原图记录清掉，等于没法再调。 */
+  function acceptImage(file, { quiet = false, fromCrop = false } = {}) {
     try {
       // `input.files` 是只读的，只能整个换掉（DataTransfer 是标准做法）
       const dt = new DataTransfer();
       dt.items.add(file);
       fileEl.files = dt.files;
-      fileEl.dispatchEvent(new Event("change", { bubbles: true }));
+      fileEl.dispatchEvent(new CustomEvent("change", { bubbles: true, detail: { fromCrop } }));
       if (!quiet) {
         const kb = Math.max(1, Math.round(file.size / 1024));
         toast(`已接住图片（${kb} KB）—— 保存时自动识别属性`, "ok");
@@ -262,14 +266,41 @@ export async function mount(root, ctx) {
   //   （`image_path_of` 注释：一个单品只保留一张图），保留原截图做不到。
   // ------------------------------------------------------------------
 
-  /** 当前待录入的那张图。两条通道互斥（后选的赢），所以按优先级取一个即可。 */
+  /** 裁剪用的**原图**（不是裁完的那张）+ 上次生效的归一化框。
+   *
+   *  ★ 为什么必须留着它（用户要的"截取后仍可再次调整选区"）：
+   *    裁完写进 `fileEl` 的是**裁剪结果**。这个时候再点「裁剪商品图」，
+   *    `imageSource()` 拿到的是那张结果图 —— 等于在一张裁图里再裁一次：
+   *    越裁越小，而且**回不去了**（原截图已经被替换掉了）。
+   *    存着原图 + 上次的框，第二次打开就能接着上次的位置调。
+   *
+   *  `revoke: true` 表示 `src` 是我们自己 `createObjectURL` 出来的，
+   *  所有权归这里，换图 / 离开时要负责释放。
+   *
+   *  ⚠️ 它只在**本次录入**有效：保存之后只有一个 `image_path`，原截图不落库。 */
+  let cropSource = null;
+
+  /** 丢掉原图记录（用户真的换了图 / 又录一件）。 */
+  function dropCropSource() {
+    if (!cropSource) return;
+    if (cropSource.revoke) URL.revokeObjectURL(cropSource.src);
+    cropSource = null;
+  }
+
+  /** 当前待录入的那张图。两条通道互斥（后选的赢），所以按优先级取一个即可。
+   *
+   *  ★ `cropSource` 排在最前：只要还留着原图，裁剪就永远从**原图**开始，
+   *    绝不在裁剪结果上再裁。 */
   function imageSource() {
+    if (cropSource) {
+      return { src: cropSource.src, revoke: false, rect: cropSource.rect };
+    }
     const file = fileEl.files && fileEl.files[0];
-    if (file) return { src: URL.createObjectURL(file), revoke: true };
+    if (file) return { src: URL.createObjectURL(file), revoke: true, rect: null };
     if (pickedPhoto) {
       // 相册图走同源接口 —— canvas 能画。跨源图会让 `toBlob` 抛 SecurityError，
       // 那正是"裁完没反应"这类幽灵问题的来源。
-      return { src: api.albumPhotoUrl(pickedPhoto.id), revoke: false };
+      return { src: api.albumPhotoUrl(pickedPhoto.id), revoke: false, rect: null };
     }
     return null;
   }
@@ -305,10 +336,13 @@ export async function mount(root, ctx) {
   let cropping = false;
 
   /**
-   * 打开裁剪窗口。`initial` 是 AI 给的归一化框（可空）。
+   * 打开裁剪窗口。
+   * @param initial AI 刚给的归一化框（可空）
+   * @param grow    `initial` 要不要按"模型框偏小"外扩。**上次的框不能扩**
+   *                —— 每开一次大一圈，用户会发现框自己在长。
    * @returns 是否真的替换了图片（用户点「保持原图」返回 false）
    */
-  async function cropImage(initial = null) {
+  async function cropImage(initial = null, { grow = true } = {}) {
     if (cropping) return false;
     const source = imageSource();
     if (!source) {
@@ -316,8 +350,17 @@ export async function mount(root, ctx) {
       return false;
     }
     cropping = true;
+    /** 这次是不是把 `source.src` 的所有权接过来存进 `cropSource` 了。
+     *  接手了就不能在 finally 里 revoke —— 下次还要用它再打开裁剪窗。 */
+    let adopted = false;
     try {
-      const out = await openCropper({ src: source.src, initial });
+      // 没有新的 AI 框就回到上次的位置；第一次裁才用默认框。
+      const startRect = initial || source.rect || null;
+      const out = await openCropper({
+        src: source.src,
+        initial: startRect,
+        grow: initial ? grow : false,
+      });
       if (!out) return false; // 用户选了「保持原图」
 
       // 浮层开着时用户可能按了返回键 / 点了导航。这时不能再写 `fileEl`、
@@ -332,14 +375,32 @@ export async function mount(root, ctx) {
       //   上面那个 `fileEl.addEventListener("change")` 会处理（`files[0] &&
       //   pickedPhoto` → 清掉 + 重画预览）。提前清的话，万一 `acceptImage`
       //   在极老浏览器上赋值失败，两条通道就都空了 —— 用户刚选的相册图直接消失。
-      if (!acceptImage(file, { quiet: true })) return false;
+      if (!acceptImage(file, { quiet: true, fromCrop: true })) return false;
+
+      // 记下**原图 + 这次的框**：下次点「裁剪商品图」能接着调，而不是
+      // 在当前这张裁图上再裁一刀。
+      //
+      // ★ 同一条 URL 绝不能用「先 drop 再存回来」的写法：`dropCropSource()`
+      //   会把它 `revokeObjectURL` 掉，而这次传进来的 `source.src` 正是它
+      //   本身（`imageSource()` 在有 `cropSource` 时返回的就是它的地址）。
+      //   那样第一次重裁之后，原图链接就成了死地址 —— 第三次点「裁剪商品图」
+      //   直接"图片读不出来"，而用户手上的图还是好的。实测过，别再写回去。
+      if (cropSource && cropSource.src === source.src) {
+        cropSource.rect = out.rect;
+      } else {
+        dropCropSource();
+        cropSource = { src: source.src, revoke: source.revoke, rect: out.rect };
+        adopted = source.revoke;
+      }
+
       renderShot();
       toast(`已裁出商品图（${out.width}×${out.height}）`, "ok");
       return true;
     } finally {
       cropping = false;
-      // 窗口已经关掉、canvas 已经画完，这时才安全释放
-      if (source.revoke) URL.revokeObjectURL(source.src);
+      // 窗口已经关掉、canvas 已经画完，这时才安全释放。
+      // 但被 `cropSource` 接手的那条 URL 要留着（见上面的 adopted）。
+      if (source.revoke && !adopted) URL.revokeObjectURL(source.src);
     }
   }
 
@@ -369,6 +430,7 @@ export async function mount(root, ctx) {
       if (!cell) return;
       pickedPhoto = { id: cell.dataset.id, name: cell.dataset.name };
       fileEl.value = ""; // 两条路互斥：选了相册就不用 input 里那份
+      dropCropSource(); // 换图了，上一张的裁剪记录作废（不丢的话会继续按旧图裁）
       renderPicked();
       close();
       toast("照片已选好 —— 保存时自动识别属性", "ok");
@@ -413,7 +475,11 @@ export async function mount(root, ctx) {
     .catch(() => undefined);
 
   // 用 input 选文件 / 粘贴 / 拖拽 → 都说明用户走的是另一条路
-  fileEl.addEventListener("change", () => {
+  fileEl.addEventListener("change", (ev) => {
+    // 真的是"换了张图"才把裁剪记录清掉。裁剪流程自己塞回来的那份
+    // （`fromCrop`）不算 —— 清了就等于裁完再也不能调了。
+    const fromCrop = !!(ev.detail && ev.detail.fromCrop);
+    if (!fromCrop) dropCropSource();
     if (fileEl.files && fileEl.files[0] && pickedPhoto) {
       pickedPhoto = null;
       renderPicked(); // 内部会重画预览
@@ -745,8 +811,13 @@ export async function mount(root, ctx) {
       //
       // 为什么面积 > 0.75 就不弹：那说明整张图就是商品图（纯衣服照片，没有
       // 订单信息），弹一个几乎贴着图片边的框只会让人觉得这个功能很烦。
+      //
+      // 为什么 `cropSource` 有值就不弹：这时 `fileEl` 里装的是**裁剪结果**，
+      // 模型给的 `crop` 是相对那张裁图的坐标，而裁剪窗会从**原图**打开 ——
+      // 两套坐标系，套上去就是裁错地方。要接着调，用户按「裁剪商品图」
+      // 就行，那条路走的是原图 + 上次的框，坐标是自洽的。
       const crop = res.crop;
-      if (crop && crop.w * crop.h <= 0.75) {
+      if (crop && crop.w * crop.h <= 0.75 && !cropSource) {
         recognizeNote.textContent = "识别完了 —— 先把商品图框出来";
         await cropImage(crop);
         // 框图那几十秒里用户可能已经切走页面了：这时别再往下写 note/toast，
@@ -878,6 +949,7 @@ export async function mount(root, ctx) {
       form.querySelectorAll("[data-dynamic]").forEach((n) => n.remove());
       fileEl.value = "";
       pickedPhoto = null;
+      dropCropSource(); // 上一件的原图和框都作废，否则下一件会按上一件的位置裁
       renderPicked();
       recognizeNote.innerHTML = ""; // 上一件的"AI 填了…"别留到下一件
       addResult.innerHTML = "";
