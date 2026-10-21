@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import re
 import sqlite3
@@ -34,6 +35,8 @@ from ..services import wardrobe
 from ..services import wear as wear_svc
 
 router = APIRouter(prefix="/items", tags=["items"])
+
+logger = logging.getLogger(__name__)
 
 
 def _uid() -> str:
@@ -255,7 +258,12 @@ def _save_and_tag(uid: str, item_id: str, data: bytes) -> dict:
     except LookupError as e:
         raise HTTPException(404, str(e)) from e
     except sqlite3.IntegrityError as e:
-        raise HTTPException(400, f"这张图已经录给别的单品了（图片指纹重复）：{e}") from e
+        # ⚠️ 不要把 `str(e)` 拼进给用户的话里（2026-10-21 审查发现）：
+        #    原文是 `UNIQUE constraint failed: clothing_items.user_id,
+        #    clothing_items.image_hash` —— 英文 + 表名，用户看不懂，
+        #    在 toast 里还占两行。日志里有原始异常，排查够用了。
+        logger.warning("图片指纹重复，拒绝入库：%s", e)
+        raise HTTPException(400, "这张图已经录给别的单品了（图片指纹重复）") from e
 
     # 存图成功后顺手跑一次打标（上传即识别，认完用户能改）。
     # ⚠️ 打标**失败绝不能让上传变成 4xx/5xx** —— 照片已经存好了，
@@ -347,16 +355,29 @@ def _album_path(pid: str) -> Path:
     try:
         pad = "=" * (-len(pid) % 4)
         raw = base64.urlsafe_b64decode(pid + pad).decode("utf-8")
+        # ★ `realpath` 也放进这个 try（2026-10-21 审查发现）：base64 能编码进
+        #   `\x00`，utf-8 也解得出，而 `os.path.realpath` 遇到 NUL 会抛
+        #   `ValueError: embedded null byte` —— 它不是 `OSError`，漏出去就是 500。
+        resolved = Path(os.path.realpath(raw))
     except (ValueError, UnicodeDecodeError) as e:
         raise HTTPException(400, "照片 id 不合法") from e
 
     # 白名单判据用 `os.path.realpath` 展开 `..` 和符号链接之后再比前缀：
     # `/sdcard/DCIM/../../data/...` 这种写法过不了 map（`/sdcard/DCIM` 的
     # realpath 是 `/storage/emulated/0/DCIM`，两者都要覆盖）。
-    resolved = Path(os.path.realpath(raw))
     allowed = [Path(os.path.realpath(d)) for d in ALBUM_DIRS]
     if not any(resolved == d or d in resolved.parents for d in allowed):
         raise HTTPException(403, "这个路径不在相册目录里")
+    # ★ 只认图片后缀（2026-10-21 审查发现）：白名单里的 `/sdcard/Download`
+    #   什么都有（pdf / txt / 微信的 .db），而 id 就是路径的 base64、格式在
+    #   `album_photos` 里是公开的。不挡后缀的话，`GET /items/album/photo?id=…`
+    #   会把这些原样吐给同一网段的任何人 —— 手机端必然 `APP_HOST=0.0.0.0`，
+    #   而且整套接口没有任何鉴权。
+    #   列表接口本来就按 `ALBUM_EXTS` 过滤（`_iter_album_files`），这里补的是
+    #   **直取**那条路 —— 两条路必须同一口径。
+    #   用 404 而不是 403：不透露"文件存在、只是格式不对"。
+    if resolved.suffix.lower() not in ALBUM_EXTS:
+        raise HTTPException(404, "这张照片不在相册里")
     if not resolved.is_file():
         raise HTTPException(404, "这张照片不在了（可能被删或移走）")
     # 返回**已解析**的路径而不是原路径：校验和真正 `open()` 之间若符号链接被

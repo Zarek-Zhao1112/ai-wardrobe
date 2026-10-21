@@ -190,8 +190,19 @@ def test_within_rejects_symlink_pointing_outside(tmp_path):
     link = root / "领域" / "evil"
     try:
         link.symlink_to(outside, target_is_directory=True)
+        # ⚠️ Windows 上可能"建得成、但用不了"：未开开发者模式时 Python 建出来的
+        #    是个半成品链接。2026-10-21 实测（Windows 11 + Python 3.13）：
+        #      · 通过它写文件 → FileNotFoundError
+        #      · `os.path.realpath()` 对"末段还不存在"的路径**不解析中间的链接**，
+        #        直接返回未解析的原路径 → `within()` 判成"在库内"
+        #    这时下面的断言测的是宿主环境的链接实现，不是 `within` 的语义 ——
+        #    跳过，让基线反映代码状态。（POSIX 上 `posixpath.realpath` 会逐段
+        #    lstat，这条用例照常生效。）
+        probe = link / ".probe"
+        probe.write_text("x")
+        probe.unlink()
     except (OSError, NotImplementedError):
-        pytest.skip("本机不能建符号链接（Windows 需管理员或开发者模式）")
+        pytest.skip("本机建出来的符号链接不可用（Windows 未开开发者模式）")
 
     target = link / "坏笔记.md"
     assert write.within(root, target) is False

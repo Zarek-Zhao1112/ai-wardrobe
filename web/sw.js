@@ -40,7 +40,10 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v11";  // v10→v11：裁剪窗改成「只有一个画面」——图片不动，长按才把窗口
+const VERSION = "v12";  // v11→v12：新增 /js/album.js（相册浮层从 view-add.js 抽出来，
+                        //          详情页也用）→ **预缓存清单变了**，必须 +1，否则
+                        //          断网时详情页拿不到这个新模块、整条依赖树加载失败。
+                        // v10→v11：裁剪窗改成「只有一个画面」——图片不动，长按才把窗口
                         //          开到整个显示区、框外以 58% 黑露出来（动了 crop.js /
                         //          style.css；改 sw.js 一个字节是为了让离线缓存也跟着更新）
                         //（v9→v10 是"选区铺满 / 按下变整图"双态 + 去掉放大镜；
@@ -80,10 +83,14 @@ const SHELL_ASSETS = [
   //    漏了的话服务活着时看不出问题（网络优先拿得到），但**断网/后端没起**时
   //    模块请求 404 → 整个 `view-add.js` 的依赖树加载失败 → 录入页白屏。
   "/js/crop.js",
+  // 相册浮层（2026-10-21 从 view-add.js 抽出来共享）。`view-item.js` 也 import 它。
+  "/js/album.js",
   "/js/view-gaps.js",
   "/js/view-outfits.js",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
+  // `index.html:11` 引用了它（iOS 加到主屏用）。漏在清单外 → 离线时那一个图标取不到。
+  "/icons/apple-touch-icon.png",
 ];
 
 /** 带超时的 `cache.add`。**不能直接用 `cache.add`**：它没有超时参数，
@@ -129,7 +136,14 @@ self.addEventListener("activate", (event) => {
         //    现在：新桶里连 "/" 都没有 ⇒ 判定这次安装没成功 ⇒ **旧桶一份不删**，
         //    继续用上一版外壳兜底。宁可多占一点空间，也不能让用户没界面可用。
         const fresh = await caches.open(SHELL);
-        if (!(await fresh.match("/"))) return; // 保留所有旧桶
+        // ⚠️ 只看 "/" 不够（2026-10-21 审查发现）：`addWithTimeout` 把每个资源的
+        //    失败都吞成 `undefined`，所以"首页存到了、某个 js 超时了"这种情况，
+        //    install 照样算成功。而 `view-item.js` 是**静态 import** `album.js` 的，
+        //    缺一个模块 → 整条模块图加载失败 → 那个页面直接白屏（比"少个按钮"严重）。
+        //    所以关键模块必须逐个确认，缺一个就当这次安装没成功、保留旧桶。
+        const critical = ["/", "/js/app.js", "/js/api.js", "/js/view-item.js", "/js/album.js"];
+        const got = await Promise.all(critical.map((u) => fresh.match(u)));
+        if (got.some((r) => !r)) return; // 保留所有旧桶
         await Promise.all(
           keys.filter((k) => k !== SHELL && k !== IMAGES).map((k) => caches.delete(k))
         );

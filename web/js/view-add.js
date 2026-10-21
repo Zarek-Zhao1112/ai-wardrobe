@@ -13,6 +13,7 @@
  * 手填那条路保留原来的「录入后即时反馈」（§9.1/§9.2）：让付出立刻看得见回报。
  */
 
+import { albumAvailable, openAlbumPicker } from "./album.js";
 import { api } from "./api.js";
 import { openCropper } from "./crop.js";
 import { fillForm, formHtml, readForm, summaryHtml, typeOptionsHtml } from "./fields.js";
@@ -404,75 +405,25 @@ export async function mount(root, ctx) {
     }
   }
 
-  function openAlbumPicker() {
-    const layer = document.createElement("div");
-    layer.className = "album-layer";
-    layer.innerHTML = `
-      <div class="album-sheet">
-        <div class="album-head">
-          <strong>选一张照片</strong>
-          <button type="button" class="ghost" data-close>关闭</button>
-        </div>
-        <div class="album-grid"><p class="faint">正在读相册…</p></div>
-      </div>
-    `;
-    document.body.appendChild(layer);
-
-    const close = () => layer.remove();
-    layer.addEventListener("click", (ev) => {
-      if (ev.target === layer) close();
-    });
-    layer.querySelector("[data-close]").addEventListener("click", close);
-
-    const grid = layer.querySelector(".album-grid");
-    grid.addEventListener("click", (ev) => {
-      const cell = ev.target.closest(".album-cell");
-      if (!cell) return;
-      pickedPhoto = { id: cell.dataset.id, name: cell.dataset.name };
-      fileEl.value = ""; // 两条路互斥：选了相册就不用 input 里那份
-      dropCropSource(); // 换图了，上一张的裁剪记录作废（不丢的话会继续按旧图裁）
-      renderPicked();
-      close();
-      toast("照片已选好 —— 保存时自动识别属性", "ok");
-    });
-
-    api
-      .albumPhotos(36)
-      .then((res) => {
-        const photos = (res && res.photos) || [];
-        if (!photos.length) {
-          const dirs = (res && res.dirs) || [];
-          grid.innerHTML = `<p class="faint">没读到照片。${
-            dirs.length
-              ? `找到的目录：${esc(dirs.join("、"))}`
-              : "相册目录都没找到 —— Termux 可能没拿到存储权限"
-          }</p>`;
-          return;
-        }
-        // 用原图当缩略图（服务不装 Pillow），靠 lazy 只加载滚到的那几张
-        grid.innerHTML = photos
-          .map(
-            (p) => `<button type="button" class="album-cell"
-              data-id="${esc(p.id)}" data-name="${esc(p.name)}">
-              <img src="${esc(api.albumPhotoUrl(p.id))}" loading="lazy" decoding="async" alt="">
-            </button>`
-          )
-          .join("");
-      })
-      .catch((err) => {
-        grid.innerHTML = `<p class="faint">读相册失败：${esc(err.message)}</p>`;
-      });
-  }
-
-  albumBtn.addEventListener("click", openAlbumPicker);
+  albumBtn.addEventListener("click", async () => {
+    // 浮层本身在 `album.js` 里 —— 详情页换图用的是同一个窗口。两页各写
+    // 一份的话，读不到相册时的提示文案迟早会走岔（它们描述的是同一个接口）。
+    const picked = await openAlbumPicker();
+    if (!picked) return; // 关掉了 / 点了空白：什么都不改
+    // 挑的时候用户可能已经点导航走了。这时 `fileEl` 已脱离文档，往下走
+    // 只会改一堆看不见的节点，还会弹一句落在新页面上的 toast。
+    if (!albumBtn.isConnected) return;
+    pickedPhoto = picked;
+    fileEl.value = ""; // 两条路互斥：选了相册就不用 input 里那份
+    dropCropSource(); // 换图了，上一张的裁剪记录作废（不丢的话会继续按旧图裁）
+    renderPicked();
+    toast("照片已选好 —— 保存时自动识别属性", "ok");
+  });
 
   // 只有真读得到相册才显示入口 —— 电脑上不该摆一个点了没用的按钮
-  api
-    .albumPhotos(1)
-    .then((res) => {
-      if (res && res.available) albumBtn.hidden = false;
-    })
-    .catch(() => undefined);
+  albumAvailable().then((ok) => {
+    if (ok) albumBtn.hidden = false;
+  });
 
   // 用 input 选文件 / 粘贴 / 拖拽 → 都说明用户走的是另一条路
   fileEl.addEventListener("change", (ev) => {

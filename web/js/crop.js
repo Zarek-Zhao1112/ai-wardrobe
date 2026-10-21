@@ -124,15 +124,17 @@ const easeOut = (p) => 1 - (1 - p) ** 3;
  * @param initial 归一化框 `{x,y,w,h}`，可空
  * @param grow    `initial` 是否算"AI 给的、要外扩"（默认 true）。
  *                传回上次的 `rect` 时必须传 false。
+ * @param title   窗口标题。录入页裁的是**电商截图里那块商品图**，详情页裁的是
+ *                自己拍的整张照片 —— 同一句标题放到详情页会说不通。
  * @returns `Promise<{blob, width, height, rect} | null>` —— `null` = 用户选了「保持原图」
  */
-export function openCropper({ src, initial = null, grow = true }) {
+export function openCropper({ src, initial = null, grow = true, title = "框出商品图" }) {
   return new Promise((resolve) => {
     const layer = document.createElement("div");
     layer.className = "crop-layer";
     layer.innerHTML = `
       <div class="crop-head">
-        <strong>框出商品图</strong>
+        <strong>${title}</strong>
         <!-- 先放一行占位：留空的话这一行高度是 0，等 updateHint() 填上字，
              上面的头部会变高、显示区跟着变矮，图片就按旧尺寸摆偏了。 -->
         <p class="faint" data-hint>正在读取照片…</p>

@@ -179,10 +179,41 @@ def _as_list(value: Any) -> list[str]:
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
+    """模型给的数值 → 夹到 `[0,1]`。
+
+    ⚠️ **必须挡 `NaN` / `inf`**（2026-10-21 审查发现）：`min(1.0, nan)` 在 Python
+    里返回的是**第一个参数**（nan 跟谁比都是 False），于是模型吐一个 `NaN`，
+    `ai_confidence` 就变成 `1.0` —— 明明是输出坏了，却记成"最确定"。
+    和 `_normalize_crop` 挡 NaN 是同一个理由。
+    """
     try:
-        return max(0.0, min(1.0, float(value)))
+        v = float(value)
     except (TypeError, ValueError):
         return default
+    if not math.isfinite(v):
+        return default
+    return max(0.0, min(1.0, v))
+
+
+def _json_safe(value: Any) -> Any:
+    """递归把 `NaN` / `Infinity` 换成 `None`。
+
+    ★ 为什么必须有（2026-10-21 审查发现）：`chat_json` 用的是 `json.loads`，
+    而 Python 的 `json.loads` **接受 `NaN` 字面量**并转成 `float('nan')` ——
+    但 Starlette 的 `JSONResponse` 序列化时是 `allow_nan=False`，于是整条响应
+    在**照片已经落库、属性已经写进库之后**变成 500。用户看到"上传失败"，
+    重试还会再撞一次 `image_hash` 唯一索引。
+
+    `_normalize_crop` 早就为同一个原因挡过 NaN（只挡了 `crop` 一个字段），
+    这里把 `raw` / `unresolved` 也一起过一遍 —— 它们同样是模型原样输出。
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 def _normalize_crop(raw: Any) -> Optional[dict]:
@@ -529,10 +560,11 @@ def tag_image(
     clean, failed = normalize_tags(raw)
     return {
         "tags": clean,
-        "unresolved": failed,
+        # 归一出错时原值会带进响应体，所以也要过一遍 NaN 净化（见 `_json_safe`）
+        "unresolved": _json_safe(failed),
         "ai_confidence": _as_float(raw.get("confidence")),
         "crop": _normalize_crop(raw.get("crop")),
-        "raw": raw,
+        "raw": _json_safe(raw),
     }
 
 

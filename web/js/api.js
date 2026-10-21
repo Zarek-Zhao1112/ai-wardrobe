@@ -196,9 +196,24 @@ export const api = {
   preferences: (params) => request("GET", "/preferences", { params }),
   preferenceContexts: () => request("GET", "/preferences/contexts"),
 
-  /** 图片 URL。`image_path` 是文件名（不是完整路径）。 */
-  imageUrl(imagePath) {
+  /** 图片 URL。`image_path` 是文件名（不是完整路径）。
+   *
+   * `v` 是可选的**缓存版本**（通常传 `item.updated_at`）。
+   *
+   * ★ 为什么需要它（2026-10-21 审查发现）：`image_path` 是固定文件名
+   *   `<item_id>.jpg`（`images.image_path_of` 明写「重新上传就是覆盖」），
+   *   所以换图之后 URL **一个字都不变**。而 `/images/` 走的是网络优先 +
+   *   浏览器 HTTP 缓存，`StaticFiles` 又不发 `Cache-Control` —— 老图可能有
+   *   几天的新鲜期。后果不只是「换完看不出变化」：详情页「裁剪这张」是拿
+   *   **同一个 URL** 取图去画的，取到旧位图就会把刚存的新图裁成旧图的裁剪结果，
+   *   一次不可逆的数据覆盖。
+   *
+   *   拼上 `?v=` 之后，换图前后是两个缓存键，SW 的 `cache.put` 也天然按版本分开。
+   *   **不传 `v` 时行为完全不变** —— 衣橱卡片、搭配页那些只读场景不受影响。
+   */
+  imageUrl(imagePath, v) {
     if (!imagePath) return null;
-    return `/images/${encodeURIComponent(imagePath)}`;
+    const q = v ? `?v=${encodeURIComponent(v)}` : "";
+    return `/images/${encodeURIComponent(imagePath)}${q}`;
   },
 };

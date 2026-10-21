@@ -730,3 +730,43 @@ class TestMultiWordColorValues:
         assert clean["colors"] == ["light_blue"], "浅蓝必须被整词认出"
         assert "blue" not in clean["colors"], "★★ 浅蓝被静默降级成蓝了"
         assert "light" not in failed.get("colors", []), "不该把 'light' 当成认不出的噪声"
+
+
+class TestNonFiniteNumbers:
+    """模型吐 `NaN` / `Infinity` 时的守卫（2026-10-21 审查发现）。
+
+    两处都错过，而且都是静默的：
+    · `min(1.0, nan)` 在 Python 里返回**第一个参数** → 置信度变成 1.0（"最确定"）；
+    · `JSONResponse` 序列化时是 `allow_nan=False` → 整条响应在**数据已经落库之后**
+      变成 500（用户看到"上传失败"，重试还撞 `image_hash` 唯一索引）。
+    """
+
+    def test_nan_confidence_is_not_max(self):
+        assert tagging._as_float(float("nan"), 0.0) == 0.0
+        assert tagging._as_float(float("inf"), 0.0) == 0.0
+        assert tagging._as_float(float("-inf"), 0.0) == 0.0
+        # 正常值不受影响
+        assert tagging._as_float("0.8") == 0.8
+        assert tagging._as_float(None, 0.25) == 0.25
+
+    def test_tag_image_output_is_json_serializable(self, fake_llm, tmp_path):
+        img = tmp_path / "a.png"
+        img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+        # `json.loads` 认 `NaN` / `Infinity` 这两个字面量，所以模型输出真的能带进来
+        client = fake_llm(
+            [
+                {
+                    "type": "tshirt",
+                    "confidence": float("nan"),
+                    "colors": ["荧光"],
+                    "extra": {"x": float("inf")},
+                }
+            ]
+        )
+
+        out = tagging.tag_image(img, client=client)
+
+        assert out["ai_confidence"] == 0.0, "NaN 置信度不能被当成 1.0"
+        assert out["raw"]["extra"]["x"] is None, "inf 必须被换成 None"
+        # 这条是真正的契约：上传接口要把它塞进 JSONResponse（allow_nan=False）
+        json.dumps(out, allow_nan=False)
