@@ -7,3 +7,10 @@
 #   上面的 * text=auto 会在 Windows 上把工作区检出成 CRLF，而 CRLF 的
 #   `#!/bin/sh` 脚本执行会失败（解释器行尾多一个 \r）。所以单独把 .githooks/ 钉死为 LF。
 .githooks/* text eol=lf
+
+# ★ 同理，deploy/*.sh 是**拿到 Termux 里直接跑**的，必须 LF。
+#   2026-10-21 实测踩到：Windows 上 `git archive` 打出来的包里三个 .sh 全部是
+#   CRLF，手机端第 16 行就报 `set: Illegal option -`，整个同步脚本起不来。
+#   本地发版已改用 _phone_install/build_pkg.py（直接读 git blob，天然 LF），
+#   这里再钉一道，避免以后有人用 git archive / 换机器时又踩。
+*.sh text eol=lf
