@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import socket
 import sys
 import threading
@@ -52,6 +53,32 @@ def _configure_logging() -> None:
     logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers)
 
 
+def _install_stack_dump() -> None:
+    """`kill -USR1 <pid>` 时把所有线程的 Python 栈追加到 `data/stacks.log`。
+
+    为什么需要：手机上出现过"进程活着但完全无响应"的偶发故障 —— 端口仍在
+    LISTEN、CPU 不增长、**连静态文件都超时**，说明不是某个接口慢，而是整个
+    事件循环停住了。这种时候只有拿到栈才知道卡在哪一行。
+
+    Windows 没有 SIGUSR1，直接跳过（本机开发用不到）。
+    """
+    sig = getattr(signal, "SIGUSR1", None)
+    if sig is None:
+        return
+    try:
+        import faulthandler
+
+        from app import config
+
+        path = Path(config.DATA_DIR) / "stacks.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # 必须保持文件对象存活，否则 register 拿到的是已关闭的 fd
+        fh = open(path, "a", encoding="utf-8")  # noqa: SIM115
+        faulthandler.register(sig, file=fh, all_threads=True, chain=False)
+    except OSError:
+        pass          # 落盘失败不该让服务起不来
+
+
 def _port_in_use(host: str, port: int) -> bool:
     """这个地址:端口上有没有人在听。"""
     with socket.socket() as s:
@@ -75,6 +102,7 @@ def _open_browser_when_ready(url: str, host: str, port: int, *, timeout: float =
 
 def main() -> None:
     _configure_logging()
+    _install_stack_dump()
     log = logging.getLogger("run")
 
     host = os.environ.get("APP_HOST", DEFAULT_HOST)
