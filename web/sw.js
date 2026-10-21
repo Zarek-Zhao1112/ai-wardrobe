@@ -40,8 +40,8 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v4";   // v3→v4：外壳请求加超时（见 NET_TIMEOUT_MS），顺便重建一次桶
-                        //（v2→v3 清 2026-10-15 旧外壳桶；v1→v2 是图片改网络优先）
+const VERSION = "v5";   // v4→v5：activate 不再盲目删旧桶（v4 那版可能装出了空桶）
+                        //（v3→v4 外壳请求加超时；v2→v3 清 2026-10-15 旧外壳桶）
 const SHELL = `wzbbti-shell-${VERSION}`;
 const IMAGES = `wzbbti-img-${VERSION}`;
 
@@ -105,14 +105,47 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) =>
-        Promise.all(
+      .then(async (keys) => {
+        // ★★ 删旧桶之前**先确认新桶真的有货**（2026-10-21 修，这是
+        //    「每次更新完都得重启 Termux 才能打开」的根因）：
+        //
+        //    发版流程是"sw.js 字节一变 → 浏览器装新 SW → install 里逐个
+        //    cache.add 填充新桶 → activate 删掉所有旧桶"。
+        //    可是 install 那一刻后端**可能正好不可用**（部署中在重启，或
+        //    Termux 在后台被系统挂起）。此时 15 个 add 全部失败，**新桶是空的**，
+        //    而原来的写法照样把旧桶删个干净 —— 缓存里一份外壳都不剩，
+        //    页面连 HTML 都拿不到，PWA 的原生闪屏就一直不退。
+        //    用户唯一的出路是去把 Termux 重启一次，让后端活过来重新填桶。
+        //
+        //    现在：新桶里连 "/" 都没有 ⇒ 判定这次安装没成功 ⇒ **旧桶一份不删**，
+        //    继续用上一版外壳兜底。宁可多占一点空间，也不能让用户没界面可用。
+        const fresh = await caches.open(SHELL);
+        if (!(await fresh.match("/"))) return; // 保留所有旧桶
+        await Promise.all(
           keys.filter((k) => k !== SHELL && k !== IMAGES).map((k) => caches.delete(k))
-        )
-      )
+        );
+      })
       .then(() => self.clients.claim())
   );
 });
+
+/** 在当前版本的桶里找；找不到就**逐个翻历史版本的桶**。
+ *
+ * 为什么需要（同上）：新桶可能是空的（install 时后端不可用），而旧桶里
+ * 躺着上个月那版完好的外壳。只有当前桶时，空桶 = 白屏；翻历史桶就能兜住。
+ * 顺序按 caches.keys() 返回顺序，先命中的版本优先，够用了。 */
+async function matchShellAnywhere(request) {
+  const current = await caches.open(SHELL);
+  const hit = await current.match(request);
+  if (hit) return hit;
+  for (const key of await caches.keys()) {
+    if (!key.startsWith("wzbbti-shell-") || key === SHELL) continue;
+    const old = await caches.open(key);
+    const oldHit = await old.match(request);
+    if (oldHit) return oldHit;
+  }
+  return null;
+}
 
 /** 网络优先：成功就顺手更新缓存；失败**或超时**回落缓存。 */
 async function networkFirst(request, cacheName) {
@@ -126,11 +159,14 @@ async function networkFirst(request, cacheName) {
     if (res && res.ok) cache.put(request, res.clone());
     return res;
   } catch (err) {
-    const hit = await cache.match(request);
+    // 回落：外壳请求翻遍所有历史桶（当前桶可能是空的，理由见 matchShellAnywhere）；
+    // 图片只认当前图片桶 —— shell 桶里本来就不存图，翻它纯属浪费。
+    const hit =
+      cacheName === SHELL ? await matchShellAnywhere(request) : await cache.match(request);
     if (hit) return hit;
     // 导航请求最后兜底到首页（hash 路由，所有页面都从它进）
     if (request.mode === "navigate") {
-      const shell = await cache.match("/");
+      const shell = await matchShellAnywhere("/");
       if (shell) return shell;
     }
     throw err;
