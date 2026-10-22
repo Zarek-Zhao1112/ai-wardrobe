@@ -40,7 +40,13 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v13";  // v12→v13：照片入口收口成原生 `<input type=file>`
+const VERSION = "v14";  // v13→v14：**所有** fetch 加 `cache: "no-store"`（networkFirst
+                        //          与 install 的预缓存都加了）。v13 及之前会吃浏览器的
+                        //          HTTP 磁盘缓存 —— 覆盖安装后手机上可能长期跑旧 js，
+                        //          普通刷新救不回来（2026-10-22 实测：清缓存前页面里
+                        //          `window.__wz` 不存在，而 `fetch('/js/app.js')` 返回新版）。
+                        //          缓存策略变了 → 必须 +1，否则新逻辑不会被激活。
+                        // v12→v13：照片入口收口成原生 `<input type=file>`
                         //          （动了 view-add.js / view-item.js / style.css 的 .sr-only）
                         //          → 让离线桶跟着换，否则"服务没起"那一刻看到的
                         //          还是两个入口的旧界面 —— 正是最需要它正确的时候。
@@ -105,7 +111,9 @@ function addWithTimeout(cache, url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), NET_TIMEOUT_MS);
   return cache
-    .add(new Request(url, { signal: ctrl.signal }))
+    // `cache: "no-store"` 同上：install 时要的是**真实的服务端文件**。
+    // 少了它会命中 HTTP 缓存，于是"新桶里装的是旧文件"，升 VERSION 也白升。
+    .add(new Request(url, { signal: ctrl.signal, cache: "no-store" }))
     .catch(() => undefined)
     .finally(() => clearTimeout(timer));
 }
@@ -197,7 +205,18 @@ async function networkFirst(request, cacheName) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), NET_TIMEOUT_MS);
   try {
-    const res = await fetch(new Request(request, { signal: ctrl.signal }));
+    // ★★ `cache: "no-store"` 是 2026-10-22 加的，这条**不是优化，是正确性**。
+    //    没有它，`fetch()` 会走浏览器的 HTTP 磁盘缓存，于是：
+    //      改完前端 → 覆盖安装 APK → 手机上跑的还是**旧的 js**，
+    //      普通刷新、甚至 SW 的 network-first 都拿的缓存副本。
+    //    实测（小米 12S Ultra / Android 15）：清缓存前页面里 `window.__wz` 不存在
+    //    （旧 app.js），同一时刻 `fetch('/js/app.js')` 却返回新版（走的另一条路）；
+    //    `Network.clearBrowserCache` + 强制重载后立刻变正常。
+    //    也就是说"改了没生效"这类幽灵问题的最后一层就是这个。
+    //    代价：每次请求都真发出去（本地回环，几十 KB，可忽略；这也让 304 失去意义）。
+    const res = await fetch(
+      new Request(request, { signal: ctrl.signal, cache: "no-store" })
+    );
     if (res && res.ok) cache.put(request, res.clone());
     return res;
   } catch (err) {

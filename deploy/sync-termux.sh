@@ -45,9 +45,9 @@ fi
 #   新增文件缺失时 grep 依然能过（说明包不完整），必须单独确认。
 [ -f web/js/album.js ] || { echo "  ✗ 缺 web/js/album.js —— 备用通道不完整"; exit 1; }
 echo "  ✓ 共享相册模块 web/js/album.js 在位（当前无 UI 入口，备用）"
-grep -q 'VERSION = "v13"' web/sw.js \
-  && echo "  ✓ Service Worker v13（缓存桶会重建）" \
-  || echo "  ⚠ sw.js 不是 v13 —— 离线缓存可能还是旧的"
+grep -q 'VERSION = "v14"' web/sw.js \
+  && echo "  ✓ Service Worker v14（缓存桶会重建）" \
+  || echo "  ⚠ sw.js 不是 v14 —— 离线缓存可能还是旧的"
 python -c "import app.schema as s; print('  SCHEMA_VERSION =', s.SCHEMA_VERSION)"
 
 say "4/5 重启服务"

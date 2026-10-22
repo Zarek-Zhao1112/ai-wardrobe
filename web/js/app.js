@@ -33,6 +33,26 @@ const navEl = document.getElementById("nav");
 const tabbarEl = document.getElementById("tabbar");
 const statusEl = document.getElementById("status");
 
+/**
+ * 启动状态，**给 index.html 的看门狗一个可判定的答案**。
+ *
+ * 为什么要这个（2026-10-22）：看门狗原来靠"#view 的文本里还有没有『加载中』"
+ * 猜页面有没有画完。这个判据是错的 —— 衣橱页点「加载更多」时，按钮文字
+ * 就是"加载中…"（`view-wardrobe.js`），那时整页是好的，却会被判成"没内容"
+ * 然后被错误面板覆盖；而数据回来时写入的是**已经被换掉的节点**，
+ * 页面就永久停在那张面板上，只能手动刷新。
+ *
+ * 现在由 app.js 自己汇报：
+ *   "booting" — 模块在执行，还在等后端数据
+ *   "ok"      — 首屏已经画出结论（正常页面，或渲染失败的错误面板）
+ *   "down"    — 后端不可用，画的是 `renderBackendDown()` 的指引页
+ * 而 `window.__wz` **不存在**本身就是答案：模块一行都没跑（加载失败 / 语法错误）。
+ *
+ * ★ 赋值必须放在模块体最外层：静态 import 的依赖先执行，任何一步抛错
+ *   都不会走到这里 —— 那正是我们想识别的"模块没起来"。
+ */
+window.__wz = { boot: "booting" };
+
 /** 共享上下文。视图不必自己去取词表和健康状态。 */
 const ctx = { api, taxonomy: null, health: null };
 
@@ -83,14 +103,18 @@ async function render() {
     await view.mod.mount(rootEl, ctx, arg);
   } catch (err) {
     rootEl.innerHTML = `<div class="alert error">页面加载失败：${esc(err && err.message)}</div>`;
+  } finally {
+    // 不管是正常渲染还是渲染失败，`#view` 里都已经有结论了 ——
+    // 告诉看门狗"别再动这页"（成功和错误面板都算结论）。
+    if (window.__wz) window.__wz.boot = "ok";
   }
 }
 
-/** 用户点了「打开 Termux」之后置 true —— 切回本页时自动重试一次。
+/** 点过「重试」之后置 true —— 切回前台时自动再试一次。
  *
  * 为什么用 `visibilitychange` 而不是定时轮询：页面切到后台后，定时器会被浏览器
  * 节流到分钟级（甚至暂停），"每 2 秒探一次"根本不成立；而"切回前台"这个时刻
- * 恰好就是服务已经起来、该重连的时刻，信号比任何轮询都准。
+ * 恰好就是服务可能已经恢复、该重连的时刻，信号比任何轮询都准。
  */
 let waitingForBackend = false;
 
@@ -103,74 +127,62 @@ let waitingForBackend = false;
  * 现在：Service Worker 会拿缓存里的外壳兜底（见 sw.js），页面能正常渲染出来，
  * 于是这里就能给一句**照着做就行**的话，而不是让浏览器去吓人。
  *
- * 2026-10-21 加了两件事（手机实测：从桌面图标点进来只会看到这一页，
- * 用户还得自己退回桌面去找 Termux 图标）：
- *   ① 「试着打开 Termux」按钮 —— 用 `intent:` 直接唤起 Termux App。
- *      Termux 一开，它的 runsvdir 就会把服务拉起来（实测 force-stop 后重开，
- *      15 秒内 8787 恢复响应），所以这一个按钮就等于"点一下就跑"。
- *      只在 Android 上显示：电脑的 hostname 同样是 127.0.0.1，会命中同一个分支，
- *      但 `intent:` 在桌面上毫无意义。
- *   ② 从 Termux 切回来时**自动重试** —— 省掉"再点一次重试"这一下手。
+ * ★ 2026-10-22 删掉了「试着打开 Termux」按钮（原来那套 `intent:` 唤起）。
+ *   Termux 版部署当天已弃用，服务改成 APK 自己的前台服务；而这个按钮在 APK 里
+ *   点下去仍会真的唤起 com.termux（手机上还装着），它的 `.bashrc` 钩子随即去
+ *   bind 8787 —— 跟 APK 里的 uvicorn **抢同一个端口**，症状比"没反应"更难查。
+ *
+ *   文案也一并改了：原来说"把应用从最近任务里划掉再重新打开"，这是**误导**。
+ *   前台服务没有 `stopWithTask`，划掉只销毁页面、服务照跑；重开时服务已在运行，
+ *   只走 `onStartCommand`（START_STICKY），**不会重跑 `bootPython`**。
+ *   只有系统的「强制停止」才会杀掉进程。
  */
 function renderBackendDown() {
+  // 先定状态再画 DOM：index.html 的看门狗以这个字段为准，晚一步就可能被它插手
+  if (window.__wz) window.__wz.boot = "down";
   const onServerDevice = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
-  const canWakeTermux = onServerDevice && /Android/i.test(navigator.userAgent);
+  // WebView 的 UA 必带 `; wv)`（壳没有 setUserAgentString，UA 是唯一
+  // 不依赖壳改动的稳定信号）。电脑 Chrome 的 UA 里没有 `wv`，不会误命中。
+  const inWebView = /;\s*wv\)/.test(navigator.userAgent);
   document.title = "后端未启动 · AI 穿搭助手";
   rootEl.innerHTML = `
-    <div class="view-head"><h1>后端还没启动</h1></div>
-    <div class="alert">这个地址上没有服务在响应：<code>${esc(location.origin)}</code></div>
+    <div class="view-head"><h1>${inWebView ? "内置服务没响应" : "后端还没启动"}</h1></div>
+    <div class="alert">${
+      inWebView
+        ? "应用内置的服务没有响应 —— 这会儿读不到数据。"
+        : `这个地址上没有服务在响应：<code>${esc(location.origin)}</code>`
+    }</div>
     <div class="panel">
-      <h2>${canWakeTermux ? "回桌面打开 Termux" : onServerDevice ? "先把服务启动起来" : "去跑后端的那台设备上启动它"}</h2>
+      <h2>${
+        inWebView
+          ? "先点重试，再强制停止"
+          : onServerDevice
+            ? "先把服务启动起来"
+            : "去跑后端的那台设备上启动它"
+      }</h2>
       <p class="muted">${
-        canWakeTermux
-          ? "服务跑在 <strong>Termux</strong> 里：回桌面点一下 Termux 图标，它会在几秒内自动起来（不用敲命令）。" +
-            "<strong>切回本页会自动重连</strong>，不用再点「重试」。"
+        inWebView
+          ? "服务跟着这个应用走，不用连电脑。先点下面的「重试」重新加载页面；" +
+            "还是不行，就去<strong>系统设置 → 应用 → 找到本应用 → 强制停止</strong>，" +
+            "再打开一次 —— 只有「强制停止」会重启内置服务。" +
+            "（从最近任务里划掉<strong>不算</strong>，那只关掉页面，服务还在原地。）"
           : onServerDevice
             ? "在项目目录执行 <code>.venv/Scripts/python.exe run.py</code>。"
             : "在跑后端的那台电脑上执行 <code>.venv/Scripts/python.exe run.py</code>。"
       }</p>
       <p class="faint">这页能显示出来，是 Service Worker 缓存的外壳 —— 数据仍然拿不到。</p>
       <div class="form-actions">
-        ${canWakeTermux ? `<button id="boot-termux">试着打开 Termux</button>` : ""}
         <button id="boot-retry" class="primary">重试</button>
       </div>
-      ${canWakeTermux ? `<p class="faint">「试着打开 Termux」依赖浏览器的 App 唤起能力，部分浏览器（如 MIUI 浏览器）会拦掉；<br>点了没反应就回桌面点 Termux 图标，效果一样。</p>` : ""}
     </div>`;
-
-  const termuxBtn = rootEl.querySelector("#boot-termux");
-  if (termuxBtn) {
-    termuxBtn.addEventListener("click", () => {
-      // `intent:` 是 Chromium 的 App 唤起协议。Termux 的启动入口是
-      // `.app.TermuxActivity`（实测 `adb shell cmd package resolve-activity
-      // --brief com.termux` 返回它；`.HomeActivity` 是同一个页面的别名，也认）。
-      waitingForBackend = true;
-      termuxBtn.disabled = true;
-      termuxBtn.textContent = "等待服务启动…";
-      try {
-        location.href = "intent:#Intent;component=com.termux/.app.TermuxActivity;end";
-      } catch (err) {
-        // 浏览器不支持 intent: 时不会跳转，把按钮恢复成可点，别让它卡在"等待中"
-        console.warn("唤起 Termux 失败（请手动打开 Termux）:", err && err.message);
-        termuxBtn.disabled = false;
-        termuxBtn.textContent = "试着打开 Termux";
-        return;
-      }
-      // 同样的兜底：`location.href = "intent:..."` 在不认识的浏览器里**不抛错也不跳转**，
-      // 所以只能靠"页面还在不在"来判断 —— 2.5 秒后按钮还挂在 DOM 上，就说明没跳走。
-      setTimeout(() => {
-        if (termuxBtn.isConnected) {
-          termuxBtn.disabled = false;
-          termuxBtn.textContent = "试着打开 Termux";
-        }
-      }, 2500);
-    });
-  }
 
   const btn = rootEl.querySelector("#boot-retry");
   if (btn) {
     btn.addEventListener("click", () => {
       btn.disabled = true;
       btn.textContent = "正在连接…";
+      // 万一这次连不上，切回前台时会自动再试一次（见上面的 visibilitychange）
+      waitingForBackend = true;
       boot();
     });
   }

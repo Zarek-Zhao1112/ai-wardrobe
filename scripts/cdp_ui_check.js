@@ -265,6 +265,32 @@ const SW_STATE = `(async () => {
     fs.writeFileSync(`${OUT}/${vp.name}.png`, Buffer.from(shot.data, "base64"));
   }
 
+  // ---- 启动看门狗：假阳性检查（2026-10-22 加）----
+  // 为什么单独做：上面每个页面只等 1.2–1.8 秒，而看门狗 9 秒才动 ——
+  // 它**永远跑不到**，等于零覆盖。而这里是用户唯一会看见的兜底面：
+  // 只要它误报一次，用户就会认定"后端坏了"（2026-10-22 真发生过：
+  // /health 秒回、打标 1.5 秒出结果，页面却写着"后端没响应"）。
+  // 所以单独导航一次，等满 16 秒（跨过 9s 首检 + 8s 宽限 + 4s 探测），
+  // 断言页面上**没有**任何兜底文案。后端此时是活的，出现即误报。
+  await cli.send("Emulation.setDeviceMetricsOverride", {
+    width: 390, height: 844, deviceScaleFactor: 2, mobile: true,
+  });
+  await cli.send("Page.navigate", { url: BASE });
+  await sleep(16000);
+  report.watchdog = await evalJson(
+    cli,
+    `(() => {
+      const t = ((document.getElementById('view') || {}).textContent || '').replace(/\\s+/g, ' ');
+      const hit = ['后端没响应', '页面还没加载完', '页面脚本没加载起来'].filter((s) => t.includes(s));
+      return { state: (window.__wz || {}).boot || 'missing', false_alarm: hit, text: t.trim().slice(0, 60) };
+    })()`
+  );
+  if (report.watchdog.false_alarm.length) {
+    report.console_errors.push(
+      "watchdog false alarm: " + report.watchdog.false_alarm.join(",") + " | " + report.watchdog.text
+    );
+  }
+
   // SW 只能在一个标签里查（同一个 origin 共享注册）
   report.sw = await evalJson(cli, SW_STATE);
 

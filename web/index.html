@@ -41,28 +41,147 @@
 
   <script type="module" src="/js/app.js"></script>
 
-  <!-- ★ 启动看门狗（2026-10-21 加，手机实测踩到）。
+  <!-- ★ 启动看门狗（2026-10-21 加，2026-10-22 改判据）
        为什么必须是**内联**脚本：CSS / 模块脚本整批加载失败时，app.js 一行都不会执行，
-       任何写在 app.js 里的兜底都不会生效。现象就是 PWA 的原生启动闪屏一直不退、
-       用户只能去划掉 Termux —— 明明后端只是"被系统挂起了"。
-       这里 7 秒后检查主区域是不是还停在"加载中…"，是就直接给一个能点的重试。
-       7 秒的依据：app.js 里 /health 超时是 6 秒，正常路径一定已经渲染出内容了。 -->
+       写在 app.js 里的兜底全部失效，页面永远停在"加载中…"。
+
+       ★ 2026-10-22 第一版判据是错的，当天就改了。它看 `#view` 的文本里还有没有
+         「加载中」，有就断言"后端没响应"。两件事根本不等价：
+           · 覆盖安装后第一次启动：Python 侧字节码全重建（实测服务 4 秒才就绪），
+             Service Worker 还要预缓存二十多个文件，9 秒后才画出内容是**正常**的；
+           · app.js 的 boot() 是 health(6s 超时) → taxonomy(10s 超时) **串行**，
+             最坏 16 秒才有内容，这期间它一直是"加载中…"；
+           · 更糟的是"加载中"这三个字会**合法地**出现在正常页面里 —— 衣橱页点
+             「加载更多」时按钮文字就是它。那时整页是好的，却被判成"没内容"
+             被面板盖掉，数据回来写进的是**已经被换掉的节点**，页面就永久停在
+             面板上，只能手动刷新。
+         结论：**不能靠文本猜**。现在读 app.js 自己汇报的 `window.__wz.boot`
+         （见 app.js 顶部注释）：missing / booting / ok / down，
+         只有 missing 和 booting 才可能被动。
+
+       文案也换过：原来让人"回桌面打开 Termux"，可 APK 里服务就是本应用的前台
+       服务，桌面上没有 Termux 要开；真去开还会**再起一个服务抢 8787**
+       （Termux 版 2026-10-22 起已弃用）。 -->
   <script>
     (function () {
-      setTimeout(function () {
+      var FIRST = 9000;   // 先看一眼：正常路径这时首页已经画完
+      var GRACE = 8000;   // 脚本活着但还在等数据时再给的时间（盖住 boot 最坏 16s）
+      var PROBE = 4000;
+
+      /** app.js 的启动状态 —— **唯一可信的判据**。
+       *   missing : app.js 一行都没执行（模块加载失败 / 语法错误）
+       *   booting : 在跑，还在等后端数据
+       *   ok/down : 已经有结论（正常页面 / 后端指引页），一个字都不许改
+       */
+      function state() {
+        return (window.__wz && window.__wz.boot) || "missing";
+      }
+
+      function settled() {
+        var s = state();
+        return s === "ok" || s === "down";
+      }
+
+      /** 问后端"你活着吗"。不用 fetch：内联脚本要能在最原始的环境里跑。 */
+      function probeHealth(done) {
+        var x = new XMLHttpRequest();
+        var finished = false;
+        function finish(ok) {
+          if (finished) return;   // timeout 与 loadend 都会来，只认第一次
+          finished = true;
+          done(ok);
+        }
+        try {
+          // /health 不在 SW 的外壳清单里（sw.js 只接管外壳与图片），走的是真网络。
+          // 时间戳只是顺手绕开任何中间层缓存 —— sw.js 改了策略时也不会说谎。
+          x.open("GET", "/health?probe=" + Date.now(), true);
+          x.timeout = PROBE;
+          x.onloadend = function () { finish(x.status === 200); };
+          x.ontimeout = function () { finish(false); };
+          x.onerror = function () { finish(false); };
+          x.send();
+        } catch (e) {
+          finish(false);
+        }
+      }
+
+      /** 清掉 SW 缓存与注册再重载。
+       *
+       * **只在"脚本压根没跑起来"时提供**：那个场景下缓存里八成是坏的，
+       * 普通重试（location.reload）会一直拿到同一份坏外壳 —— 这个项目真发生过
+       * （2026-10-22 装过一个带 SyntaxError 的包）。
+       * 平时不该用：清了缓存，下次冷启动要多下一次外壳。
+       */
+      function hardReload() {
+        var jobs = [];
+        try {
+          if (window.caches) {
+            jobs.push(
+              caches.keys().then(function (ks) {
+                return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+              }).catch(function () {})
+            );
+          }
+        } catch (e) { /* 没有 Cache API 就算了 */ }
+        try {
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            jobs.push(
+              navigator.serviceWorker.getRegistrations().then(function (rs) {
+                return Promise.all(rs.map(function (r) { return r.unregister(); }));
+              }).catch(function () {})
+            );
+          }
+        } catch (e) { /* 同上 */ }
+        var go = function () { location.reload(); };
+        if (jobs.length) Promise.all(jobs).then(go, go);
+        else go();
+      }
+
+      function show(kind) {
+        if (settled()) return;    // ★ 探测这几百毫秒里 app.js 已出结论 → 绝不覆盖
         var v = document.getElementById("view");
         if (!v) return;
-        var text = (v.textContent || "").trim();
-        if (text && text.indexOf("加载中") === -1) return; // 已经有内容，什么都不做
+        var head =
+          kind === "down" ? "后端没响应"
+          : kind === "script" ? "页面脚本没加载起来"
+          : "页面还没加载完";
+        var body =
+          kind === "down"
+            ? "服务还在启动，或者已经被系统回收了。稍等几秒点重试；一直不行就去系统设置里对本应用「强制停止」，再打开一次（从最近任务里划掉不算）。"
+            : kind === "script"
+              ? "后端是通的（刚刚测过），是页面自己的脚本没跑起来 —— 最常见的原因是缓存里留着旧版本。点「清缓存重载」能修，之后会重新拉一遍。"
+              : "后端是通的（刚刚测过），只是数据还没回来。第一次启动、或者刚更新完会慢一点；要是停在这一页不动，就点重试。";
         v.innerHTML =
           '<div class="panel" style="margin:16px">' +
-          "<h2>后端没响应</h2>" +
-          '<p class="faint">Termux 里的服务可能被系统挂起了。' +
-          "回到桌面打开一次 Termux（不用改任何设置），再点下面重试。</p>" +
+          "<h2>" + head + "</h2>" +
+          '<p class="faint">' + body + "</p>" +
           '<div class="form-actions">' +
-          '<button type="button" class="primary" onclick="location.reload()">重试</button>' +
+          '<button type="button" class="primary" id="wd-retry">重试</button>' +
+          (kind === "script"
+            ? '<button type="button" class="ghost" id="wd-hard">清缓存重载</button>'
+            : "") +
           "</div></div>";
-      }, 7000);
+        var a = document.getElementById("wd-retry");
+        if (a) a.addEventListener("click", function () { location.reload(); });
+        var b = document.getElementById("wd-hard");
+        if (b) b.addEventListener("click", hardReload);
+      }
+
+      function check() {
+        if (settled()) return;
+        if (state() === "booting") {
+          // 模块在跑，只是还在等数据（health 6s + taxonomy 10s 是串行）→ 再等等
+          setTimeout(function () {
+            if (settled()) return;
+            probeHealth(function (ok) { show(ok ? "slow" : "down"); });
+          }, GRACE);
+          return;
+        }
+        // missing：模块一行都没跑。后端通不通，决定说"前端没起来"还是"后端没响应"
+        probeHealth(function (ok) { show(ok ? "script" : "down"); });
+      }
+
+      setTimeout(check, FIRST);
     })();
   </script>
 </body>
