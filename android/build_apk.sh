@@ -158,4 +158,5 @@ echo "=== 产物 ==="
 ls -la "$PROJ/app/build/outputs/apk/debug/app-debug.apk"
 echo
 echo "装机：adb install -r \"$PROJ/app/build/outputs/apk/debug/app-debug.apk\""
+echo "      ⚠️ 参数必须是本地路径；写成 /sdcard/... 会报 failed to stat（Windows 版 adb 当成本地文件）"
 echo "      （同签名覆盖安装能直接 Success，MIUI 不拦；全新装才需要手点 APK）"

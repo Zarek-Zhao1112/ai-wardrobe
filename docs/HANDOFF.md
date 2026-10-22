@@ -89,7 +89,10 @@ CLAWBOT_WORKER_ENABLED=false .venv/Scripts/python run.py    # http://127.0.0.1:8
 - ⚠️ **APK 莫名其妙变大但条目没变**：AGP 增量打包的僵尸数据（实测 `.env` 变 157 字节
   → 包从 19.0 MB 涨到 24.1 MB）。判据 `python android/tools/apk_diff.py 旧.apk 新.apk`，
   解法 `sh android/build_apk.sh clean`。
-- **重装流程**：`adb push` 到 `/sdcard/Download/` → `adb install -r`。
+- **装机**：`adb install -r "C:/wbuild/aiw/app/build/outputs/apk/debug/app-debug.apk"` 一步到位。
+  ⚠️ Windows 版 adb 的 `install` 参数必须是**本地路径**。写成 `/sdcard/Download/x.apk`
+  会报 `failed to stat /sdcard/...` —— 它当成本地文件去找，不是手机上的路径
+  （`push` 的目标才是手机路径）。2026-10-22 踩过。
   覆盖安装（同签名）MIUI **不拦**；全新安装会 `INSTALL_FAILED_USER_RESTRICTED`，只能手动点。
 - **服务由 `WardrobeService` 前台服务起**（`WardrobeService.java::bootPython`），
   带常驻通知。`onStartCommand` 返回 `START_STICKY`，被系统杀了会重启。
