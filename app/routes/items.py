@@ -398,11 +398,22 @@ def _iter_album_files() -> list[tuple[float, str, int]]:
             continue
         base_depth = len(Path(base).parts)
         for root, dirs, names in os.walk(base):
+            # ★ 跳过隐藏目录（2026-10-22 真机实测发现）：小米的回收站就是
+            #   `/sdcard/DCIM/.globalTrash/`，里面全是**已经删掉**的照片，而它们
+            #   的 mtime 往往最新 —— 按时间倒序正好挤在最前面。实测前 20 张里
+            #   12 张来自回收站，用户一点就导入了一张自己删过的图。
+            #   顺带把 `.thumbnails` 这类缓存目录也挡在外面。
+            #   注意必须写在"层数到了就清空 dirs"**之前**，否则先清空就白筛了。
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
             if len(Path(root).parts) - base_depth >= 2:
                 dirs[:] = []
             for name in names:
                 if len(found) >= ALBUM_SCAN_LIMIT:
                     break
+                # 隐藏文件同理：回收站里的照片会被改名成 `.IMG_xxx.jpg`
+                # （原名前加个点），只看目录名挡不住已经改名的。
+                if name.startswith("."):
+                    continue
                 if os.path.splitext(name)[1].lower() not in ALBUM_EXTS:
                     continue
                 full = os.path.join(root, name)

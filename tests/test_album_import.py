@@ -189,3 +189,25 @@ class TestAlbumListing:
         first = data["photos"][0]
         served = client.get(f"/items/album/photo", params={"id": first["id"]})
         assert served.status_code == 200
+
+    def test_skips_hidden_trash_dir_and_hidden_files(self, client, album):
+        """★ 真机实测（2026-10-22）：小米的回收站是 `<相册>/.globalTrash/`，
+        里面全是已经删掉的照片，而 mtime 往往最新 —— 按时间倒序正好排在最前。
+        实测前 20 张里 12 张来自回收站，用户一点就导入了一张自己删过的图。
+
+        隐藏目录和隐藏文件都挡：回收站里的照片还会被改名成 `.IMG_xxx.jpg`
+        （原名前加个点），只看目录名挡不住这一层。
+        """
+        root, make = album
+        trash = root / ".globalTrash"
+        trash.mkdir()
+        (trash / ".IMG_deleted.jpg").write_bytes(png("trash-hidden"))
+        (trash / "IMG_deleted_plain.jpg").write_bytes(png("trash-plain"))
+        (root / ".root_hidden.jpg").write_bytes(png("root-hidden"))
+        make("keep.jpg", png("keep"))
+
+        data = client.get("/items/album/photos").json()
+
+        names = {p["name"] for p in data["photos"]}
+        assert names == {"keep.jpg"}, f"回收站/隐藏文件漏进相册了：{names}"
+        assert data["total"] == 1
