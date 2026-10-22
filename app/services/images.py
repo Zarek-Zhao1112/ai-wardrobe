@@ -24,10 +24,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 from typing import Optional
 
 from .. import db
+
+logger = logging.getLogger(__name__)
 
 #: 单张图片大小上限。手机直出照片通常 3~8 MB，10 MB 留了余量。
 MAX_IMAGE_BYTES: int = 10 * 1024 * 1024
@@ -158,11 +161,28 @@ def save_image(
         raise
 
     # 数据库已成功，这时才动正式文件
-    staging.replace(target)          # 同目录内 rename，原子替换
-    # 换过扩展名时（jpg → png）把旧文件清掉
-    for stale in db.IMAGES_DIR.glob(f"{item_id}.*"):
-        if stale.name != filename:
-            stale.unlink(missing_ok=True)
+    try:
+        staging.replace(target)      # 同目录内 rename，原子替换
+    except OSError as e:
+        # ★ 2026-10-22 审查发现：删除单品会 unlink 同名文件，Windows 上目标
+        #   处于 delete-pending 时 `os.replace` 会以 ACCESS_DENIED 失败。
+        #   不接住的话这里冒成 500，而数据库那一步已经改了 `image_path`。
+        #   翻成 ImageError（路由 → 400）至少给用户一句人话，也顺手清掉暂存文件。
+        staging.unlink(missing_ok=True)
+        raise ImageError(f"图片写盘失败（可能正在被删除），请重试：{e}") from e
+    # 换过扩展名时（jpg → png）把旧文件清掉。
+    # ⚠️ 不用 `glob(f"{item_id}.*")` 拼 pattern：`image_path_of` 只挡了
+    #   `\ / : * ? " < > |`，`[`、`]` 是放行的 —— 一旦 id 里带 `[ab]`，
+    #   glob 会按字符类匹配到**别人的**文件并删掉。按 stem 相等判定。
+    _remove_by_stem(item_id, keep=filename, include_staging=False)
+
+    # ★ 并发复查（2026-10-22 审查发现）：另一端可能刚把这一行删掉并清了文件，
+    #   那这张刚 rename 出来的图就是"刚生下来的孤儿"。复查不到行就自己收回去。
+    with db.conn() as c:
+        alive = c.execute("SELECT 1 FROM clothing_items WHERE id=?", (item_id,)).fetchone()
+    if not alive:
+        target.unlink(missing_ok=True)
+        raise LookupError("单品不存在")
 
     return {
         "image_path": row["image_path"],
@@ -179,3 +199,75 @@ def read_image(image_path: str) -> Optional[Path]:
     name = Path(image_path).name  # 只取文件名，天然挡掉 `../` 和绝对路径
     candidate = db.IMAGES_DIR / name
     return candidate if candidate.is_file() else None
+
+
+#: 单品图片允许的后缀。与 `MAGIC_TYPES` 对齐 —— 清理时只认这几种，
+#: 免得将来目录里放了 `<id>.json` 之类的边车文件被顺手删掉。
+_IMAGE_SUFFIXES: frozenset[str] = frozenset({".jpg", ".png", ".gif", ".webp"})
+
+
+def _remove_by_stem(
+    item_id: str, *, keep: Optional[str] = None, include_staging: bool = True
+) -> list[str]:
+    """删掉 `data/images/` 里所有「主干 == item_id」的图片，返回被删的文件名。
+
+    归属判定一律用 `path.stem == item_id` + 后缀白名单，**不用 glob 拼 pattern**：
+    `image_path_of` 只拦了 `\\ / : * ? " < > |`，`[`、`]` 是放行的，
+    拼成 pattern 会按字符类匹配到别人的文件。
+
+    顺手清暂存文件 `.<item_id>.<ext>.staging`：实测它们的 stem 是
+    `it_x.jpg`（带点的变成 `.it_x.jpg`），**永远不等于 item_id**，
+    只靠 stem 判据会一直漏，删一件就留下一个可能几 MB 的残片。
+
+    永不抛异常（调用方多半是在数据库已经改完之后才调它）。
+    """
+    if not item_id or item_id in (".", "..") or Path(item_id).name != item_id:
+        return []
+    try:
+        entries = list(db.IMAGES_DIR.iterdir())
+    except OSError as e:  # 目录不存在 / 读不了
+        logger.debug("跳过图片清理，读不了目录 item=%s: %s", item_id, e)
+        return []
+
+    removed: list[str] = []
+    for path in entries:
+        if not path.is_file():
+            continue
+        name = path.name
+        if name == keep:
+            continue
+        mine = path.stem == item_id and path.suffix.lower() in _IMAGE_SUFFIXES
+        staging = include_staging and name.startswith(f".{item_id}.") and name.endswith(".staging")
+        if not (mine or staging):
+            continue
+        try:
+            path.unlink()
+        except OSError as e:
+            # 留个线索：静默失败的话，空间泄漏会再次变成"没人知道为什么少不掉"
+            logger.warning("删除图片失败 item=%s file=%s: %s", item_id, name, e)
+            continue
+        removed.append(name)
+    return removed
+
+
+def remove_item_images(item_id: str) -> list[str]:
+    """删掉某个单品在磁盘上的图片文件，返回被删掉的文件名。
+
+    **为什么要单独一个函数**（2026-10-22）：删除单品原先只跑一条 SQL，
+    图片文件谁都不管 —— 删一件就在 `data/images/` 里留一个几 MB 的孤儿
+    （桌面端实测已经躺着一个 797 KB 的、行都没了；手机端删一件留 4 MB）。
+    按钮文案写的是「删掉就找不回来了」，那就连图一起删干净。
+
+    **永不抛异常**：调用它的时候数据库那一行**已经删掉了**。清文件失败
+    （文件被占用、权限、目录没了）不该让「删除单品」变成失败 —— 那会让
+    用户以为没删掉、再点一次，然后收到 404。所以这里只记日志、不抛。
+
+    换过扩展名的旧文件（jpg → png）、以及写盘中断留下的暂存文件，也一起清。
+
+    ⚠️ 本项目**没有缩略图**（`thumbnail_path` 列存在但从未被写入），
+    所以一个单品在磁盘上只有这一份原图。
+    """
+    removed = _remove_by_stem(item_id, include_staging=True)
+    if removed:
+        logger.info("删除单品 %s 时清掉 %d 个图片文件：%s", item_id, len(removed), "、".join(removed))
+    return removed

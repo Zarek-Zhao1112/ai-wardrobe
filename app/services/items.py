@@ -7,11 +7,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Any, Optional
 
 from .. import db, taxonomy
 from ..models import ItemCreate, ItemUpdate
+from . import images
+
+logger = logging.getLogger(__name__)
 
 # 存成 JSON 的字段
 JSON_LIST_FIELDS = ("colors", "style", "season", "scene")
@@ -412,6 +416,16 @@ def iter_all_items(user_id: str, include_archived: bool = False) -> list[dict]:
 
 
 def delete(item_id: str, user_id: Optional[str] = None) -> bool:
+    """删除单品：先删数据库那一行，成功后再清磁盘上的图。
+
+    **顺序不能反**（2026-10-22）：先删文件再删行，万一 SQL 失败（越权 / 约束），
+    用户会看到「删除失败」但图片已经没了 —— 数据库还指着它，整件单品变成坏图。
+    所以必须等 `with db.conn()` 提交完，确认真的删掉了一行，才动文件。
+
+    图片清理是**尽力而为**：`images.remove_item_images` 不抛异常，删不掉只记日志。
+    返回 `False` 表示这一行不存在（或不属于这个用户），此时**不碰任何文件** ——
+    越权删别人的单品不该顺手把别人的图也删了。
+    """
     with db.conn() as c:
         if user_id:
             cur = c.execute(
@@ -419,4 +433,15 @@ def delete(item_id: str, user_id: Optional[str] = None) -> bool:
             )
         else:
             cur = c.execute("DELETE FROM clothing_items WHERE id=?", (item_id,))
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+
+    if deleted:
+        # 这里已经在 with 之外 —— 事务提交过了，删图不会反过来影响数据库。
+        # ⚠️ 兜一层 Exception：`remove_item_images` 承诺只吞 OSError，但那条
+        #   契约靠的是"它碰巧只调 OSError 相关的 API"。行已经删掉了，
+        #   这里再抛任何东西出去都是 500 + 用户以为没删掉，不值当。
+        try:
+            images.remove_item_images(item_id)
+        except Exception:  # noqa: BLE001 — 见上
+            logger.exception("删除单品 %s 后清图片失败（记录已删，图可能残留）", item_id)
+    return deleted

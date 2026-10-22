@@ -357,11 +357,18 @@ def test_deleted_items_do_not_crash_feedback(fresh):
 
     # 把这批搭配涉及的单品全删掉，制造"搭配里的人已经不在了"
     from app.services import recommend as rec_svc
+    victims: set[str] = set()
     for oid in _state_of(peer)["last_outfits"]:
         row = rec_svc.get_outfit(user_id, oid)
-        for iid in (row or {}).get("item_ids") or []:
-            if iid in seed_ids:
-                item_svc.delete(user_id, iid)
+        victims.update(i for i in (row or {}).get("item_ids") or [] if i in seed_ids)
+
+    assert victims, "搭配里应该有能删的单品"
+    for iid in victims:
+        # ★ 参数顺序别写反（2026-10-22 审查抓到这里原本是
+        #   `delete(user_id, iid)`，签名是 `delete(item_id, user_id)`）——
+        #   写反时 rowcount 恒为 0，一件都没删掉，这条回归等于空转。
+        #   先去重：同一件会出现在好几套搭配里，重复删第二次必然返回 False。
+        assert item_svc.delete(iid, user_id) is True, f"没删掉 {iid}"
 
     reply = C.handle(_msg("1", peer))       # 不许抛异常
 
