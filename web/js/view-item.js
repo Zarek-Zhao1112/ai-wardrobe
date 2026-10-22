@@ -161,9 +161,10 @@ export async function mount(root, ctx, arg) {
           <div class="form-actions">
             <input type="file" id="item-image" accept="image/*">
             <button type="button" id="item-upload">上传 / 替换</button>
-            <!-- 手机 PWA 壳点不动上面那个 <input type=file>（没实现
-                 onShowFileChooser），相册通道是那边唯一的入口。
-                 电脑上相册探测返回 false，这个按钮不会露出来。 -->
+            <!-- 手机 APK 壳里 <input type=file> 已经能用了（壳侧 2026-10-22 补了
+                 WebChromeClient.onShowFileChooser）。相册通道留着：一个是少一次
+                 copy，一个是壳出问题时还有条退路。电脑上相册探测返回 false，
+                 这个按钮不会露出来。 -->
             <button type="button" class="ghost" id="item-album"${
               canAlbum ? "" : " hidden"
             }>从手机相册选</button>
@@ -172,6 +173,9 @@ export async function mount(root, ctx, arg) {
               item.image_path ? "" : " hidden"
             }>裁剪这张</button>
           </div>
+          <!-- 选完文件立刻在这儿渲染缩略图。没有它的话，手机上选完照片
+               页面上一个字都不变（原生 input 不显示文件名），用户会当成没反应。 -->
+          <div class="album-picked" id="item-picked" hidden></div>
         </div>
 
         <div class="form-actions">
@@ -213,8 +217,8 @@ export async function mount(root, ctx, arg) {
 
     // ----------------------------------------------------------------
     // 照片：三个入口共用一套收尾
-    //   ① 选文件（桌面 / 手机浏览器）
-    //   ② 手机相册（PWA 壳里唯一能用的那条，见 album.js）
+    //   ① 选文件（桌面 / 手机浏览器 / APK 壳 —— 壳侧 2026-10-22 才实现 onShowFileChooser）
+    //   ② 手机相册（后端直读 /sdcard，见 album.js；壳侧选择器坏了时这是唯一退路）
     //   ③ 裁剪当前图（同源 /images/…，canvas 能画）
     // 三个入口**最终都落到同一个上传接口**（`/items/{id}/image` 与
     // `/items/{id}/image-from-album` 都走 `_save_and_tag`），所以收尾、
@@ -267,6 +271,41 @@ export async function mount(root, ctx, arg) {
       }
       await afterImage(res, btn, label);
     }
+
+    /** 选中的文件用 blob URL 预览。每次换图先 revoke 上一次，别一选一漏。 */
+    let pickedUrl = null;
+
+    // ① 选文件。★ 这一步以前在手机上是**彻底没反应**的：Android 壳只 set 了
+    //   `new WebChromeClient()`，而它的 `onShowFileChooser()` 默认 `return false`，
+    //   WebView 问了一圈没人接，点了连弹窗都没有。壳侧 2026-10-22 补上了。
+    //   但补完还有第二层坑 —— 原生 input 选完文件**不显示文件名**，页面上一个字
+    //   都不变，用户照样会以为坏了。所以这里必须立刻渲染一张缩略图。
+    root.querySelector("#item-image").addEventListener("change", (e) => {
+      const file = e.currentTarget.files && e.currentTarget.files[0];
+      const box = root.querySelector("#item-picked");
+      if (pickedUrl) {
+        URL.revokeObjectURL(pickedUrl);
+        pickedUrl = null;
+      }
+      if (!file) {
+        box.hidden = true;
+        box.innerHTML = "";
+        return;
+      }
+      pickedUrl = URL.createObjectURL(file);
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      box.hidden = false;
+      box.innerHTML = `
+        <div class="album-chip">
+          <img src="${pickedUrl}" alt="">
+          <div class="album-chip-body">
+            <div class="album-chip-name">${esc(file.name || "已选图片")}</div>
+            <div class="faint">${mb} MB · 点「上传 / 替换」换上去</div>
+          </div>
+        </div>
+      `;
+      toast("选好了，点「上传 / 替换」换上去", "ok", 2600);
+    });
 
     root.querySelector("#item-upload").addEventListener("click", async () => {
       const fileEl = root.querySelector("#item-image");

@@ -18,9 +18,10 @@
 | 视觉打标（P6，上传照片自动认属性） | ✅ | `services/tagging.py` |
 | 裤长独立成维度（schema v2） | ✅ | `taxonomy.py` · `schema.py` |
 | 纯图录入自动起名（白色棉T恤） | ✅ | `items.auto_name()` |
-| **手机相册直读**（后端读 `/sdcard`，绕过 PWA 壳选不了文件） | ✅ 真机验证 | `routes/items.py::/items/album/*` · `web/js/album.js` |
+| **手机相册直读**（后端读 `/sdcard`） | ✅ 真机验证 | `routes/items.py::/items/album/*` · `web/js/album.js` |
 | **详情页换图 / 裁剪** | ✅ 真机验证 | `view-item.js` · `crop.js` |
 | **删除单品连图片一起删** | ✅ 真机验证 | `items.delete()` · `images.remove_item_images()` |
+| **原生 APK（Chaquopy 打包，脱离 Termux）** | ✅ 装机跑通，`<input type=file>` 待手动点验 | 见「三、手机端」 |
 | 提交门禁（密钥 + 对比度） | ✅ | `.githooks/pre-commit` |
 | `deploy/` 入库（手机部署脚本） | ✅ 已提交 | `deploy/*` |
 
@@ -65,28 +66,53 @@ CLAWBOT_WORKER_ENABLED=false .venv/Scripts/python run.py    # http://127.0.0.1:8
 
 | | 电脑 | 手机 |
 |---|---|---|
-| 路径 | `C:/Users/MCXS/工作流打通/ai衣橱/ai-wardrobe` | 小米 12S Ultra，Termux `~/wzbbti` |
-| 数据 | `data/wardrobe.db` —— **1 件** | 私有目录 DB —— **0 件** |
-| 模型 | `.env`：`LLM_MODEL` / `VISION_MODEL` 都是 `deepseek-flash` | 同上 |
-| 访问 | `http://127.0.0.1:8787` | **`http://127.0.0.1:8787`**（PWA 加桌面也用这个） |
+| 跑法 | `.venv/Scripts/python.exe run.py` | **原生 APK** `com.zarek.wardrobe`（Chaquopy 内嵌 Python 3.14） |
+| 路径 | `C:/Users/MCXS/工作流打通/ai衣橱/ai-wardrobe` | 小米 12S Ultra，APK 装出来的 |
+| 数据 | `data/wardrobe.db` —— **1 件** | `/data/user/0/com.zarek.wardrobe/files/wardrobe.db` —— **0 件** |
+| 模型 | `.env`：`LLM_MODEL` / `VISION_MODEL` 都是 `deepseek-flash` | 同配置已打进 APK（`/health` 报 `llm_ready:true` / `vision_ready:true`） |
+| 访问 | `http://127.0.0.1:8787` | APK 里开屏就是 WebView → `http://127.0.0.1:8787` |
 
 两份**数据、配置都不同步**。手机是唯一能测视觉打标和相册的真机。
 
-### 手机端（2026-10-22 从零重装，不是升级）
+### 手机端（2026-10-22 换成原生 APK，Termux 版已弃用）
 
-- 设备 `3b502e83` / `2203121C` / `thor`，Android 15。
+- 设备 `3b502e83` / `2203121C` / `thor`，Android 15（HyperOS）。
   旧机是小米 14 Pro `e59aeb65`，**已弃用**。
-- 服务由 `~/wzbbti/start.sh` 起，`~/.bashrc` 里挂了钩子：
-  打开 Termux 时 `pgrep -f "python run.py" || sh start.sh`。
-- **重启服务**：`adb shell am force-stop com.termux` + `am start -n com.termux/.HomeActivity`，
-  十几秒后钩子自己拉起。**不用在手机上敲命令。**
-- **服务必须由 Termux app 启动，不能用 `adb run-as`**：run-as 的 SELinux 上下文是
-  `runas_app`，读不到 `/sdcard` → 相册接口 `available:false`。
-  判据：`cat /proc/<pid>/attr/current` 必须是 `untrusted_app_27`。
+- **APK 工程在项目外**：`C:/wbuild/aiw`（**故意用纯 ASCII 短路径** —— Gradle + Chaquopy
+  在中文长路径下会踩各种转义问题）。构建脚本 `_build/build_apk.sh`。
+- 构建产物：`C:/wbuild/aiw/app/build/outputs/apk/debug/app-debug.apk`，
+  归档到 `_build/dist/ai-wardrobe-debug.apk`（约 19 MB）。
+- **重装流程**：`adb push` 到 `/sdcard/Download/` → `adb install -r`。
+  覆盖安装（同签名）MIUI **不拦**；全新安装会 `INSTALL_FAILED_USER_RESTRICTED`，只能手动点。
+- **服务由 `WardrobeService` 前台服务起**（`WardrobeService.java::bootPython`），
+  带常驻通知。`onStartCommand` 返回 `START_STICKY`，被系统杀了会重启。
+- 数据目录由 `WARDROBE_DATA_DIR` 覆盖成 app 私有目录（`getFilesDir()`），
+  APK 里的 Python 源码是只读的，不能往源码根下写 `data/`。
+- ★ **`<input type=file>` 必须靠 `WebChromeClient.onShowFileChooser`**。
+  默认 `WebChromeClient` 的实现在这里 `return false`（= 我不处理），WebView 就
+  **什么也不弹、也不报错**。2026-10-22 之前就是这个坑，表现是"点选择文件没反应"。
+  另外详情页选完文件**必须自己渲染缩略图** —— 原生 input 选完不显示文件名，
+  页面上一个字都不变，用户照样以为坏了。
+- 旧的 Termux 版（`~/wzbbti`，`~/.bashrc` 钩子自启）**还装着但已不用**。
+  它和 APK 抢同一个 8787 端口，**同一时刻只能有一个在跑**。
+  若某天 APK 起不来，先确认 Termux 没占着端口。
 
 ---
 
 ## 四、下一步做什么（按优先级）
+
+### P0-a · 手动点验 file chooser（1 分钟，只能人来点）
+
+APK 已装机、服务 `healthy`、相册 3000 张可读、前端确认是新版。
+**唯一没被人工点过的是 `<input type=file>`** —— 这台 MIUI 把 `input tap` 禁了
+（缺 `INJECT_EVENTS`），adb 代劳不了。
+
+验收三步：
+1. 录入页点「选择文件」→ 应弹出系统选择器（**不弹就是壳还没生效**，看 `adb logcat -s Wardrobe`）
+2. 随便选一张 → **页面上应立刻出现缩略图**（不出现就是前端 `item-picked` 没生效）
+3. 点「保存」→ 结果区应报"照片已自动识别：AI 帮你补了 N 项"
+
+同一套验证详情页：点「选择文件」→ 选一张 → 应出现缩略图 → 点「上传 / 替换」。
 
 ### P0 · 把衣橱喂起来（阻塞一切）
 
@@ -195,3 +221,17 @@ CLAWBOT_WORKER_ENABLED=false .venv/Scripts/python run.py    # http://127.0.0.1:8
 8. **`adb install` 被 MIUI 拦**：`INSTALL_FAILED_USER_RESTRICTED`。把 APK 推到
    `/sdcard/Download` 让用户手动点安装；`-g`（自动授权）在这台机上直接 `SecurityException`。
 9. **`.env` 里的 key 不要落在 `/sdcard`**：中转文件用完立刻删（`/sdcard` 任何 app 都能读）。
+10. **WebView 里 `<input type=file>` 点了没反应**：一定是没实现
+    `WebChromeClient.onShowFileChooser`。默认实现 `return false`，WebView 问了一圈没人接，
+    **不弹窗、不报错、连 `change` 都不来** —— 光看日志查不出来，必须看代码。
+    修的时候还有两个配套的坑：① 用户取消**必须** `onReceiveValue(null)` 结账，
+    否则回调泄漏、第二次点彻底哑；② 选完**必须自己渲染缩略图**，原生 input 选完
+    不显示文件名，页面毫无变化，用户会当成还是坏的。
+11. **跑 Gradle 前必须 `unset PYTHONPATH PYTHONHOME`**：Chaquopy 用 `buildPython`
+    指定的 3.14 解释器，环境变量一挤进去它自己的 `Lib` 就找不到，报 `Fatal Python error`。
+    `_build/build_apk.sh` 里已经处理了。
+12. **APK 工程不要放中文长路径**：`C:/wbuild/aiw` 是故意的。Gradle + Chaquopy
+    在 `C:\Users\...\工作流打通\...` 这种路径下会踩转义/编码问题。
+13. **`adb install` 全新装被 MIUI 拦**（`INSTALL_FAILED_USER_RESTRICTED`），
+    但**覆盖安装（同签名、已装过）能直接成功**。全新装只能 `adb push` 到
+    `/sdcard/Download/` 让用户手动点。
