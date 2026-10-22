@@ -18,7 +18,7 @@
 | 视觉打标（P6，上传照片自动认属性） | ✅ | `services/tagging.py` |
 | 裤长独立成维度（schema v2） | ✅ | `taxonomy.py` · `schema.py` |
 | 纯图录入自动起名（白色棉T恤） | ✅ | `items.auto_name()` |
-| **手机相册直读**（后端读 `/sdcard`） | ✅ 真机验证 | `routes/items.py::/items/album/*` · `web/js/album.js` |
+| **手机相册直读**（后端读 `/sdcard`） | ⏸ 代码与测试在，2026-10-22 起无 UI 入口 | `routes/items.py::/items/album/*` · `web/js/album.js` |
 | **详情页换图 / 裁剪** | ✅ 真机验证 | `view-item.js` · `crop.js` |
 | **删除单品连图片一起删** | ✅ 真机验证 | `items.delete()` · `images.remove_item_images()` |
 | **原生 APK（Chaquopy 打包，脱离 Termux）** | ✅ 装机跑通，`<input type=file>` 待手动点验 | 见「三、手机端」 |
@@ -108,17 +108,17 @@ APK 已装机、服务 `healthy`、相册 3000 张可读、前端确认是新版
 （缺 `INJECT_EVENTS`），adb 代劳不了。
 
 验收三步：
-1. 录入页点「选择文件」→ 应弹出系统选择器（**不弹就是壳还没生效**，看 `adb logcat -s Wardrobe`）
+1. 录入页点「选一张照片」→ 应弹出系统选择器（**不弹就是壳还没生效**，看 `adb logcat -s Wardrobe`）
 2. 随便选一张 → **页面上应立刻出现缩略图**（不出现就是前端 `item-picked` 没生效）
 3. 点「保存」→ 结果区应报"照片已自动识别：AI 帮你补了 N 项"
 
-同一套验证详情页：点「选择文件」→ 选一张 → 应出现缩略图 → 点「上传 / 替换」。
+同一套验证详情页：点「换一张照片」→ 选一张 → 应出现缩略图 → 点「上传 / 替换」。
 
 ### P0 · 把衣橱喂起来（阻塞一切）
 
 **为什么**：电脑 1 件、手机 0 件。搭配、缺口、组合数全靠数据，空着全是空转。
 
-**怎么做**：手机上有图就能录 —— 录入页「从手机相册选」→ 选照片 → 保存时自动识别。
+**怎么做**：手机上有图就能录 —— 录入页「选一张照片」→ 选照片 → 保存时自动识别。
 建议先来：上衣 3–4 件、下装 3 件、鞋 2–3 双。
 
 **验收**：衣橱页出现卡片；搭配页能出第一套；缺口页说出缺什么。
@@ -193,7 +193,7 @@ APK 已装机、服务 `healthy`、相册 3000 张可读、前端确认是新版
 | **schema 迁移** | 只能加表/加列/加索引；`SCHEMA_VERSION` +1，在 `MIGRATIONS` 末尾追加 |
 | **删除必须连图一起删** | 图片按 `<item_id>.<ext>` 命名、一件一份。删记录不删文件 = 空间只增不减（2026-10-22 修的就是这个）。新增任何删除路径都必须经过 `items.delete()` |
 | **图片 URL 一律带版本号** | `api.imageUrl(path, item.updated_at)`。文件名固定，换图后 URL 不变，不加版本会拿到旧图 —— 裁剪会拿旧位图把新图裁坏 |
-| **相册浮层只有一处** | `web/js/album.js`（`openAlbumPicker`），录入页和详情页共用，别复制第二份 |
+| **相册浮层只留一份** | `web/js/album.js`（`openAlbumPicker`）。2026-10-22 起两页都不调它了（照片入口收口成原生 `<input type=file>`，`.sr-only` 藏 input + 按钮 `.click()`），但它**不能复制第二份** —— 要恢复只能按 `view-add.js` 顶部注释里的两步改回去 |
 | **提交门禁** | `git config core.hooksPath .githooks`（每台机器一次） |
 | **不要 `git add -A`** | 显式列路径。`data/`、`.env`、`.workbuddy/`、内部文档都不能进仓库 |
 

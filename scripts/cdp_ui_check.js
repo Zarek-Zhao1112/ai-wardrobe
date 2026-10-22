@@ -141,7 +141,11 @@ const OVERFLOW_ONLY = `(() => {
  * 纯文字链接不在范围内（HIG 也不要求），避免制造噪音。 */
 const TAP_TARGETS = `(() => {
   const sel = 'button, select, a.btn, a.tab, .chip-toggle > span,' +
-              'input[type=file], input[type=text], input[type=search],' +
+              // ⚠️ file input 要排除 sr-only 那一份（2026-10-22 起它被视觉隐藏，
+              //    真入口是旁边的按钮，button 本来就在选择器里）。不排除的话，
+              //    它那个 1x1 的盒子会被量成"触控目标太小"，是**假红**。
+              //    ⚠️ 这段在模板字符串里，注释里**不能写反引号**（会截断字符串）。
+              'input[type=file]:not(.sr-only), input[type=text], input[type=search],' +
               'label:has(input[type=checkbox]), label:has(input[type=radio])';
   const els = [...document.querySelectorAll(sel)].filter(el => el.offsetParent !== null);
   const small = els

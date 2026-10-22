@@ -4,7 +4,6 @@
  * 所以界面上必须能改 —— 而且改完要能看出"这条是人工改过的"。
  */
 
-import { albumAvailable, openAlbumPicker } from "./album.js";
 import { api } from "./api.js";
 import { openCropper } from "./crop.js";
 import { fillForm, formHtml, readForm, summaryHtml } from "./fields.js";
@@ -88,18 +87,6 @@ export async function mount(root, ctx, arg) {
   // 否则控制台会多一条红色的 503，看起来像坏了。
   const canTag = !!(ctx.health && ctx.health.vision_ready);
 
-  /** 相册通道是否可用（只有跑在手机上的服务才有 `/sdcard`）。
-   *
-   *  ★ 为什么要有（2026-10-21）：桌面图标打开的是小米浏览器的 PWA 壳，它没
-   *    实现 `onShowFileChooser` —— `<input type=file>` 点下去**毫无反应**，
-   *    不弹选择器也不报错。同一地址在手机浏览器里是正常的，所以不是页面问题。
-   *    录入页早就接了相册通道（`/items/album/*`），详情页一直漏着：手机上
-   *    换不了图，只能回电脑改。这里补上，浮层复用 `album.js`。
-   *
-   *  探测一次就够：`render()` 每次重绘都读这个变量决定按钮露不露。
-   *  电脑上它一直是 false，界面上不会多一个点了没用的按钮。 */
-  let canAlbum = false;
-
   root.innerHTML = `<p class="muted">加载中…</p>`;
 
   let first;
@@ -159,15 +146,13 @@ export async function mount(root, ctx, arg) {
 
         <div class="field field-wide"><span>照片</span>
           <div class="form-actions">
-            <input type="file" id="item-image" accept="image/*">
+            <!-- 原生 input 藏起来（.sr-only 类）：它和下面「换一张照片」做的是
+                 同一件事，摆两个一模一样的按钮只会让人犹豫点哪个。
+                 tabindex="-1"：藏起来的控件不占 Tab 停点。
+                 ⚠️ 这段在模板字符串里，注释里**不能写反引号**，会截断字符串。 -->
+            <input type="file" id="item-image" accept="image/*" class="sr-only" tabindex="-1">
+            <button type="button" class="ghost" id="item-album">换一张照片</button>
             <button type="button" id="item-upload">上传 / 替换</button>
-            <!-- 手机 APK 壳里 <input type=file> 已经能用了（壳侧 2026-10-22 补了
-                 WebChromeClient.onShowFileChooser）。相册通道留着：一个是少一次
-                 copy，一个是壳出问题时还有条退路。电脑上相册探测返回 false，
-                 这个按钮不会露出来。 -->
-            <button type="button" class="ghost" id="item-album"${
-              canAlbum ? "" : " hidden"
-            }>从手机相册选</button>
             <!-- 裁剪针对库里那张图（同源 /images/…，canvas 画得进去）。 -->
             <button type="button" class="ghost" id="item-crop"${
               item.image_path ? "" : " hidden"
@@ -206,8 +191,30 @@ export async function mount(root, ctx, arg) {
         // 「用户取消了某个勾选」和「这个值本来就不在词表里」。
         // 不传的话，打开详情页什么都不改直接保存，会把词表外的值删光。
         const updated = await api.updateItem(item.id, readForm(form, item));
-        toast("已保存", "ok");
-        render(updated); // 重绘后按钮是新节点，不用复位
+        // ★ 选了照片却**没点「上传 / 替换」**就来点「保存修改」—— 合并入口之后
+        //   这是最常见的操作序列（录入页就是"保存时一起传"，用户的预期如此）。
+        //   而待上传的 `File` 只挂在 `#item-image.files` 上，`render()` 会整块重建
+        //   DOM —— 一重绘它就没了，照片**静默不生效**：提示"已保存"，进详情页
+        //   发现还是旧图。所以在这里兜住，顺手一起传。
+        const pending = root.querySelector("#item-image").files?.[0] || null;
+        let fresh = updated;
+        let photoErr = null;
+        if (pending) {
+          try {
+            await api.uploadImage(item.id, pending);
+          } catch (err) {
+            // 属性已经存好了，不能报"保存失败" —— 那会让人以为整次都白做
+            photoErr = err.message;
+          }
+          try {
+            fresh = await api.getItem(item.id); // 换图后 image_path / updated_at 变了
+          } catch {
+            /* 拉不到就先用 updateItem 的返回渲染，下次进页面自然刷新 */
+          }
+        }
+        if (photoErr) toast("属性已保存，照片没传上：" + photoErr, "error");
+        else toast(pending ? "已保存，照片也换好了" : "已保存", "ok");
+        render(fresh); // 重绘后按钮是新节点，不用复位
       } catch (err) {
         toast("保存失败：" + err.message, "error");
         btn.disabled = false;
@@ -216,13 +223,15 @@ export async function mount(root, ctx, arg) {
     });
 
     // ----------------------------------------------------------------
-    // 照片：三个入口共用一套收尾
-    //   ① 选文件（桌面 / 手机浏览器 / APK 壳 —— 壳侧 2026-10-22 才实现 onShowFileChooser）
-    //   ② 手机相册（后端直读 /sdcard，见 album.js；壳侧选择器坏了时这是唯一退路）
-    //   ③ 裁剪当前图（同源 /images/…，canvas 能画）
-    // 三个入口**最终都落到同一个上传接口**（`/items/{id}/image` 与
-    // `/items/{id}/image-from-album` 都走 `_save_and_tag`），所以收尾、
-    // 打标提示、失败语义必须一致 —— 各写一份迟早走岔。
+    // 照片：两个入口共用一套收尾
+    //   ① 选文件（桌面 / 手机浏览器 / APK 壳）。「换一张照片」就是 `.click()`
+    //      那个藏起来的 input，与录入页同一条路 —— `accept="image/*"` 在
+    //      Android 上拉起来的就是相册网格。
+    //   ② 裁剪当前图（同源 /images/…，canvas 能画）
+    // 两个入口**最终都落到同一个上传接口**（`/items/{id}/image`，都走
+    // `_save_and_tag`），所以收尾、打标提示、失败语义必须一致 —— 各写一份迟早走岔。
+    // ⚠️ 2026-10-22 起「后端直读相册」那条 UI 入口撤了：`album.js` 与
+    //    `/items/{id}/image-from-album` 都保留备用，恢复步骤见 view-add.js 的注释。
     // ----------------------------------------------------------------
 
     /** 照片换好之后的收尾：报打标结果 → 重新拉一遍 → 重绘。
@@ -323,22 +332,13 @@ export async function mount(root, ctx, arg) {
       );
     });
 
-    // ② 手机相册：照片由后端从磁盘直接读，浏览器一次都没碰本地文件。
-    root.querySelector("#item-album").addEventListener("click", async () => {
-      const btn = root.querySelector("#item-album");
-      const picked = await openAlbumPicker({ title: "换一张照片" });
-      if (!picked) return; // 关掉了 / 点了空白
-      // ★ 详情页是**立刻写库**（一个单品只留一张图，旧文件直接被覆盖），
-      //   而录入页是"先选中、保存才生效"。同一套浮层、同一个动作、后果不同 ——
-      //   所以这里必须确认一次，否则按录入页的习惯点一下就把原图盖掉了，
-      //   而且不可撤销。
-      if (!window.confirm("用这张替换现在的照片？原来的照片不会保留。")) return;
-      // 挑的时候可能已经点导航走了：这时按钮已脱离文档，忙碌态和 toast
-      // 都会落到一个没人看的页面上。
-      if (!btn.isConnected) return;
-      await runImageAction(btn, "从手机相册选", "读取中…", "换图失败：", () =>
-        api.importFromAlbum(item.id, picked.id)
-      );
+    // ② 「换一张照片」就是点那个藏起来的 input —— 与录入页同一条路：
+    //   点 → 系统选择器（`accept="image/*"` 在 Android 上拉起来的就是相册网格）
+    //   → `change` 立刻渲染缩略图 → 点「上传 / 替换」才真正写库。
+    //   详情页一个单品只留一张图、旧文件直接被覆盖，所以**保留"上传"这一步**：
+    //   选错一张不至于一点就没了，还能重选。
+    root.querySelector("#item-album").addEventListener("click", () => {
+      root.querySelector("#item-image").click();
     });
 
     // ③ 裁剪当前那张。
@@ -417,12 +417,4 @@ export async function mount(root, ctx, arg) {
   }
 
   render(first);
-
-  // 相册探测放在首屏之后：`canAlbum` 只影响**后续**重绘，这一次得直接改 DOM
-  // —— 否则用户要保存一次才看得见按钮。电脑上返回 false，按钮保持 hidden。
-  albumAvailable().then((ok) => {
-    canAlbum = ok;
-    const btn = root.querySelector("#item-album");
-    if (btn) btn.hidden = !ok;
-  });
 }

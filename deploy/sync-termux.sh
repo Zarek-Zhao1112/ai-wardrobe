@@ -17,7 +17,9 @@ set -e
 
 REPO="${HOME:-/data/data/com.termux/files/home}/wzbbti"
 ZIP="${1:-/sdcard/Download/wzbsync.zip}"
-MARK="item-album"          # ← 每次发版改这一个标记，就能确认"真的换了"
+MARK="sr-only"             # ← 每次发版改这一个标记，就能确认"真的换了"
+                           #   2026-10-22：照片入口收口成原生 input（input 加 .sr-only 藏起来，
+                           #   按钮 .click() 它），旧的 item-album 标记已经不代表新逻辑了
 
 cd "$REPO" 2>/dev/null || { echo "✗ 找不到 $REPO"; exit 1; }
 
@@ -41,11 +43,11 @@ else
 fi
 # ★ 只查一个 grep 不够：这次是"新增文件 + 改动文件"一起上，
 #   新增文件缺失时 grep 依然能过（说明包不完整），必须单独确认。
-[ -f web/js/album.js ] || { echo "  ✗ 缺 web/js/album.js —— 包不完整"; exit 1; }
-echo "  ✓ 共享相册模块 web/js/album.js 在位"
-grep -q 'VERSION = "v12"' web/sw.js \
-  && echo "  ✓ Service Worker v12（缓存桶会重建）" \
-  || echo "  ⚠ sw.js 不是 v12 —— 离线缓存可能还是旧的"
+[ -f web/js/album.js ] || { echo "  ✗ 缺 web/js/album.js —— 备用通道不完整"; exit 1; }
+echo "  ✓ 共享相册模块 web/js/album.js 在位（当前无 UI 入口，备用）"
+grep -q 'VERSION = "v13"' web/sw.js \
+  && echo "  ✓ Service Worker v13（缓存桶会重建）" \
+  || echo "  ⚠ sw.js 不是 v13 —— 离线缓存可能还是旧的"
 python -c "import app.schema as s; print('  SCHEMA_VERSION =', s.SCHEMA_VERSION)"
 
 say "4/5 重启服务"
@@ -91,7 +93,8 @@ try:
 except Exception as e:
     print("  ✗ /js/album.js 取不到:", e)
 src = urllib.request.urlopen(base + "/js/view-item.js", timeout=10).read().decode()
-print("  服务返回的 view-item.js 含 item-album:", "item-album" in src)
+print("  服务返回的 view-item.js 含 sr-only:", "sr-only" in src,
+      "| 相册浮层已撤:", "openAlbumPicker" not in src)
 try:
     sw = urllib.request.urlopen(base + "/sw.js", timeout=10).read().decode()
     print("  sw.js 版本:", [l.strip() for l in sw.splitlines() if "const VERSION" in l])

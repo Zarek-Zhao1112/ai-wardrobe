@@ -207,6 +207,29 @@ button.ai:disabled { color: var(--accent); }
 .field-wide { grid-column: 1 / -1; }
 .field input[type="text"], .field input[type="file"], .field select { width: 100%; }
 
+/* 视觉隐藏，但仍留在文档里、仍能被 `click()` 命中。
+ *
+ * 用途：`<input type=file>` 的自带外观（一大块灰底「选择文件」）跟设计系统对不上，
+ * 而且它和旁边的自定义按钮会变成两个一模一样的入口。所以把 input 藏掉，
+ * 让按钮 `.click()` 它 —— 走的还是同一条原生链路（壳侧 `onShowFileChooser`）。
+ *
+ * ⚠️ **不能换成 `display:none`**：那样在老一点的 WebView 里 `.click()` 拉不起选择器，
+ *    而"点了没反应"正是这个项目刚踩完的坑，不能再造一次。
+ * ⚠️ 必须带 `!important`：上面 `.field input[type="file"]` 的 `width:100%`
+ *    权重更高，不加的话这个 1px 会被撑成整行。 */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-height: 0 !important;   /* 压住手机段的 `input[type="file"] { min-height: 44px }` */
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
 .chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .chip-toggle { position: relative; cursor: pointer; }
 .chip-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }

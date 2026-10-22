@@ -138,12 +138,16 @@ export const api = {
     return request("POST", `/items/${encodeURIComponent(id)}/image`, { form });
   },
 
-  // 手机相册（2026-10-21）
+  // 手机相册（2026-10-21 加，2026-10-22 起**无 UI 入口**）
   //
-  // 桌面图标的 PWA 壳没有实现 WebView 的 `onShowFileChooser`，
+  // 历史：桌面图标的 PWA 壳没有实现 WebView 的 `onShowFileChooser`，
   // `<input type=file>` 点下去毫无反应 —— 而服务就跑在同一台手机上，
-  // 所以改成让后端直接读相册目录。电脑上没有 `/sdcard`，
-  // `albumPhotos()` 会返回 `available: false`，前端据此把入口藏起来。
+  // 所以曾让后端直接读相册目录兜底。
+  // 2026-10-22 换成自建 APK、壳侧补上 onShowFileChooser 之后，两条路做的事
+  // 完全重合（`accept="image/*"` 拉起来的就是相册网格），UI 收口成原生 input。
+  // ⚠️ 下面这几个方法现在只有 `view-add.js` 里的休眠分支在引用（`pickedPhoto`
+  //    恒 null，跑不到）。留着是为了壳再坏时能接回来，别因为"没人调"就删。
+  //    恢复步骤见 `view-add.js` 上「照片」那一段注释。
   albumPhotos: (limit) =>
     request("GET", "/items/album/photos", { params: { limit }, timeoutMs: 15000 }),
   /** 相册原图的 URL（当缩略图用）。**不走 `request`** —— 那是 JSON 通道。 */

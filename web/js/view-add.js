@@ -13,7 +13,6 @@
  * 手填那条路保留原来的「录入后即时反馈」（§9.1/§9.2）：让付出立刻看得见回报。
  */
 
-import { albumAvailable, openAlbumPicker } from "./album.js";
 import { api } from "./api.js";
 import { openCropper } from "./crop.js";
 import { fillForm, formHtml, readForm, summaryHtml, typeOptionsHtml } from "./fields.js";
@@ -44,7 +43,7 @@ const FIELD_LABELS = {
 // ---------------------------------------------------------------------------
 // 粘贴 / 拖拽图片（2026-10-20 用户拍板）
 //
-// 目的：电脑上截图后不用「保存 → 点选择文件 → 找路径」，直接 Ctrl+V 就行。
+// 目的：电脑上截图后不用「保存 → 点「选一张照片」→ 找路径」，直接 Ctrl+V 就行。
 //
 // ⚠️ **全局监听只注册一次**。`mount` 每进一次录入页就跑一次，
 //   如果每次都往 `document` 上加监听，进出五次后一次粘贴会触发五次。
@@ -146,9 +145,14 @@ export async function mount(root, ctx) {
     <form id="add-form" class="panel" novalidate>
       <h2>② 或者手动填</h2>
       <div class="field field-wide"><span>照片（可选）</span>
-        <input type="file" id="add-image" accept="image/*">
+        <!-- 原生 input 藏起来（.sr-only 类），只留下面那个按钮当入口 ——
+             它俩现在做的是同一件事，摆两个一模一样的按钮只会让人犹豫点哪个。
+             tabindex="-1"：藏起来的控件不该占 Tab 停点，否则键盘用户会聚焦到
+             一个看不见的东西上（真正的键盘路径是那个 button）。
+             ⚠️ 这段在模板字符串里，注释里**不能写反引号**，会截断字符串。 -->
+        <input type="file" id="add-image" accept="image/*" class="sr-only" tabindex="-1">
         <div class="photo-tools">
-          <button type="button" class="ghost" id="add-album" hidden>从手机相册选</button>
+          <button type="button" class="ghost" id="add-album">选一张照片</button>
           <button type="button" class="ghost" id="add-crop" hidden>裁剪商品图</button>
         </div>
         <div class="album-picked" id="add-album-picked" hidden></div>
@@ -195,7 +199,7 @@ export async function mount(root, ctx) {
     } catch (err) {
       // 极老的浏览器不给 `input.files` 赋值。裁剪完走这里说明**白裁了**，
       // 必须说出来：静默失败的话用户会以为存的是裁好的图。
-      toast("这张图接不住，请点「选择文件」", "error");
+      toast("这张图接不住，请点「选一张照片」再试一次", "error");
       return false;
     }
   }
@@ -208,19 +212,30 @@ export async function mount(root, ctx) {
   bindClipboardOnce();
 
   // ------------------------------------------------------------------
-  // 照片：原生「选择文件」+ 手机相册兜底（2026-10-21）
+  // 照片：只有一条路 —— `<input type=file>`（2026-10-22 收口）
   //
-  // 桌面图标打开的是小米浏览器的 PWA 壳，它**没有实现** WebView 的
-  // `onShowFileChooser` —— 点 `<input type=file>` 毫无反应，连 `change`
-  // 都不会来（同一个地址在同一台手机的浏览器里是正常的，所以不是页面的错）。
-  // 浏览器沙箱不给页面直接读本地文件，纯前端绕不过去；但服务就跑在这台
-  // 手机上，于是让后端去读相册目录，页面只负责挑一张 + 回传 id。
+  // 历史：2026-10-21 发现小米浏览器的 PWA 壳 `PWAActivity` 没实现
+  // WebView 的 `onShowFileChooser`，点 `<input type=file>` 毫无反应，
+  // 于是另开了一条「后端直读 /sdcard」的相册通道兜底。
   //
-  // 电脑上没有 `/sdcard`，接口返回 `available: false`，按钮不会出现。
+  // 2026-10-22 手机端换成自建 APK，壳侧 `MainActivity` 补上了
+  // `onShowFileChooser` → 原生选择器能用了。而 `accept="image/*"` 在
+  // Android 上拉起来的**本来就是相册网格**，所以两条路做的事完全重合，
+  // 兜底那条反而更慢（拉 36 张原图当缩略图，服务端没有 Pillow 出不了
+  // 小图）。于是收口成一条：按钮只是 `.click()` 那个藏起来的 input。
+  //
+  // ★ `pickedPhoto` 那一套（`renderPicked` / `importFromAlbum` /
+  //   `previewTagsFromAlbum`）暂时没有入口，`pickedPhoto` 恒为 `null`。
+  //   **刻意不删**：壳的选择器要是哪天又被 ROM 掐掉，恢复只有两步 ——
+  //   ① 文件顶部加回 `import { albumAvailable, openAlbumPicker } from "./album.js";`
+  //   ② 把下面 `albumBtn` 的监听改回 `await openAlbumPicker()` 那一版
+  //      （`git show 7c1d64a:web/js/view-add.js` 里就是）。
+  //   `album.js`、后端 `/items/album/*`、`tests/test_album_import.py` 都还在。
   // ------------------------------------------------------------------
   const albumBtn = root.querySelector("#add-album");
   const albumPicked = root.querySelector("#add-album-picked");
-  /** 相册里选中的那张 `{id, name}`。与 `fileEl.files` **互斥**，后选的赢。 */
+  /** 相册里选中的那张 `{id, name}`。与 `fileEl.files` **互斥**，后选的赢。
+   *  ⚠️ 2026-10-22 起没有 UI 入口，恒为 `null` —— 见上面那段说明。 */
   let pickedPhoto = null;
   /** 「传了照片就不用选品类」那句提示的刷新钩子。
    *  真正的实现写在下面（要读 `ctx.health.vision_ready`），
@@ -405,33 +420,25 @@ export async function mount(root, ctx) {
     }
   }
 
-  albumBtn.addEventListener("click", async () => {
-    // 浮层本身在 `album.js` 里 —— 详情页换图用的是同一个窗口。两页各写
-    // 一份的话，读不到相册时的提示文案迟早会走岔（它们描述的是同一个接口）。
-    const picked = await openAlbumPicker();
-    if (!picked) return; // 关掉了 / 点了空白：什么都不改
-    // 挑的时候用户可能已经点导航走了。这时 `fileEl` 已脱离文档，往下走
-    // 只会改一堆看不见的节点，还会弹一句落在新页面上的 toast。
-    if (!albumBtn.isConnected) return;
-    pickedPhoto = picked;
-    fileEl.value = ""; // 两条路互斥：选了相册就不用 input 里那份
-    dropCropSource(); // 换图了，上一张的裁剪记录作废（不丢的话会继续按旧图裁）
-    renderPicked();
-    toast("照片已选好 —— 保存时自动识别属性", "ok");
-  });
-
-  // 只有真读得到相册才显示入口 —— 电脑上不该摆一个点了没用的按钮
-  albumAvailable().then((ok) => {
-    if (ok) albumBtn.hidden = false;
+  // 按钮就是那个藏起来的 input —— 点它等于点 input 本身。
+  // 必须在用户手势里**同步**调 `.click()`（异步之后再调，浏览器会当自动弹出拦掉）。
+  albumBtn.addEventListener("click", () => {
+    fileEl.click();
   });
 
   // 用 input 选文件 / 粘贴 / 拖拽 → 都说明用户走的是另一条路
   fileEl.addEventListener("change", (ev) => {
+    const picked = fileEl.files && fileEl.files[0];
+    // ★ 列表为空 = 这次没拿到文件（用户在选择器里按了返回，或壳侧以空数组回调）。
+    //   这不是"换了张图"，**什么都不该动** —— 尤其不能 `dropCropSource()`：
+    //   那会把用户之前裁剪用的原图和框一起丢掉，下次「裁剪商品图」只能拿裁好的
+    //   结果再裁，越裁越小（正是 `imageSource` 注释要防的事）。
+    if (!picked) return;
     // 真的是"换了张图"才把裁剪记录清掉。裁剪流程自己塞回来的那份
     // （`fromCrop`）不算 —— 清了就等于裁完再也不能调了。
     const fromCrop = !!(ev.detail && ev.detail.fromCrop);
     if (!fromCrop) dropCropSource();
-    if (fileEl.files && fileEl.files[0] && pickedPhoto) {
+    if (pickedPhoto) {
       pickedPhoto = null;
       renderPicked(); // 内部会重画预览
     } else {
@@ -702,7 +709,7 @@ export async function mount(root, ctx) {
   async function recognize() {
     const file = fileEl.files && fileEl.files[0];
     if (!file && !pickedPhoto) {
-      toast("先放一张照片：粘贴、选文件，或用「从手机相册选」", "error");
+      toast("先放一张照片：点「选一张照片」，或直接粘贴 / 拖进来", "error");
       return;
     }
     // 拍一张"这一刻是哪张图"的快照。识别要等 2~30 秒，这期间用户完全可能

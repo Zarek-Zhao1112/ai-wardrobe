@@ -40,9 +40,10 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v12";  // v11→v12：新增 /js/album.js（相册浮层从 view-add.js 抽出来，
-                        //          详情页也用）→ **预缓存清单变了**，必须 +1，否则
-                        //          断网时详情页拿不到这个新模块、整条依赖树加载失败。
+const VERSION = "v13";  // v12→v13：照片入口收口成原生 `<input type=file>`
+                        //          （动了 view-add.js / view-item.js / style.css 的 .sr-only）
+                        //          → 让离线桶跟着换，否则"服务没起"那一刻看到的
+                        //          还是两个入口的旧界面 —— 正是最需要它正确的时候。
                         // v10→v11：裁剪窗改成「只有一个画面」——图片不动，长按才把窗口
                         //          开到整个显示区、框外以 58% 黑露出来（动了 crop.js /
                         //          style.css；改 sw.js 一个字节是为了让离线缓存也跟着更新）
@@ -83,7 +84,10 @@ const SHELL_ASSETS = [
   //    漏了的话服务活着时看不出问题（网络优先拿得到），但**断网/后端没起**时
   //    模块请求 404 → 整个 `view-add.js` 的依赖树加载失败 → 录入页白屏。
   "/js/crop.js",
-  // 相册浮层（2026-10-21 从 view-add.js 抽出来共享）。`view-item.js` 也 import 它。
+  // 相册浮层（2026-10-21 从 view-add.js 抽出来共享）。
+  // ⚠️ 2026-10-22 起**没有任何模块 import 它**（手机端换成自建 APK，两个 UI 入口
+  //    收口成原生 `<input type=file>`）。留在清单里是为了"哪天要接回来时，
+  //    离线也拿得到"，不是因为还有人用。
   "/js/album.js",
   "/js/view-gaps.js",
   "/js/view-outfits.js",
@@ -138,10 +142,25 @@ self.addEventListener("activate", (event) => {
         const fresh = await caches.open(SHELL);
         // ⚠️ 只看 "/" 不够（2026-10-21 审查发现）：`addWithTimeout` 把每个资源的
         //    失败都吞成 `undefined`，所以"首页存到了、某个 js 超时了"这种情况，
-        //    install 照样算成功。而 `view-item.js` 是**静态 import** `album.js` 的，
-        //    缺一个模块 → 整条模块图加载失败 → 那个页面直接白屏（比"少个按钮"严重）。
-        //    所以关键模块必须逐个确认，缺一个就当这次安装没成功、保留旧桶。
-        const critical = ["/", "/js/app.js", "/js/api.js", "/js/view-item.js", "/js/album.js"];
+        //    install 照样算成功。而模块是**静态 import** 的，`view-add.js` /
+        //    `view-item.js` 缺一个依赖 → 整条模块图加载失败 → 那个页面直接白屏
+        //    （比"少个按钮"严重）。所以关键模块必须逐个确认，缺一个就当这次
+        //    安装没成功、保留旧桶。
+        //    ⚠️ 名单要跟着**静态 import 图**走：
+        //      · album.js 2026-10-22 起已无人 import —— 留在里面只会把"一个没人用的
+        //        文件超时"误判成"这次安装没成功"，白留旧桶；
+        //      · crop.js / fields.js / ui.js 是 view-add / view-item 的静态依赖，
+        //        以前漏在名单外，它们超时反而会被当成安装成功。
+        const critical = [
+          "/",
+          "/js/app.js",
+          "/js/api.js",
+          "/js/ui.js",
+          "/js/fields.js",
+          "/js/crop.js",
+          "/js/view-add.js",
+          "/js/view-item.js",
+        ];
         const got = await Promise.all(critical.map((u) => fresh.match(u)));
         if (got.some((r) => !r)) return; // 保留所有旧桶
         await Promise.all(
