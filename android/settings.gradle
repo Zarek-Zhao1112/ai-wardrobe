@@ -1,0 +1,34 @@
+pluginManagement {
+    repositories {
+        // 本地 maven 放第一位：Chaquopy 的 target 运行时包（Python 解释器本体）
+        // 用 detachedConfiguration 解析，只认 pluginManagement 的第一个仓库，
+        // 其余仓库（含 mavenCentral、阿里云镜像）根本没被搜到 —— 见报错
+        // "Searched in the following locations: .../gradle-plugin/..."。
+        // 这里放一份 zip + 最小 pom，问题彻底消失，也不依赖那个很慢的 chaquo.com。
+        //
+        // ⚠️ 这是全工程**唯一**没法参数化的本机绝对路径：pluginManagement 必须是
+        //    settings 文件里的第一个块，块前不能定义变量，而块内读 gradle.properties
+        //    要走 settings.providers，写法脆弱。换机器就改这一行（+ gradle.properties
+        //    里的 aiw.buildPython）。local-maven 体积约几 MB，不进仓库，重建方法见
+        //    android/README.md。
+        maven { url 'C:/wbuild/local-maven' }
+        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        google()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        maven { url 'C:/wbuild/local-maven' }
+        maven { url 'https://maven.aliyun.com/repository/public' }
+        maven { url 'https://maven.aliyun.com/repository/google' }
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'wardrobe'
+include ':app'

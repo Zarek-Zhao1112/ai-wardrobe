@@ -78,10 +78,17 @@ CLAWBOT_WORKER_ENABLED=false .venv/Scripts/python run.py    # http://127.0.0.1:8
 
 - 设备 `3b502e83` / `2203121C` / `thor`，Android 15（HyperOS）。
   旧机是小米 14 Pro `e59aeb65`，**已弃用**。
-- **APK 工程在项目外**：`C:/wbuild/aiw`（**故意用纯 ASCII 短路径** —— Gradle + Chaquopy
-  在中文长路径下会踩各种转义问题）。构建脚本 `_build/build_apk.sh`。
-- 构建产物：`C:/wbuild/aiw/app/build/outputs/apk/debug/app-debug.apk`，
-  归档到 `_build/dist/ai-wardrobe-debug.apk`（约 19 MB）。
+- **APK 源码在仓库里 `android/`**（2026-10-22 收进来的：Java 壳、Gradle 配置、
+  离线 wheel、构建脚本都在，`android/README.md` 是完整说明）。
+  实际构建仍跑在 `C:/wbuild/aiw`（**故意用纯 ASCII 短路径** —— Gradle + Chaquopy
+  在中文长路径下会踩各种转义问题），那个目录**是产物区，删了能重建**。
+- 构建：`sh android/build_apk.sh`（老习惯 `sh _build/build_apk.sh` 是一行转发，仍然可用）。
+  脚本会从仓库铺骨架 + 同步 `web/` `app/` `.env` + 逐字节校验 + 特征串断言，任何一步不过就停。
+- 构建产物：`C:/wbuild/aiw/app/build/outputs/apk/debug/app-debug.apk`（约 19 MB），
+  归档到 `_build/dist/ai-wardrobe-debug.apk`。
+- ⚠️ **APK 莫名其妙变大但条目没变**：AGP 增量打包的僵尸数据（实测 `.env` 变 157 字节
+  → 包从 19.0 MB 涨到 24.1 MB）。判据 `python android/tools/apk_diff.py 旧.apk 新.apk`，
+  解法 `sh android/build_apk.sh clean`。
 - **重装流程**：`adb push` 到 `/sdcard/Download/` → `adb install -r`。
   覆盖安装（同签名）MIUI **不拦**；全新安装会 `INSTALL_FAILED_USER_RESTRICTED`，只能手动点。
 - **服务由 `WardrobeService` 前台服务起**（`WardrobeService.java::bootPython`），

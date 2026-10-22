@@ -115,6 +115,9 @@ app/
     items.py  wear.py  wardrobe.py
     llm/                    模型接入层（供应商无关）
   routes/                   HTTP 层：参数校验 → 调 service → 按响应模型返回
+android/                  Android APK 壳（Java + Gradle + 离线 wheel）
+                          构建：`sh android/build_apk.sh`；坑与工具链见 android/README.md
+                          ⚠️ shell 代码在仓库、构建目录在 C:/wbuild/aiw（纯 ASCII 路径）
 docs/                       设计文档（**规格在这里**）
 tests/                      测试
 data/                       运行时数据（gitignored，**不要手动改**）

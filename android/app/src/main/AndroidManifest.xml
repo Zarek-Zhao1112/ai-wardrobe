@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 本机监听 8787 其实不需要 INTERNET，但调 DeepSeek API 需要 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 前台服务保活：不然切到后台几分钟进程就被系统回收 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 相册直读：ALBUM_DIRS 是 /sdcard/DCIM 这类绝对路径，
+         Android 11+ 的分区存储必须靠「所有文件访问」才读得到 -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <application
+        android:name=".WardrobeApp"
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:usesCleartextTraffic="true"
+        android:largeHeap="true"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <!-- configChanges 要写全：只写 orientation|screenSize 的话，进出分屏 / 自由窗口 /
+             改「显示大小」「字体大小」 / 切深色模式 仍会重建 Activity —— 而重建会连 WebView
+             一起重来，表单清空、正在等的文件选择器回调直接作废。
+             launchMode=singleTask：常驻通知点一下必须「回到原页面」，不能重建。
+             （原来是 standard + CLEAR_TOP 的语义 = 销毁旧的再建新的） -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".WardrobeService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

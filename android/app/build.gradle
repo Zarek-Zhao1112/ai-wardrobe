@@ -1,0 +1,96 @@
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
+
+android {
+    namespace 'com.zarek.wardrobe'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.zarek.wardrobe"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        ndk {
+            // 只出 arm64：pydantic_core 的 .so 是 aarch64 的，
+            // 多编一个 ABI 既没意义又会把 APK 撑大一倍
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    sourceSets {
+        main {
+            // Chaquopy 默认就是 src/main/python，这里写出来是为了明确
+            python.srcDir "src/main/python"
+        }
+    }
+
+    packagingOptions {
+        // .so 需要能被解压出来加载（Chaquopy 要读到它们）
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+// 本机 Python 3.14 解释器路径放在 gradle.properties 的 aiw.buildPython。
+// ★ buildPython 必须与 app 内的 Python 同 major.minor（Chaquopy 17 起强制）。
+//   用专门装的 3.14，因为本机默认环境是 3.13。
+//   注意：跑 Gradle 时必须清掉 PYTHONPATH / PYTHONHOME，否则会挤掉这个解释器自己的 Lib
+//   （build_apk.sh 已经 unset 了）。
+def aiwBuildPython = project.findProperty('aiw.buildPython') ?: 'C:/wbuild/py314/python.exe'
+
+chaquopy {
+    defaultConfig {
+        version "3.14"
+        buildPython aiwBuildPython
+
+        pip {
+            // ★ 全离线：不走 chaquo.com 的在线仓库（它的 pypi-<ver> 路径
+            //   在这个网络下拿不到），全部依赖用本地 wheel 装。
+            //   wheel 目录用 ${rootDir} 相对定位 —— 构建脚本会把仓库 android/wheels
+            //   覆盖同步到构建目录，所以这里不含任何本机绝对路径。
+            options("--no-index")
+            options("--find-links", "${rootDir}/wheels")
+
+            // 纯 Python 包：来自 PyPI 官方 wheel（版本与手机上实测的一致）
+            install("fastapi==0.142.0")
+            install("starlette==1.7.0")
+            install("uvicorn==0.54.0")
+            install("pydantic==2.13.4")
+            install("opentelemetry-api==1.45.0")
+            install("httpx==0.28.1")
+            install("python-multipart==0.0.32")
+            install("segno==1.6.6")
+
+            // 唯一的原生扩展：用手机上已编译好的 .so 自制的 Android wheel
+            // （ELF PT_LOAD 对齐 0x4000，满足 Android 15 的 16 KB 页要求）
+            install("pydantic-core==2.46.4")
+        }
+    }
+}
+
+// Chaquopy 的 target 运行时包（Python 解释器本体）走 detachedConfiguration，
+// 解析时用的是 project 级仓库。settings.gradle 里统一声明后这里再兜一次底，
+// 避免 PREFER 模式下被忽略。
+repositories {
+    maven { url "C:/wbuild/local-maven" }
+    maven { url 'https://maven.aliyun.com/repository/public' }
+    maven { url 'https://maven.aliyun.com/repository/google' }
+    google()
+    mavenCentral()
+}
