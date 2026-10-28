@@ -58,11 +58,11 @@ def _connect() -> sqlite3.Connection:
 
 
 @contextmanager
-def conn() -> Iterator[sqlite3.Connection]:
+def conn(*, immediate: bool = False) -> Iterator[sqlite3.Connection]:
     """短连接上下文。正常退出 commit，异常 rollback。"""
     c = _connect()
     try:
-        c.execute("BEGIN")
+        c.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         yield c
         c.execute("COMMIT")
     except Exception:

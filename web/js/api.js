@@ -14,6 +14,7 @@ export class ApiError extends Error {
     this.name = "ApiError";
     this.status = status;
     this.payload = payload;
+    this.code = payload?.detail?.code || "";
   }
 }
 
@@ -39,6 +40,7 @@ function readDetail(payload, fallback) {
     // Pydantic 校验错误：数组里每项是 {loc, msg, ...}
     return detail.map((d) => d.msg || JSON.stringify(d)).join("；");
   }
+  if (detail && typeof detail.message === "string") return detail.message;
   if (detail) return JSON.stringify(detail);
   return fallback;
 }
@@ -84,10 +86,10 @@ async function request(method, path, { json, form, params, timeoutMs = DEFAULT_T
       throw new ApiError(
         `请求 ${Math.round(timeoutMs / 1000)} 秒没响应 —— 确认后端服务还在运行`,
         0,
-        null
+        { detail: { code: "request_timeout" } }
       );
     }
-    throw new ApiError("连不上后端服务，确认它还在运行", 0, null);
+    throw new ApiError("连不上后端服务，确认它还在运行", 0, { detail: { code: "request_network" } });
   } finally {
     clearTimeout(timer);
   }
@@ -107,6 +109,17 @@ async function request(method, path, { json, form, params, timeoutMs = DEFAULT_T
   return payload;
 }
 
+/** §12：裁剪图为主，原图与选区仅供本次识别参考。 */
+function imageForm(file, context = {}) {
+  const form = new FormData();
+  form.append("file", file);
+  if (context.original && context.original !== file) {
+    form.append("reference_image", context.original);
+    if (context.rect) form.append("reference_crop", JSON.stringify(context.rect));
+  }
+  return form;
+}
+
 export const api = {
   // 元信息。
   // ★ 这两个**必须给短超时**（2026-10-21 加）：`boot()` 拿 /health 判断"后端在不在"，
@@ -114,12 +127,33 @@ export const api = {
   //   期间页面一直停在"加载中…"，PWA 的原生闪屏也不退，用户只会觉得"打不开"。
   //   本机回环正常时是 10ms 级，6 秒已经极宽松；超时就当"没起"，立刻给指引。
   health: () => request("GET", "/health", { timeoutMs: 6000 }),
+  configureBridge: (settings) => request("PUT", "/settings/desktop-bridge", { json: settings, timeoutMs: 12000 }),
   taxonomy: () => request("GET", "/taxonomy", { timeoutMs: 10000 }),
 
   // 单品
   listItems: (params) => request("GET", "/items", { params }),
   getItem: (id) => request("GET", `/items/${encodeURIComponent(id)}`),
   createItem: (payload) => request("POST", "/items", { json: payload }),
+  commitPhoto: (token, file, payload, { original, display } = {}) => {
+    const form = new FormData();
+    form.append("token", token);
+    form.append("file", file);
+    form.append("payload", JSON.stringify(payload));
+    if (original) form.append("original", original);
+    if (display) form.append("display", display);
+    return request("POST", "/items/import-photo", { form });
+  },
+  photoImportStatus: (token) => request("GET", `/items/import-photo/${encodeURIComponent(token)}`),
+  startFlatlay: (token, file, kind) => {
+    const form = new FormData(); form.append("token", token); form.append("file", file); form.append("kind", kind || "other");
+    return request("POST", "/tagging/flatlay/jobs", { form, timeoutMs: 30000 });
+  },
+  flatlayStatus: token => request("GET", `/tagging/flatlay/jobs/${encodeURIComponent(token)}`, { timeoutMs: 20000 }),
+  savePresentation: (id, file, sourceHash) => {
+    const form = new FormData(); form.append("file", file); form.append("source_hash", sourceHash);
+    return request("POST", `/items/${encodeURIComponent(id)}/presentation`, { form });
+  },
+  selectPresentation: (id, selected) => request("PATCH", `/items/${encodeURIComponent(id)}/presentation`, { json: { selected } }),
   updateItem: (id, payload) =>
     request("PATCH", `/items/${encodeURIComponent(id)}`, { json: payload }),
   deleteItem: (id) => request("DELETE", `/items/${encodeURIComponent(id)}`),
@@ -132,10 +166,9 @@ export const api = {
    */
   parseItems: (text) =>
     request("POST", "/items/parse", { json: { text }, timeoutMs: 15000 }),
-  uploadImage: (id, file) => {
-    const form = new FormData();
-    form.append("file", file);
-    return request("POST", `/items/${encodeURIComponent(id)}/image`, { form });
+  uploadImage: (id, file, context) => {
+    const form = imageForm(file, context);
+    return request("POST", `/items/${encodeURIComponent(id)}/image`, { form, timeoutMs: 100000 });
   },
 
   // 手机相册（2026-10-21 加，2026-10-22 起**无 UI 入口**）
@@ -153,7 +186,7 @@ export const api = {
   /** 相册原图的 URL（当缩略图用）。**不走 `request`** —— 那是 JSON 通道。 */
   albumPhotoUrl: (id) => `/items/album/photo?id=${encodeURIComponent(id)}`,
   importFromAlbum: (itemId, id) =>
-    request("POST", `/items/${encodeURIComponent(itemId)}/image-from-album`, { json: { id } }),
+    request("POST", `/items/${encodeURIComponent(itemId)}/image-from-album`, { json: { id }, timeoutMs: 100000 }),
 
   // 穿着记录
   logWear: (payload) => request("POST", "/items/wear", { json: payload }),
@@ -161,17 +194,24 @@ export const api = {
 
   // 衣橱分析
   gaps: (season) => request("GET", "/wardrobe/gaps", { params: { season } }),
+  purchaseState: () => request("GET", "/wardrobe/purchase", { timeoutMs: 10000 }),
+  purchaseGenerate: (payload) => request("POST", "/wardrobe/purchase", { json: payload, timeoutMs: 110000 }),
+  purchaseChoice: (payload) => request("PUT", "/wardrobe/purchase/choice", { json: payload, timeoutMs: 10000 }),
   combinations: (params) => request("GET", "/wardrobe/combinations", { params }),
 
   // 搭配与反馈
-  recommend: (params) => request("POST", "/outfits/recommend", { params }),
+  recommend: (params) => request("POST", "/outfits/recommend", { params, timeoutMs: 100000 }),
+  aesthetics: () => request("GET", "/outfits/aesthetics", { timeoutMs: 10000 }),
   feedback: (payload) => request("POST", "/outfits/feedback", { json: payload }),
   listOutfits: (limit) => request("GET", "/outfits", { params: { limit } }),
+  purchaseReferenceStart: (payload) => request('POST', '/wardrobe/purchase/references', { json: payload, timeoutMs: 15000 }),
+  purchaseReferenceEnsure: (planId) => request('POST', '/wardrobe/purchase/references/ensure', { json: { plan_id: planId }, timeoutMs: 15000 }),
+  purchaseReferenceState: (id) => request('GET', '/wardrobe/purchase/references/' + encodeURIComponent(id), { timeoutMs: 25000 }),
   getOutfit: (id) => request("GET", `/outfits/${encodeURIComponent(id)}`),
 
   // 打标（无 key 时后端返回 503，视图层要当"未配置"而不是报错）
   tagItem: (id, params) =>
-    request("POST", `/tagging/${encodeURIComponent(id)}`, { params }),
+    request("POST", `/tagging/${encodeURIComponent(id)}`, { params, timeoutMs: 100000 }),
 
   /** **只识别、不入库**：录入页「AI 识别」按钮用。
    *
@@ -184,16 +224,15 @@ export const api = {
    * 超时 30s：实测 1.5~3s，30s 是给"大图 + 慢模型"留的余量；
    * 再长用户只会觉得按钮卡死（文案停在「识别中…」）。
    */
-  previewTags: (file) => {
-    const form = new FormData();
-    form.append("file", file);
-    return request("POST", "/tagging/preview", { form, timeoutMs: 30000 });
+  previewTags: (file, context) => {
+    const form = imageForm(file, context);
+    return request("POST", "/tagging/preview", { form, timeoutMs: 100000 });
   },
   /** 同上，但照片在手机相册里（PWA 壳点不动 `<input type=file>` 时走这条）。 */
   previewTagsFromAlbum: (id) => {
     const form = new FormData();
     form.append("album_id", id);
-    return request("POST", "/tagging/preview", { form, timeoutMs: 30000 });
+    return request("POST", "/tagging/preview", { form, timeoutMs: 100000 });
   },
 
   // 偏好
@@ -219,5 +258,8 @@ export const api = {
     if (!imagePath) return null;
     const q = v ? `?v=${encodeURIComponent(v)}` : "";
     return `/images/${encodeURIComponent(imagePath)}${q}`;
+  },
+  presentationUrl(item) {
+    return this.imageUrl(item.display_image_path, item.updated_at);
   },
 };

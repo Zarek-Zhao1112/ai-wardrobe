@@ -13,6 +13,7 @@ from .. import db, taxonomy
 from ..models import FeedbackIn, OutfitOut
 from ..services import feedback as feedback_svc
 from ..services import recommend as recommend_svc
+from ..services import aesthetics
 
 router = APIRouter(prefix="/outfits", tags=["outfits"])
 
@@ -38,24 +39,34 @@ def _check_season(season: str | None) -> str | None:
 
 @router.post("/recommend")
 def recommend_outfits(
-    scene: str | None = Query(None, description="场合，取值见 /taxonomy 的 scene"),
+    scene: str | None = Query(None, description="兼容旧版参数，新搭配链路已忽略"),
     season: str | None = Query(None, description="不传则取当前季节"),
     limit: int = Query(3, ge=1, le=10),
     use_llm: bool = Query(True, description="传 false 则只用本地排序，不调模型"),
+    aesthetic: str = Query(aesthetics.DEFAULT, description="完整审美方案id"),
+    anchor_item_id: str | None = Query(None, min_length=1, max_length=128, description="每套搭配都必须包含的衣物"),
 ) -> dict:
     """推荐几套搭配。
 
     **没配模型也不会失败**：自动退回本地排序，响应里 `degraded=true`、`reason` 为空。
     这样未配 key 也能把整条链路跑通。
     """
-    return recommend_svc.recommend(
-        _uid(),
-        scene=scene,
-        season=_check_season(season),
-        limit=limit,
-        source="api",
-        use_llm=use_llm,
-    )
+    try:
+        aesthetics.get_profile(aesthetic)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    try:
+        return recommend_svc.recommend(
+            _uid(), aesthetic=aesthetic, season=_check_season(season),
+            limit=limit, source="api", use_llm=use_llm, anchor_item_id=anchor_item_id,
+        )
+    except recommend_svc.AnchorUnavailable as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@router.get("/aesthetics")
+def list_aesthetics() -> dict:
+    return {"aesthetics": aesthetics.list_profiles(), "default": aesthetics.DEFAULT}
 
 
 @router.post("/feedback")

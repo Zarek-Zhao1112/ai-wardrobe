@@ -1,0 +1,148 @@
+[
+  {
+    "id": "cream-tapered-pants",
+    "name": "米白色微锥长裤",
+    "types": [
+      "casual_pants"
+    ],
+    "colors": [
+      "beige",
+      "white"
+    ],
+    "shape": "tapered",
+    "url": "https://www.yoox.com/images/items/30/30063483KA_14_f.jpg?height=900&impolicy=crop&width=710",
+    "source": "https://www.yoox.com/us/30063483KA/item",
+    "size": [
+      710,
+      900
+    ],
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "path": "/reference/cream-tapered-pants.jpg",
+    "sha256": "a4fc1c6dba45d07798b1ac41a51f183930a0a52563e5f4ae82fb34539e030a79"
+  },
+  {
+    "id": "gray-cardigan",
+    "name": "灰色针织开衫",
+    "types": [
+      "cardigan"
+    ],
+    "colors": [
+      "gray"
+    ],
+    "shape": "regular",
+    "url": "https://rats.jp/cdn/shop/files/1_c7102fcf-804b-4334-9db1-799c76918741_530x530%402x.jpg?v=1709526202",
+    "source": "https://rats.jp/collections/knit",
+    "size": [
+      1060,
+      1060
+    ],
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "path": "/reference/gray-cardigan.jpg",
+    "sha256": "00a4280cb146faf8854470f54f3d77f94a2164064091ab236b9e111b6d762dc6"
+  },
+  {
+    "id": "white-sneakers",
+    "name": "白色低帮休闲鞋",
+    "types": [
+      "sneakers"
+    ],
+    "colors": [
+      "white"
+    ],
+    "shape": "low",
+    "url": "https://www.yoox.com/images/items/17/17964303RD_14_f.jpg?height=800&impolicy=crop&width=630",
+    "source": "https://www.yoox.com/jp/17964303RD/item",
+    "size": [
+      630,
+      800
+    ],
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "path": "/reference/white-sneakers.jpg",
+    "sha256": "0a9e3c59e21e1b4948fbffded1c43b40ee8ab9501fbc2f20a8387d6fa417b5fa"
+  },
+  {
+    "id": "white-tshirt",
+    "name": "白色圆领短袖T恤",
+    "types": [
+      "tshirt"
+    ],
+    "colors": [
+      "white"
+    ],
+    "shape": "regular",
+    "url": "https://www.yoox.com/images/items/10/10520760jh_14_f.jpg?height=800&impolicy=crop&width=630",
+    "source": "https://www.yoox.com/jp/10520760JH/item",
+    "size": [
+      630,
+      800
+    ],
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "path": "/reference/white-tshirt.jpg",
+    "sha256": "a7706bcd52493837b64e6e83b432eabe2e7e001e35bd73601c679f37591152ab"
+  },
+  {
+    "id": "light-blue-shirt",
+    "name": "浅蓝色牛津纺衬衫",
+    "types": [
+      "shirt"
+    ],
+    "colors": [
+      "light_blue",
+      "blue"
+    ],
+    "shape": "regular",
+    "url": "https://cdna.lystit.com/520/650/n/photos/harveynichols/e00594ff/914x1280/drakes-Light-Blue-Cotton-Oxford-Shirt.jpeg",
+    "source": "https://www.lyst.com/clothing/drakes-cotton-oxford-shirt-1/",
+    "size": [
+      520,
+      650
+    ],
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "path": "/reference/light-blue-shirt.jpg",
+    "sha256": "0f7794802c472b129cab0779692859b3bda892f4a6d31680e47b6d4df7d47771"
+  },
+  {
+    "id": "white-wide-pants",
+    "name": "白色宽腿长裤",
+    "types": [
+      "casual_pants"
+    ],
+    "colors": [
+      "white"
+    ],
+    "shape": "wide",
+    "url": "https://cdn-images.farfetch-contents.com/23/75/98/14/23759814_53973650_480.jpg",
+    "source": "https://www.farfetch.com/uk/shopping/men/designer-sease/wide-leg-trousers-2/items.aspx",
+    "size": [
+      480,
+      641
+    ],
+    "corner": [
+      255,
+      255,
+      255
+    ],
+    "path": "/reference/white-wide-pants.jpg",
+    "sha256": "8193ff2e7b3747b28f919943f73b8a633a248984a289ea72b23854a220b38224"
+  }
+]

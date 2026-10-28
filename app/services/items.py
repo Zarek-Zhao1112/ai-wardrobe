@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from contextlib import nullcontext
 from typing import Any, Optional
 
 from .. import db, taxonomy
@@ -60,6 +61,7 @@ def to_out(row: Any) -> dict:
     d = dict(row)
     d["is_archived"] = bool(d.get("is_archived"))
     d["favorite"] = bool(d.get("favorite"))
+    d["display_selected"] = bool(d.get("display_selected") and d.get("display_image_path") and d.get("display_source_hash") == d.get("image_hash"))
     for f in JSON_LIST_FIELDS:
         d[f] = _loads_list(d.get(f))
     for f in JSON_DICT_FIELDS:
@@ -70,8 +72,9 @@ def to_out(row: Any) -> dict:
     return d
 
 
-def create(user_id: str, payload: ItemCreate) -> dict:
-    tid = db.new_id("it")
+def create(user_id: str, payload: ItemCreate, *, item_id: str | None = None, connection: sqlite3.Connection | None = None) -> dict:
+    # §14：逐件照片提交可复用外层事务，其余调用仍使用原来的短连接。
+    tid = item_id or db.new_id("it")
     now = db.now_iso()
     type_key = taxonomy.resolve_type(payload.type)
     slot = taxonomy.slot_of(type_key)
@@ -100,7 +103,7 @@ def create(user_id: str, payload: ItemCreate) -> dict:
     tagged_by = "manual" if has_attrs else None
     tagged_at = now if has_attrs else None
 
-    with db.conn() as c:
+    with (nullcontext(connection) if connection is not None else db.conn()) as c:
         c.execute(
             """
             INSERT INTO clothing_items (
@@ -278,6 +281,8 @@ def update(item_id: str, payload: ItemUpdate, user_id: Optional[str] = None) -> 
         return current
 
     sets: list[str] = []
+    if "image_path" in data and data["image_path"] != current.get("image_path"):
+        sets.extend(["original_image_path=NULL", "display_image_path=NULL", "display_source_hash=NULL", "display_model=NULL", "display_selected=0"])
     args: list[Any] = []
     touched_tag = False
 

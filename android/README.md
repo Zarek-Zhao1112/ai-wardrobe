@@ -67,10 +67,24 @@ android/
 │   │   ├── WardrobeService.java  前台服务，在子线程跑 uvicorn（START_STICKY 保活）
 │   │   └── MainActivity.java     367 行，WebView 套壳 + 文件选择器回调
 │   ├── python/server.py      APK 内 Python 入口（Java 侧 callAttr("start", filesDir, 8787)）
-│   └── res/values/strings.xml
+│   └── res/                  字符串、各密度图标、自适应与单色图层
 ├── wheels/                   20 个离线 wheel，见「wheels 从哪来」
 └── tools/                    构建期/真机调试脚本，不参与打包
 ```
+
+## 重新导出图标
+
+母版在 `web/icons/logo.svg`，定稿规格见 `docs/ui-contract.md` §13。
+启动带独立 profile 的 Chrome CDP（同 UI 门禁），然后执行：
+
+```sh
+CDP_PORT=9333 node scripts/generate_icons.js
+```
+
+脚本从同一 SVG 生成网页 / PWA PNG、Android 各密度普通 / 圆形 PNG、API 26+
+自适应矢量前景和 API 33+ 单色镂空前景。衍生资源一并提交；构建时同步整个 `res/`
+并逐字节核对，避免只拷贝字符串导致图标漏打进包。
+脚本需要 Node ≥22；图层尺寸与安全区依据 [Android 自适应图标规范](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive)。
 
 ## 运行时结构
 

@@ -8,10 +8,18 @@
  */
 
 import { api } from "./api.js";
-import { esc, toast } from "./ui.js";
+import { watchFlatlayImages } from "./flatlay-display.js";
+import { esc, icon, toast, serviceSettingsHtml } from "./ui.js";
+import { guardImportNavigation, refreshImportService } from "./photo-import.js";
+import { openBridgeSettings, restoreBridgeSettings } from "./desktop-settings.js";
+import { canReveal, capturePage, revealPage, cancelReveal, revealRunning } from "./page-transition.js";
 import * as add from "./view-add.js";
+import { openImportSheet, closeImportSheet, importSheetOpen } from "./import-sheet.js";
 import * as gaps from "./view-gaps.js";
-import * as item from "./view-item.js";
+import { closePurchaseSheet } from "./purchase-sheet.js";
+import { closeTryonSheet } from "./tryon-sheet.js";
+import * as item from "./item-detail.js";
+import { openItemSheet, closeItemSheet, itemSheetOpen, itemSheetRoot, itemSheetReturn, itemSheetHistory, refreshItemSheet } from "./item-sheet.js";
 import * as outfits from "./view-outfits.js";
 import * as wardrobe from "./view-wardrobe.js";
 
@@ -22,16 +30,59 @@ import * as wardrobe from "./view-wardrobe.js";
  */
 const VIEWS = [
   { id: "wardrobe", label: "衣橱", mod: wardrobe },
-  { id: "add", label: "录入", mod: add },
-  { id: "gaps", label: "缺口", mod: gaps },
+  { id: "add", label: "录入", mod: add, hidden: true, parent: "wardrobe" },
+  { id: "gaps", label: "添置", mod: gaps },
   { id: "outfits", label: "搭配", mod: outfits },
   { id: "item", label: "单品", mod: item, hidden: true, parent: "wardrobe" },
 ];
 
-const rootEl = document.getElementById("view");
+let rootEl = document.getElementById("view");
+watchFlatlayImages();
 const navEl = document.getElementById("nav");
 const tabbarEl = document.getElementById("tabbar");
 const statusEl = document.getElementById("status");
+let renderSequence = 0, pressedTab = null, pendingTurn = null, queuedTab = null;
+
+function clearTurns() { pressedTab = null; pendingTurn = null; queuedTab = null; cancelReveal(); }
+
+function navigateTab(target) {
+  if (target.hash === (location.hash || "#wardrobe")) return;
+  try {
+    const snapshot = capturePage([document.querySelector(".topbar"), rootEl, tabbarEl]);
+    pendingTurn = { ...target, from: location.hash, snapshot };
+  } catch { pendingTurn = null; }
+  location.hash = target.hash;
+}
+
+// §21：使用按下落点，但先确认一次有效轻点；拖动、取消和键盘不复用旧触点。
+tabbarEl?.addEventListener("pointerdown", event => {
+  pressedTab = null;
+  const tab = event.target.closest("a.tab");
+  if (!tab || event.button !== 0 || !event.isPrimary || !canReveal(rootEl, tabbarEl)) return;
+  pressedTab = { hash: tab.hash, x: event.clientX, y: event.clientY, pointer: event.pointerId,
+    from: location.hash, time: performance.now() };
+});
+document.addEventListener("pointermove", event => {
+  if (pressedTab?.pointer === event.pointerId && Math.hypot(event.clientX - pressedTab.x, event.clientY - pressedTab.y) > 10) pressedTab = null;
+}, { passive: true });
+document.addEventListener("pointercancel", () => { pressedTab = null; });
+tabbarEl?.addEventListener("contextmenu", () => { pressedTab = null; });
+tabbarEl?.addEventListener("click", event => {
+  const tab = event.target.closest("a.tab"), point = pressedTab;
+  pressedTab = null;
+  if (!tab || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+  if (tab.hash === (location.hash || "#wardrobe")) { event.preventDefault(); queuedTab = null; return; }
+  if (!event.detail || !point || point.hash !== tab.hash || point.from !== location.hash ||
+      performance.now() - point.time > 700 || !canReveal(rootEl, tabbarEl)) return;
+  event.preventDefault();
+  const target = { hash: tab.hash, point: { x: point.x, y: point.y } };
+  if (revealRunning()) queuedTab = target;
+  else navigateTab(target);
+});
+window.addEventListener("resize", clearTurns);
+window.visualViewport?.addEventListener("resize", clearTurns);
+document.addEventListener("visibilitychange", () => { if (document.hidden) clearTurns(); });
+matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", clearTurns);
 
 /**
  * 启动状态，**给 index.html 的看门狗一个可判定的答案**。
@@ -72,7 +123,7 @@ function renderNav(currentId) {
   const html = VIEWS.filter((v) => !v.hidden)
     .map(
       (v) =>
-        `<a class="tab${v.id === currentId ? " active" : ""}" href="#${esc(v.id)}">${esc(v.label)}</a>`
+        `<a class="tab${v.id === currentId ? " active" : ""}" href="#${esc(v.id)}"${v.id === currentId ? ' aria-current="page"' : ""}>${icon(v.id)}<span>${esc(v.label)}</span></a>`
     )
     .join("");
   navEl.innerHTML = html;
@@ -80,33 +131,99 @@ function renderNav(currentId) {
 }
 
 function renderStatus() {
-  const h = ctx.health;
-  if (!h) {
-    statusEl.innerHTML = `<span class="dot off"></span>后端未就绪`;
-    return;
-  }
-  const model = h.llm_ready
-    ? `<span class="dot"></span>模型 ${esc(h.llm_model || "已配置")}`
-    : `<span class="dot off"></span>模型未配置`;
-  const tagging = h.vision_ready ? "" : ` · 打标不可用`;
-  statusEl.innerHTML =
-    `${model}${tagging}<span class="faint"> · schema v${esc(h.schema_version)}</span>`;
+  const html = serviceSettingsHtml(ctx.health);
+  statusEl.innerHTML = html;
+  document.querySelectorAll(".page-settings").forEach(node => node.innerHTML = html);
 }
 
-async function render() {
+// 状态浮层不接管页面焦点；Escape 和点外部都可以收起。
+document.addEventListener("click", (ev) => {
+  document.querySelectorAll(".status-menu[open]").forEach(menu => { if (!menu.contains(ev.target)) menu.open = false; });
+  const button = ev.target.closest("[data-desktop-settings]");
+  if (!button) return;
+  button.closest("details").open = false;
+  openBridgeSettings(ctx, () => { renderStatus(); refreshImportService(); refreshItemSheet(ctx); }, button.closest(".status-menu")?.querySelector("summary"));
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  document.querySelectorAll(".status-menu[open]").forEach(menu => {
+    ev.preventDefault();
+    menu.open = false;
+    const summary = menu.querySelector("summary");
+    if (summary.getClientRects().length) summary.focus();
+  });
+});
+
+async function render(turn = null) {
+  const sequence = ++renderSequence;
+  await closePurchaseSheet();
+  await closeTryonSheet();
+  if (sequence !== renderSequence) return;
+  cancelReveal();
   const { id, arg } = parseHash();
-  const view = VIEWS.find((v) => v.id === id) || VIEWS[0];
+  const requested = VIEWS.find((v) => v.id === id) || VIEWS[0];
+  if (requested.id === "item") {
+    // 从必选搭配返回详情时重建原背景，用数据快照恢复，避免复活已卸载的异步页面。
+    const origin = history.state?.itemOrigin?.id === arg ? history.state.itemOrigin : null;
+    if (origin && rootEl.dataset.routeHash !== origin.returnHash) {
+      const [backgroundId, ...parts] = origin.returnHash.replace(/^#/, "").split("/");
+      const view = VIEWS.find(v => v.id === backgroundId && !v.hidden) || VIEWS[0];
+      const background = document.createElement("main"); background.id = "view"; background.className = "view";
+      background.dataset.view = view.id; background.dataset.routeHash = origin.returnHash; background.setAttribute("aria-label", view.label);
+      gaps.unmount(rootEl); wardrobe.unmount(rootEl); outfits.unmount(rootEl);
+      rootEl.replaceWith(background); rootEl = background;
+      await view.mod.mount(background, ctx, parts.join("/"), origin.background);
+      if (sequence !== renderSequence) return;
+      window.scrollTo(0, origin.scrollY || 0);
+    }
+    if (!["wardrobe", "outfits", "gaps"].includes(rootEl.dataset.view)) {
+      const background = document.createElement("main"); background.id = "view"; background.className = "view"; background.dataset.view = "wardrobe"; background.dataset.routeHash = "#wardrobe"; background.setAttribute("aria-label", "衣橱");
+      rootEl.replaceWith(background); rootEl = background; await wardrobe.mount(background, ctx);
+      if (sequence !== renderSequence) return;
+      history.replaceState(null, "", "#wardrobe"); history.pushState({ wardrobeItem: true }, "", "#item/" + arg);
+    }
+    renderNav(rootEl.dataset.view); document.title = "衣物详情 · AI 穿搭助手";
+    await openItemSheet(ctx, arg, rootEl);
+    if (sequence === renderSequence && window.__wz) window.__wz.boot = "ok";
+    return;
+  }
+  if (requested.id === "add" && rootEl.dataset.view === "wardrobe") {
+    renderNav("wardrobe"); document.title = "录入 · AI 穿搭助手";
+    await openImportSheet(ctx);
+    if (window.__wz) window.__wz.boot = "ok";
+    return;
+  }
+  const view = requested.id === "add" ? VIEWS[0] : requested;
+  // 新页先接入DOM，旧真实节点断开；迟到mount只能写各自的旧根节点。
+  const next = document.createElement("main");
+  next.id = "view"; next.className = "view"; next.dataset.view = view.id;
+  next.dataset.routeHash = "#" + view.id + (arg ? "/" + arg : "");
+  next.setAttribute("aria-label", view.label);
+  gaps.unmount(rootEl);
+  wardrobe.unmount(rootEl);
+  outfits.unmount(rootEl);
+  rootEl.replaceWith(next); rootEl = next;
   // 隐藏页（详情）不在导航里，高亮它所属的那个 Tab，免得看起来"哪个都没选中"
   renderNav(view.parent || view.id);
   document.title = `${view.label} · AI 穿搭助手`;
+  window.scrollTo(0, 0);
   try {
-    await view.mod.mount(rootEl, ctx, arg);
+    const mounted = view.mod.mount(next, ctx, arg);
+    if (turn && sequence === renderSequence) revealPage(turn.snapshot, turn.point, next, () => {
+      if (sequence !== renderSequence) return;
+      const queued = queuedTab; queuedTab = null;
+      if (queued && canReveal(rootEl, tabbarEl)) navigateTab(queued);
+    });
+    await mounted;
+    if (requested.id === "add" && sequence === renderSequence) await openImportSheet(ctx);
   } catch (err) {
-    rootEl.innerHTML = `<div class="alert error">页面加载失败：${esc(err && err.message)}</div>`;
+    if (sequence === renderSequence && next.isConnected) {
+      next.innerHTML = `<div class="alert error">页面加载失败：${esc(err && err.message)}</div>`;
+    }
   } finally {
     // 不管是正常渲染还是渲染失败，`#view` 里都已经有结论了 ——
     // 告诉看门狗"别再动这页"（成功和错误面板都算结论）。
-    if (window.__wz) window.__wz.boot = "ok";
+    if (sequence === renderSequence && window.__wz) window.__wz.boot = "ok";
   }
 }
 
@@ -138,6 +255,7 @@ let waitingForBackend = false;
  *   只有系统的「强制停止」才会杀掉进程。
  */
 function renderBackendDown() {
+  clearTurns(); ++renderSequence;
   // 先定状态再画 DOM：index.html 的看门狗以这个字段为准，晚一步就可能被它插手
   if (window.__wz) window.__wz.boot = "down";
   const onServerDevice = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
@@ -228,9 +346,55 @@ async function boot() {
   }
 
   await render();
+  restoreBridgeSettings(ctx, () => { renderStatus(); refreshImportService(); refreshItemSheet(ctx); });
 }
 
-window.addEventListener("hashchange", render);
+let routeSequence = 0;
+window.addEventListener("hashchange", event => {
+  const request = ++routeSequence;
+  const turn = pendingTurn;
+  pendingTurn = null;
+  if (itemSheetOpen()) {
+    clearTurns(); const target = location.hash, previous = new URL(event.oldURL).hash, returnHash = itemSheetReturn(), itemState = itemSheetHistory();
+    void closeItemSheet().then(allowed => {
+      if (request !== routeSequence) return;
+      if (!allowed) { history.pushState(itemState, "", previous); return; }
+      if (location.hash !== target) return;
+      if (target === returnHash && rootEl.dataset.routeHash === target) { renderNav(rootEl.dataset.view); document.title = "AI 衣橱"; }
+      else void render();
+    });
+    return;
+  }
+  if (importSheetOpen() && location.hash !== "#add") {
+    clearTurns();
+    // 返回只消费最上层；裁剪原有 hashchange 监听不会再处理同一次事件。
+    if (document.querySelector(".crop-layer,.import-modal,.bridge-modal")) {
+      event.stopImmediatePropagation();
+      history.pushState({ wardrobeImport: true }, "", "#add");
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      return;
+    }
+    const target = location.hash;
+    void closeImportSheet().then(allowed => {
+      if (request !== routeSequence) return;
+      if (!allowed) { history.pushState({ wardrobeImport: true }, "", "#add"); return; }
+      if (location.hash !== target) return;
+      if (target === "#wardrobe" && rootEl.dataset.view === "wardrobe") {
+        renderNav("wardrobe"); document.title = "衣橱 · AI 穿搭助手";
+      } else void render();
+    });
+    return;
+  }
+  if (!guardImportNavigation(event)) { clearTurns(); return; }
+  if (location.hash === "#add") {
+    clearTurns(); history.replaceState({ wardrobeImport: true }, "", "#add");
+    void render(); return;
+  }
+  const matching = turn && new URL(event.oldURL).hash === turn.from &&
+    new URL(event.newURL).hash === turn.hash && location.hash === turn.hash;
+  if (!matching) queuedTab = null;
+  void render(matching ? turn : null);
+});
 
 /** 注册 Service Worker（PWA：离线可用 + 可"添加到主屏幕"）。
  *
@@ -282,4 +446,9 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
   });
 }
 
+// §22：直达录入也有衣橱历史，Android 第一次返回不会退出应用。
+if (location.hash === "#add") {
+  history.replaceState(null, "", "#wardrobe");
+  history.pushState({ wardrobeImport: true }, "", "#add");
+}
 boot();

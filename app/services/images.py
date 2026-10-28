@@ -25,8 +25,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import tempfile
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from .. import db
 
@@ -66,6 +70,33 @@ def content_hash(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()[:32]
 
 
+@contextmanager
+def temporary_image(data: bytes | None) -> Iterator[Path | None]:
+    """§12：原图只在本次模型请求中可读，校验后写系统临时目录并清理。"""
+    if data is None:
+        yield None
+        return
+    if not data:
+        raise ImageError("参考原图内容为空")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise ImageError("参考原图太大，上限 10 MB")
+    sniffed = sniff(data)
+    if sniffed is None:
+        raise ImageError("认不出参考原图格式（只支持 JPEG / PNG / GIF / WebP）")
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="wardrobe-reference-", suffix=sniffed[1], delete=False) as fh:
+            temporary = Path(fh.name)
+            fh.write(data)
+        yield temporary
+    finally:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("参考原图临时文件暂时无法清理")
+
+
 #: 文件名里不许出现的字符：两种路径分隔符 + Windows 保留字符。
 _UNSAFE_ID_CHARS = set('\\/:*?"<>|')
 
@@ -103,6 +134,7 @@ def save_image(
     data: bytes,
     *,
     check_owner: bool = True,
+    original_data: bytes | None = None,
 ) -> dict:
     """把图片存进 `data/images/` 并回写单品的 `image_path` / `image_hash`。
 
@@ -126,70 +158,61 @@ def save_image(
 
     db.IMAGES_DIR.mkdir(parents=True, exist_ok=True)
     digest = content_hash(data)
-    filename = image_path_of(item_id, ext)
-    target = db.IMAGES_DIR / filename
-    staging = db.IMAGES_DIR / f".{filename}.staging"
-
-    # ⚠️ 顺序：写**暂存文件** → 更新数据库 → 成功后才替换正式文件。
-    #
-    # 为什么不直接写 `target`：如果这件单品本来就有图、扩展名又相同（jpg 换 jpg），
-    # `write_bytes(target)` 会**当场覆盖掉原图**。万一数据库这一步失败
-    # （比如 image_hash 撞了唯一索引）而在 except 里把 target 删掉 ——
-    # 原图就凭空消失了，可数据库里 `image_path` 还指着它。
-    # （这是 W4 审查抓到的数据丢失缺陷，原实现在这里踩了坑。）
-    #
-    # 写入也放进 `try`：路径消毒在 `image_path_of` 已做，但仍要保证
-    # **任何异常都不留下半成品文件**（写盘中途失败会留一个残缺的暂存文件）。
-    sql = "UPDATE clothing_items SET image_path=?, image_hash=?, updated_at=? WHERE id=?"
-    args: list = [filename, digest, db.now_iso(), item_id]
-    if check_owner:
-        sql = sql.replace(" WHERE id=?", " WHERE id=? AND user_id=?")
-        args.append(user_id)
-
+    image_path_of(item_id, ext)
+    if original_data is not None and (not original_data or len(original_data) > MAX_IMAGE_BYTES or not sniff(original_data)):
+        raise ImageError("参考原图格式或大小不支持")
+    staging = target = original_staging = original_target = None
+    installed = committed = False
+    previous_paths = []
     try:
-        staging.write_bytes(data)
-        with db.conn() as c:
-            cur = c.execute(sql, args)
-            if cur.rowcount == 0:
-                raise LookupError("单品不存在")
-            row = c.execute(
-                "SELECT image_path, image_hash FROM clothing_items WHERE id=?", (item_id,)
-            ).fetchone()
-    except Exception:
-        # 数据库没成（或写盘失败）—— 丢掉暂存文件即可。**原图原封不动。**
-        staging.unlink(missing_ok=True)
-        raise
-
-    # 数据库已成功，这时才动正式文件
-    try:
-        staging.replace(target)      # 同目录内 rename，原子替换
-    except OSError as e:
-        # ★ 2026-10-22 审查发现：删除单品会 unlink 同名文件，Windows 上目标
-        #   处于 delete-pending 时 `os.replace` 会以 ACCESS_DENIED 失败。
-        #   不接住的话这里冒成 500，而数据库那一步已经改了 `image_path`。
-        #   翻成 ImageError（路由 → 400）至少给用户一句人话，也顺手清掉暂存文件。
-        staging.unlink(missing_ok=True)
-        raise ImageError(f"图片写盘失败（可能正在被删除），请重试：{e}") from e
-    # 换过扩展名时（jpg → png）把旧文件清掉。
-    # ⚠️ 不用 `glob(f"{item_id}.*")` 拼 pattern：`image_path_of` 只挡了
-    #   `\ / : * ? " < > |`，`[`、`]` 是放行的 —— 一旦 id 里带 `[ab]`，
-    #   glob 会按字符类匹配到**别人的**文件并删掉。按 stem 相等判定。
-    _remove_by_stem(item_id, keep=filename, include_staging=False)
-
-    # ★ 并发复查（2026-10-22 审查发现）：另一端可能刚把这一行删掉并清了文件，
-    #   那这张刚 rename 出来的图就是"刚生下来的孤儿"。复查不到行就自己收回去。
-    with db.conn() as c:
-        alive = c.execute("SELECT 1 FROM clothing_items WHERE id=?", (item_id,)).fetchone()
-    if not alive:
-        target.unlink(missing_ok=True)
-        raise LookupError("单品不存在")
-
-    return {
-        "image_path": row["image_path"],
-        "image_hash": row["image_hash"],
-        "bytes": len(data),
-        "mime": mime,
-    }
+        with tempfile.NamedTemporaryFile(prefix=".image-upload-", suffix=".staging", dir=db.IMAGES_DIR, delete=False) as handle:
+            staging = Path(handle.name)
+            handle.write(data)
+        if original_data is not None and original_data != data:
+            with tempfile.NamedTemporaryFile(prefix=".image-original-", suffix=".staging", dir=db.IMAGES_DIR, delete=False) as handle:
+                original_staging = Path(handle.name)
+                handle.write(original_data)
+        # §23：安装新来源与清空旧衍生引用在同一写事务中，失败不破坏旧来源/采用状态。
+        with db.conn(immediate=True) as connection:
+            sql = "SELECT * FROM clothing_items WHERE id=?" + (" AND user_id=?" if check_owner else "")
+            args = (item_id, user_id) if check_owner else (item_id,)
+            old = connection.execute(sql, args).fetchone()
+            if not old: raise LookupError("单品不存在")
+            filename = image_path_of(item_id if not old["image_path"] else f"{item_id}.source-{uuid.uuid4().hex}", ext)
+            target = db.IMAGES_DIR / filename
+            original_name = filename
+            if original_staging:
+                original_name = image_path_of(f"{item_id}.original-{uuid.uuid4().hex}", sniff(original_data)[1])
+                original_target = db.IMAGES_DIR / original_name
+            previous_paths = [old["image_path"], old["original_image_path"], old["display_image_path"]]
+            connection.execute("UPDATE clothing_items SET image_path=?,image_hash=?,updated_at=?,original_image_path=?,display_image_path=NULL,display_source_hash=NULL,display_model=NULL,display_selected=0 WHERE id=?",
+                (filename, digest, db.now_iso(), original_name, item_id))
+            staging.replace(target)
+            installed = True
+            if original_staging: original_staging.replace(original_target)
+            row = connection.execute("SELECT image_path,image_hash FROM clothing_items WHERE id=?", (item_id,)).fetchone()
+        committed = True
+    except OSError as error:
+        raise ImageError("图片写盘失败，请重试；旧照片仍保留") from error
+    finally:
+        if installed and not committed and target:
+            try: target.unlink(missing_ok=True)
+            except OSError: pass
+        if staging:
+            try: staging.unlink(missing_ok=True)
+            except OSError: pass
+        if original_staging:
+            try: original_staging.unlink(missing_ok=True)
+            except OSError: pass
+        if original_target and not committed:
+            try: original_target.unlink(missing_ok=True)
+            except OSError: pass
+    # 只清本轮捕获的旧版本，不能扫描删掉并发刚生成的新展示图。
+    for name in set(previous_paths):
+        if name and name not in (filename, original_name) and is_item_image(item_id, name):
+            try: (db.IMAGES_DIR / name).unlink(missing_ok=True)
+            except OSError: logger.warning("旧版本图片暂时无法清理")
+    return {"image_path": row["image_path"], "image_hash": row["image_hash"], "bytes": len(data), "mime": mime}
 
 
 def read_image(image_path: str) -> Optional[Path]:
@@ -206,12 +229,23 @@ def read_image(image_path: str) -> Optional[Path]:
 _IMAGE_SUFFIXES: frozenset[str] = frozenset({".jpg", ".png", ".gif", ".webp"})
 
 
+def is_derivative(item_id: str, name: str) -> bool:
+    """§23：精确判定归属，不允许路径/通配符扩大删除范围。"""
+    path = Path(name)
+    return path.name == name and path.suffix.lower() in _IMAGE_SUFFIXES and bool(re.fullmatch(re.escape(item_id) + r"\.(?:original|display)-[0-9a-f]{32}", path.stem))
+
+
+def is_item_image(item_id: str, name: str) -> bool:
+    path = Path(name)
+    return path.name == name and path.suffix.lower() in _IMAGE_SUFFIXES and bool(re.fullmatch(re.escape(item_id) + r"(?:\.(?:source|import|original|display)-[0-9a-f]{32})?", path.stem))
+
+
 def _remove_by_stem(
     item_id: str, *, keep: Optional[str] = None, include_staging: bool = True
 ) -> list[str]:
-    """删掉 `data/images/` 里所有「主干 == item_id」的图片，返回被删的文件名。
+    """删掉该单品的图片（含§14的独立尝试文件），返回被删的文件名。
 
-    归属判定一律用 `path.stem == item_id` + 后缀白名单，**不用 glob 拼 pattern**：
+    归属判定用精确主干/严格尝试后缀 + 图片后缀白名单，**不用 glob 拼 pattern**：
     `image_path_of` 只拦了 `\\ / : * ? " < > |`，`[`、`]` 是放行的，
     拼成 pattern 会按字符类匹配到别人的文件。
 
@@ -236,7 +270,9 @@ def _remove_by_stem(
         name = path.name
         if name == keep:
             continue
-        mine = path.stem == item_id and path.suffix.lower() in _IMAGE_SUFFIXES
+        # §14：原子录入的尝试文件带随机后缀，换图/删单品时一起清理。
+        imported = item_id.startswith("it_import_") and re.fullmatch(re.escape(item_id) + r"\.import-[0-9a-f]{32}", path.stem)
+        mine = is_item_image(item_id, name)
         staging = include_staging and name.startswith(f".{item_id}.") and name.endswith(".staging")
         if not (mine or staging):
             continue

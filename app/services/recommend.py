@@ -1,48 +1,18 @@
-"""搭配推荐：本地枚举候选 → 本地打分 → MMR 去重 → **LLM 只排序和写理由**。
+"""§20：完整审美方案召回与组套→核心单品多样化→模型受控排序。
 
-## 核心设计：让幻觉在结构上不可能
-
-v0.1 §13 的做法是"让模型输出 item_id，再做校验"。那是**提示词约束**问题 ——
-约束得再好，模型仍可能编一个不存在的 id 出来，你只能在事后抓。
-
-这里换一条路（设计文档 §10）：
-
-    本地枚举合法组合（item_id 必然真实）→ 模型只负责**重排**和**写理由**
-
-模型的输入里只有短别名，输出里只有"选第几套 + 一句理由"。它**没有机会**生成
-item_id，因为它从来没拿到过真 id。这是结构性的，不依赖提示词写得好不好。
-
-## 防幻觉的三层（前两层在这里）
-
-1. 候选全部由本地 `wardrobe.combinations_preview()` 枚举 —— 组合里的 id 来自数据库
-2. 模型返回的编号要过一遍范围校验，越界的丢弃（**不是报错** —— 一个坏编号不该让整次推荐作废）
-3. （结构性）模型根本不生成 id
-
-## 打分怎么算
-
-单品得分 = 它身上所有 tag 的 `decayed_score × confidence` 的**均值**
-（均值而非求和：否则属性填得多的单品天然占便宜，那是打标完整度的差异，不是偏好差异）
-
-组合得分 = 组合内单品得分的均值。
-
-再归一化到 `[0,1]` 才进 MMR —— MMR 的公式假定相关性是非负的，
-而偏好分本身有正负，直接代进去会让「多样性惩罚」压过「相关性」。
-
-## 多样性为什么并进 MMR，而不是选完再检查
-
-设计文档写的是硬约束「3 套中 ≥2 套主色不同、≥2 套 formality 不同」。
-但如果把它做成"选完再检查"，在只有 3 套时发现不满足，修复策略会很难看
-（换掉哪一套？换进来的又可能撞另一套）。所以这里把**属性相似度直接并入 MMR 的距离项**，
-让多样性在挑选过程中自然满足。等价，但不用打补丁。
+场合不参与新推荐；保存生成时方案与五维事实快照。旧评分/MMR辅助函数
+保留兼容既有调用与回归，新链路以aesthetics中的整套关系和核心单品多样性为准。
 """
 
 from __future__ import annotations
 
 import json
+import re
+from contextlib import nullcontext
 from typing import Any, Optional
 
 from .. import db
-from . import preference, wardrobe
+from . import aesthetics, preference, wardrobe
 from .llm.client import LLMClient, LLMError, get_client
 from .llm.prompts import AliasMap
 
@@ -52,26 +22,7 @@ MMR_LAMBDA: float = 0.7
 #: 单次送给模型的候选套数上限。再多就是白烧 token —— 模型挑不出第 30 套的差别。
 MAX_TO_LLM: int = 12
 
-REASON_PROMPT = """你在帮一个人挑今天穿哪套衣服。
 
-**单品行**（格式：代号|槽位|主色|材质|版型|正式度|季节，缺的字段留空）：
-{items}
-
-**候选搭配**（每套由若干件单品组成，用上面那些代号表示）：
-{catalog}
-
-场合：{scene}
-季节：{season}
-
-请从中挑出最合适的 {count} 套并**排序**（第 1 套是你最推荐的），
-每套用一行为理由，说明为什么这样搭合适（20~30 字，口语化，不要客套话）。
-理由里可以引用单品的颜色/材质/款型来支撑你的判断。
-
-**只能从上面这些搭配里挑**，不要组合出新的搭配。
-
-输出 JSON：
-{{"ranked": [{{"outfit": "O1", "reason": "..."}}, ...]}}
-"""
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +38,8 @@ def build_score_index(user_id: str, season: Any, scene: Any) -> dict[tuple[str, 
     context = preference.context_key(season, scene)
     index: dict[tuple[str, str], float] = {}
     for row in preference.query(user_id, context=context):
-        index[(row["tag_type"], row["tag_value"])] = row["decayed_score"] * row["confidence"]
+        if row["tag_type"] not in {"occasion", "formality"}:
+            index[(row["tag_type"], row["tag_value"])] = row["decayed_score"] * row["confidence"]
     return index
 
 
@@ -250,23 +202,38 @@ def _llm_rank(
     count: int,
     scene: Any,
     season: Any,
+    profile: dict | None = None,
 ) -> list[dict]:
     """让模型重排并写理由。返回 `[{"outfit": "O1", "reason": "..."}]`（可能被裁剪）。
 
-    ⚠️ `item_lines` 是 `AliasMap.build()` 的返回值，**必须真的塞进 prompt**。
+    ⚠️ `item_lines` 是带短别名与真实属性的JSON行，必须传入模型。
     否则模型只看到 `O1: A1 + A2 + A3` 这种纯代号，却要写「为什么这套合适」——
     它唯一能做的就是编。（W4 审查抓到：这个返回值原本被丢掉了。）
 
     ⚠️ 模型返回越界编号时**丢弃**而不是报错 —— 一个坏编号不该毁掉整次推荐。
     """
     catalog = _catalog(outfit_ids, outfits_by_id, aliases)
-    prompt = REASON_PROMPT.format(
-        items=item_lines,
-        catalog=catalog,
-        scene=scene or "未指定",
-        season=season or "未指定",
-        count=count,
-    )
+    local_assessments = "\n".join(f"{oid}：" + json.dumps({d["key"]: d["status"] for d in outfits_by_id[oid].get("_assessment", {}).get("dimensions", [])}, ensure_ascii=False) for oid in outfit_ids)
+    profile = profile or aesthetics.get_profile()
+    goals = "\n".join(f"{d['label']}：{d['goal']}" for d in profile["dimensions"])
+    prompt = f"""完整审美方案：{profile['name']}，版本{profile['version']}。
+核心：{profile['core']}
+可变化：{profile['flexible']}
+五维安排：
+{goals}
+季节：{season or '未指定'}（仅表示衣橱过滤，不代表具体温度）。
+单品是JSON行，缺失字段是null或空数组；只依据这些属性，不读取或猜测场合：
+{item_lines}
+候选搭配：
+{catalog}
+本地五维评估（matched仅表示已知属性线索符合方向，approximate为近似尝试，unknown为信息不足）：
+{local_assessments}
+请从候选中按同一套审美挑选并排序{count}套。颜色、图案和松紧不是硬性禁配。
+只能返回已有候选编号，不得增减单品。理由只引用已知属性与方案目标，20~60字。
+理由使用颜色和品类名称，不出现O1或A1等内部代号。
+不能由材质成分断言光泽、挺阔、垂坠、柔软、保暖，不能从裤长断言上衣长度、腰线、显高显瘦或三七比例。
+缺信息时承认未知；不要声称看过照片或实际试穿。
+输出JSON：{{"ranked":[{{"outfit":"O1","reason":"..."}}]}}"""
     data = client.chat_json(
         [
             {"role": "system", "content": "你是一个穿搭顾问，只从给定选项里挑选并排序。"},
@@ -289,7 +256,11 @@ def _llm_rank(
             continue
         seen.add(oid)
         reason = entry.get("reason")
-        out.append({"outfit": oid, "reason": str(reason).strip() if reason else None})
+        reason = reason.strip()[:500] if isinstance(reason, str) else None
+        # 代号只供模型选择；带代号的理由舍弃，页面仍可展示本地五维事实依据。
+        if reason and re.search(r"[OA][0-9]+", reason, re.I):
+            reason = None
+        out.append({"outfit": oid, "reason": reason or None})
     return out
 
 
@@ -307,21 +278,24 @@ def _persist(
     confidence: Optional[float],
     source: str,
     now: str,
+    aesthetic: dict | None = None,
+    connection=None,
 ) -> dict:
     oid = db.new_id("of")
-    with db.conn() as c:
+    with (nullcontext(connection) if connection is not None else db.conn()) as c:
         c.execute(
             """
             INSERT INTO outfits
                 (id,user_id,item_ids,scene,weather,reason,confidence,
-                 status,generated_by,source,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                 status,generated_by,source,created_at,aesthetic_snapshot)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 oid, user_id,
                 json.dumps(outfit["item_ids"], ensure_ascii=False),
                 scene, weather, reason, confidence,
                 "proposed", "llm", source, now,
+                json.dumps(aesthetic, ensure_ascii=False) if aesthetic else None,
             ),
         )
         # 记录"这件被推荐过" —— 采纳率指标（设计文档 §7）依赖它
@@ -351,6 +325,12 @@ def _json_ids(raw: Any) -> list[str]:
 
 def _to_out(row: dict, items_by_id: dict[str, dict]) -> dict:
     ids = _json_ids(row.get("item_ids"))
+    try:
+        snapshot = json.loads(row.get("aesthetic_snapshot") or "null")
+    except (ValueError, TypeError):
+        snapshot = None
+    if not isinstance(snapshot, dict):
+        snapshot = None
     return {
         "id": row["id"],
         "item_ids": ids,
@@ -359,6 +339,7 @@ def _to_out(row: dict, items_by_id: dict[str, dict]) -> dict:
         "weather": row.get("weather"),
         "reason": row.get("reason"),
         "confidence": row.get("confidence"),
+        "aesthetic": snapshot,
         "status": row.get("status") or "proposed",
         "generated_by": row.get("generated_by") or "llm",
         "created_at": row["created_at"],
@@ -368,6 +349,25 @@ def _to_out(row: dict, items_by_id: dict[str, dict]) -> dict:
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
+
+class AnchorUnavailable(ValueError):
+    """必选衣物不可用时明确失败，不回退为任意搭配。"""
+
+
+def _check_anchor(items: list[dict], anchor_item_id: str | None, season: str) -> None:
+    if not anchor_item_id:
+        return
+    item = next((it for it in items if it["id"] == anchor_item_id), None)
+    if not item:
+        raise AnchorUnavailable("这件衣服已不存在，请返回衣橱重新选择。")
+    if item.get("is_archived") or item.get("type") in wardrobe.taxonomy.HOME_LIKE:
+        raise AnchorUnavailable("这件衣服暂不能参与搭配，请选择衣橱中未归档的外出衣物。")
+    if not wardrobe.taxonomy.usable_in(item, season):
+        raise AnchorUnavailable("这件衣服不适合所选季节，请调整季节后再试。")
+    if item.get("slot") not in {"top", "bottom", "full", "shoes", "outer", "accessory"} or (
+        item.get("slot") == "accessory" and item.get("type") not in aesthetics._ACCESSORIES
+    ):
+        raise AnchorUnavailable("这件衣服的品类暂不能参与搭配。")
 
 def recommend(
     user_id: str,
@@ -379,6 +379,8 @@ def recommend(
     source: str = "api",
     client: Optional[LLMClient] = None,
     use_llm: bool = True,
+    aesthetic: str | None = None,
+    anchor_item_id: str | None = None,
 ) -> dict:
     """给当前上下文推荐 `limit` 套搭配。
 
@@ -390,75 +392,50 @@ def recommend(
     理由：没有 key 也应该能用（本地排序本身已经基于用户偏好），
     而且这让 P1 阶段（尚未配 key）也能端到端验证整条链路。
     """
-    # 先定季节才能建偏好索引（索引按「季节 × 场合」分桶）。
-    # 不能反过来用 preview 的 season 推 —— 那会变成先有鸡还是先有蛋。
+    # §20：场合形参仅兼容旧入口，不参与新生成、偏好或保存。
+    scene = None
+    profile = aesthetics.get_profile(aesthetic)
     actual_season = wardrobe.total_combinations(user_id, season)["season"]
-    index = build_score_index(user_id, actual_season, scene)
-
-    # 候选 = 每槽位按偏好取前 K 件，再**全量**枚举。
-    # `limit=None` 是刻意的：池子已被 `per_slot` 压到千余套，全取才不会漏掉
-    # "最好的那一套" —— 只要采样，就一定会漏东西。
-    preview = wardrobe.combinations_preview(
-        user_id,
-        limit=None,
-        season=actual_season,
-        per_slot=wardrobe.PER_SLOT_TOP_K,
-        score_of=lambda it: item_score(it, index),
-    )
-    sample = preview.get("sample") or []
-
-    items_by_id: dict[str, dict] = {}
-    for outfit in sample:
-        for item in outfit.get("items") or []:
-            items_by_id[item["id"]] = item
-
+    all_items = wardrobe._all_items(user_id)
+    _check_anchor(all_items, anchor_item_id, actual_season)
+    index = build_score_index(user_id, actual_season, None)
+    sample = aesthetics.build_candidates(all_items, profile, actual_season,
+        preference_score=lambda it: item_score(it, index), anchor_item_id=anchor_item_id)
     if not sample:
-        return {
-            "season": actual_season,
-            "season_label": preview.get("season_label"),
-            "candidates": 0,
-            "outfits": [],
-            "degraded": False,
-            "note": "当前季节没有可搭出的组合（衣橱可能还没到最小可用量）",
-        }
+        return {"season": actual_season, "season_label": wardrobe.taxonomy.SEASON_LABELS.get(actual_season, actual_season),
+            "candidates": 0, "outfits": [], "degraded": False, "aesthetic": profile,
+            "anchor_item_id": anchor_item_id,
+            "note": ("暂时找不到包含这件衣服的完整搭配。可以调整季节或补充相关衣物。" if anchor_item_id else
+                "当前季节没有可搭出的组合。需要上装、下装和鞋，或连身衣和鞋；也可以检查季节标注。")}
 
-    # ---- 本地打分 + MMR 选 ----
-    scored: list[dict] = []
-    for outfit in sample:
-        scored.append({**outfit, "_score": outfit_score(outfit, index)})
-    relevance = _normalize([c["_score"] for c in scored])
-    for cand, rel in zip(scored, relevance):
-        cand["_relevance"] = rel
-
-    scored.sort(key=lambda c: c["_relevance"], reverse=True)
-    picked = mmr_select(scored, limit)
-    # MMR 是软约束，补一次硬约束校验（≥2 套主色不同、≥2 套正式度不同）
-    picked = ensure_diversity(picked, scored)
-
-    # ---- 给模型看的那批：本地排前 MAX_TO_LLM 套 ----
-    shortlist = scored[:MAX_TO_LLM]
-    outfits_by_id = {f"O{n}": o for n, o in enumerate(shortlist, start=1)}
-
+    # 同一方案既参与召回，也评价整套关系；旧颜色/正式度多样性硬修复不用于此链路。
+    scores = _normalize([outfit_score(outfit, index) for outfit in sample])
+    for outfit, personal in zip(sample, scores):
+        assessment = aesthetics.assess(outfit, profile)
+        outfit["_assessment"] = assessment
+        outfit["_relevance"] = .85 * assessment["score"] + .15 * personal
+    picked = aesthetics.shortlist(sample, limit)
+    candidates_for_model = aesthetics.shortlist(sample, max(MAX_TO_LLM, limit))
+    outfits_by_id = {f"O{n}": outfit for n, outfit in enumerate(candidates_for_model, start=1)}
+    items_by_id = {item["id"]: item for outfit in sample for item in outfit["items"]}
+    model_items = {item["id"]: item for outfit in candidates_for_model for item in outfit["items"]}
     aliases = AliasMap()
-    # ⚠️ 这个返回值**必须留着传下去** —— 它就是给模型看的单品行文本。
-    # 丢掉它的话，模型只看到 `O1: A1 + A2 + A3` 一堆代号，却要写"为什么合适"。
-    item_lines = aliases.build([items_by_id[i] for i in items_by_id])
-
-    degraded = False
-    note: Optional[str] = None
-    ranked: list[dict] = []
-
-    if use_llm and shortlist:
+    aliases.build(list(model_items.values()))
+    # JSON行避免名称、备注和分隔符混淆；只传受控字段，场合与正式度均不进入模型。
+    item_lines = "\n".join(json.dumps({"code": aliases.alias_of(item["id"]),
+        **{key: item.get(key) for key in ("type", "slot", "primary_color", "colors", "material", "fit", "pattern", "length", "style")}},
+        ensure_ascii=False) for item in model_items.values())
+    degraded, note, ranked = False, None, []
+    if use_llm:
         try:
-            cli = client or get_client()
-            ranked = _llm_rank(
-                cli, list(outfits_by_id.keys()), outfits_by_id, aliases, item_lines,
-                count=min(limit, len(outfits_by_id)),
-                scene=scene, season=preview.get("season_label") or actual_season,
-            )
+            ranked = _llm_rank(client or get_client(), list(outfits_by_id), outfits_by_id, aliases,
+                item_lines, count=min(limit, len(outfits_by_id)), scene=None, season=actual_season, profile=profile)
+            if not ranked:
+                degraded = True
+                note = "AI未返回有效候选，已按同一审美方案提供本地搭配。"
         except LLMError as exc:
             degraded = True
-            note = f"模型不可用，已退回本地排序：{exc}"
+            note = f"模型不可用，已按同一审美方案提供本地搭配：{exc}"
 
     # ---- 决定最终顺序 ----
     # ⚠️ 必须**保持模型给出的顺序** —— 那是它这一趟唯一的产出。
@@ -467,8 +444,8 @@ def recommend(
     seen: set[tuple] = set()
 
     def _add(outfit: dict, reason: Optional[str]) -> None:
-        key = tuple(outfit.get("item_ids") or [])
-        if not key or key in seen:
+        key = tuple(sorted(outfit.get("item_ids") or []))
+        if not key or key in seen or (anchor_item_id and anchor_item_id not in key):
             return
         seen.add(key)
         final.append((outfit, reason))
@@ -478,7 +455,7 @@ def recommend(
             break
         _add(outfits_by_id[entry["outfit"]], entry["reason"])
 
-    for cand in picked:                       # 不够就用本地 MMR 顺序补齐
+    for cand in picked:                       # 不够就按同一方案的本地顺序补齐
         if len(final) >= limit:
             break
         _add(cand, None)
@@ -486,18 +463,29 @@ def recommend(
     # ---- 落库 ----
     now = db.now_iso()
     saved: list[dict] = []
-    for outfit, reason in final:
-        confidence = round(max(0.0, min(1.0, float(outfit.get("_relevance", 0.0)))), 4)
-        row = _persist(
-            user_id, outfit,
-            scene=scene, weather=weather, reason=reason,
-            confidence=confidence, source=source, now=now,
-        )
-        saved.append(_to_out(row, items_by_id))
+    # 先取得写锁，再复核并保存整批，堵住复核和首套/后续套之间的删除竞态。
+    with db.conn(immediate=True) as connection:
+        if anchor_item_id:
+            from .items import to_out
+            row = connection.execute("SELECT * FROM clothing_items WHERE id=? AND user_id=?",
+                                     (anchor_item_id, user_id)).fetchone()
+            _check_anchor([to_out(row)] if row else [], anchor_item_id, actual_season)
+        for outfit, reason in final:
+            confidence = round(max(0.0, min(1.0, float(outfit.get("_relevance", 0.0)))), 4)
+            snapshot = {**profile, "assessment": {key: value for key, value in outfit["_assessment"].items() if key != "score"}}
+            if anchor_item_id:
+                snapshot["anchor_item_id"] = anchor_item_id
+            row = _persist(
+                user_id, outfit, scene=scene, weather=weather, reason=reason,
+                confidence=confidence, source=source, now=now, aesthetic=snapshot, connection=connection,
+            )
+            saved.append(_to_out(row, items_by_id))
 
     return {
         "season": actual_season,
-        "season_label": preview.get("season_label"),
+        "season_label": wardrobe.taxonomy.SEASON_LABELS.get(actual_season, actual_season),
+        "aesthetic": profile,
+        "anchor_item_id": anchor_item_id,
         "candidates": len(sample),
         "outfits": saved,
         "degraded": degraded,

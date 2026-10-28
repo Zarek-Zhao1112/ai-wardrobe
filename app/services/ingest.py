@@ -312,7 +312,8 @@ def pick_type(title: str, *, client: Any = None) -> TypePick:
         return TypePick(key=local, used_llm=False)
 
     if client is None:
-        if not config.LLM_READY:
+        from .llm.client import model_ready
+        if not model_ready():
             # ★ "没配模型"和"模型挂了"都是**不可用**，都要如实说，不能静默。
             #   规格 §11.3 失败语义表：模型不可用（没 key / 401 / 超时）→
             #   降级为只用本地词表，**如实告知**。

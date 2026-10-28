@@ -15,7 +15,8 @@ from .. import config, db
 from ..services import images as image_svc
 from ..services import items as item_svc
 from ..services import tagging as tagging_svc
-from ..services.llm.client import LLMError
+from ..services import flatlay as flatlay_svc
+from ..services.llm.client import LLMError, model_ready
 
 # 相册 id → 路径的校验（白名单 + realpath）**只写一份**。
 # 复制一遍的话，两处口径迟早走岔 —— 那是安全校验，走岔的代价不是"少个功能"。
@@ -28,11 +29,30 @@ def _uid() -> str:
     return db.get_default_user_id()
 
 
+@router.post("/flatlay/jobs")
+def start_flatlay(file: UploadFile = File(...), token: str = Form(...), kind: str = Form("other")):
+    if file.size is not None: _check_size(file.size)
+    data = file.file.read(image_svc.MAX_IMAGE_BYTES + 1)
+    _check_size(len(data))
+    try: return flatlay_svc.start(token, data, kind)
+    except ValueError as error: raise HTTPException(400, str(error)) from error
+    except LLMError as error: raise HTTPException(503, error.detail()) from error
+
+
+@router.get("/flatlay/jobs/{token}")
+def flatlay_status(token: str):
+    try: return flatlay_svc.status(token)
+    except ValueError as error: raise HTTPException(400, str(error)) from error
+    except LLMError as error: raise HTTPException(503, error.detail()) from error
+
+
 @router.post("/preview")
 def preview_tags(
     file: UploadFile | None = File(None, description="直接上传的照片"),
     album_id: str | None = Form(None, description="手机相册里的照片 id"),
     hint: str | None = Form(None, description="补充信息，例如「这是冬天的外套」"),
+    reference_image: UploadFile | None = File(None, description="裁剪前的原图，用于读取对应商品描述"),
+    reference_crop: str | None = Form(None, description="目标在原图中的 x/y/w/h 比例 JSON"),
 ) -> dict:
     """照片 → 属性，**只识别、不落库**（录入页的「AI 识别」按钮用）。
 
@@ -48,11 +68,17 @@ def preview_tags(
     """
     if file is None and not album_id:
         raise HTTPException(400, "要么传一张照片，要么给一个相册照片 id")
+    try:
+        crop = tagging_svc.parse_reference_crop(reference_crop)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if crop and reference_image is None:
+        raise HTTPException(400, "给出原图选区时也需要参考原图")
 
     # 顺序是**先校验输入、再判模型**（和 `tag_item` 一致：404 → 400 → 503）。
     # 反过来的话，一个自己写错的请求在没配模型时会拿到 503，
     # 于是"我参数传错了"被伪装成"模型没配好"，排查方向直接歪掉。
-    if not config.VISION_READY:
+    if not model_ready(vision=True):
         raise HTTPException(503, "模型不可用：还没配视觉模型（.env 的 VISION_MODEL）")
 
     tmp: Path | None = None
@@ -99,9 +125,14 @@ def preview_tags(
                 raise HTTPException(400, "认不出这个图片格式（支持 jpg / png / webp / gif）")
 
         try:
-            result = tagging_svc.tag_image(image_file, hint=hint)
+            reference_data = reference_image.file.read(image_svc.MAX_IMAGE_BYTES + 1) if reference_image is not None else None
+            with image_svc.temporary_image(reference_data) as reference:
+                context = {"reference_image": reference, "reference_crop": crop} if reference is not None else {}
+                result = tagging_svc.tag_image(image_file, hint=hint, **context)
+        except image_svc.ImageError as e:
+            raise HTTPException(400, str(e)) from e
         except LLMError as e:
-            raise HTTPException(503, f"模型不可用：{e}") from e
+            raise HTTPException(503, e.detail()) from e
         except OSError as e:
             # 读图失败：相册没权限 / 文件被杀软占用 / 刚被删。**不能变成 500** ——
             # 那看起来像代码坏了，实际只是这张照片读不到（换一张就好）。
@@ -158,7 +189,7 @@ def tag_item(
         try:
             result = tagging_svc.tag_image(image_file, hint=hint)
         except LLMError as e:
-            raise HTTPException(503, f"模型不可用：{e}") from e
+            raise HTTPException(503, e.detail()) from e
         return {**result, "applied": False, "status": "preview"}
 
     # 手动点「AI 识别属性」= **全量覆盖**（`overwrite=True`）：
@@ -182,6 +213,7 @@ def tag_item(
     return {
         "tags": out["tags"],
         "unresolved": out["unresolved"],
+        "conflicts": out.get("conflicts", {}),
         "ai_confidence": out["ai_confidence"],
         "raw": out["raw"],
         "applied": out["status"] == "applied",

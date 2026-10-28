@@ -59,6 +59,27 @@ class LLMError(RuntimeError):
     而不是让整个请求 500）。**不要把底层异常原样抛出去** —— 调用方只该认识这一个类型。
     """
 
+    def __init__(self, message: str, *, code: str = "model_error", retryable: bool = True):
+        super().__init__(message)
+        self.code = code
+        self.retryable = retryable
+
+    def detail(self) -> dict[str, Any] | str:
+        # 旧错误保留字符串契约；新增服务错误只暴露可操作的安全文案。
+        if self.code == "model_error":
+            return f"模型不可用：{self}"
+        return {"code": self.code, "message": str(self), "retryable": self.retryable}
+
+
+def _service_error(status: int) -> LLMError:
+    if status == 402:
+        return LLMError("AI识别服务余额或额度不足，请补充额度后重新检查服务。", code="insufficient_balance", retryable=False)
+    if status in (401, 403):
+        return LLMError("AI识别服务鉴权失败，请检查模型配置。", code="model_auth", retryable=False)
+    if status == 429:
+        return LLMError("AI识别请求过于频繁，请稍后重试。", code="model_rate_limit")
+    return LLMError(f"AI识别服务暂不可用（HTTP {status}），请稍后重试。", code="model_unavailable")
+
 
 @dataclass(frozen=True)
 class Capabilities:
@@ -148,8 +169,8 @@ class OpenAICompatClient:
 
     实现要点（取自设计文档 §10，W1 已逐条落实）：
 
-    1. `capabilities()` 真发一次探测请求，结果缓存 —— 探测失败**不抛异常**，
-       退化成"都不支持"更安全（网络抖动不该让整个打标流程 500）。
+    1. `capabilities()` 探测后缓存；普通探测失败退化为不支持。
+       额度不足立即抛安全服务错误，不把服务故障缓存为能力缺失。
     2. `chat_json()` 逐级兜底：`json_schema` 被服务端拒绝 → `json_mode` → 纯文本 + 正则抽。
     3. 抽出来的东西过 `json.loads`，失败抛 `LLMError` —— **绝不返回 `{}`**，
        那会让调用方误判成"模型说没有"。
@@ -194,9 +215,11 @@ class OpenAICompatClient:
         try:
             with self._new_client(timeout) as client:
                 resp = client.post(self._endpoint(), headers=self._headers(), json=payload)
+        except httpx.TimeoutException as e:
+            raise LLMError("AI识别服务响应超时，请稍后重试。", code="model_timeout") from e
         except httpx.HTTPError as e:
             # 连接 / DNS / 超时等底层异常一律收敛成 LLMError，调用方只需认识这一种类型
-            raise LLMError(f"调用模型失败：{e}") from e
+            raise LLMError("暂时连不上AI识别服务，请检查网络后重试。", code="model_network") from e
 
         if resp.status_code in _REJECT_STATUS:
             # 多半是"不认这个 response_format 参数"，用内部信号让 chat_json 降级
@@ -204,7 +227,7 @@ class OpenAICompatClient:
                 f"服务端拒绝该输出模式（HTTP {resp.status_code}）：{resp.text[:200]}"
             )
         if resp.status_code >= 400:
-            raise LLMError(f"模型返回错误 HTTP {resp.status_code}：{resp.text[:200]}")
+            raise _service_error(resp.status_code)
 
         try:
             return resp.json()
@@ -275,6 +298,9 @@ class OpenAICompatClient:
             # 探测失败（无网 / 鉴权错 / 超时）绝不能把异常抛给调用方；
             # 退化成"不支持"最安全：chat_json 会走纯文本，最多损失结构化约束。
             return False
+        # 余额不足是服务状态，不能当作结构化输出不支持并继续消耗请求。
+        if resp.status_code == 402:
+            raise _service_error(resp.status_code)
         return resp.status_code == 200
 
     def capabilities(self) -> Capabilities:
@@ -420,6 +446,10 @@ def get_client(*, vision: bool = False) -> LLMClient:
     **单例的原因**：能力探测结果存在实例上，不复用就等于每次调用都重新探测。
     测试要隔离时用 `reset_client_cache()`，不要绕过工厂直接 new。
     """
+    from .desktop import DesktopClient, load_settings
+    settings = load_settings()
+    if settings is not None:
+        return DesktopClient(settings)
     # LLM_READY / VISION_READY 已经把 base_url + key + model 三件套都验过了
     ready = config.VISION_READY if vision else config.LLM_READY
     if not ready:
@@ -444,3 +474,9 @@ def get_client(*, vision: bool = False) -> LLMClient:
 def reset_client_cache() -> None:
     """清空客户端缓存。**只在测试里用**（改了 `.env` 或要重新探测时）。"""
     _CLIENTS.clear()
+
+
+def model_ready(*, vision: bool = False) -> bool:
+    """§19：已配置中转也可调用；离线在真正请求时返回提示。"""
+    from .desktop import settings_path
+    return settings_path().exists() or (config.VISION_READY if vision else config.LLM_READY)

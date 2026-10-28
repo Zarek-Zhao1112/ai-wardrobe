@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
@@ -16,12 +17,15 @@ import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
 import android.webkit.ConsoleMessage;
+import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceRequest;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -40,6 +44,8 @@ public class MainActivity extends Activity {
     private static final String BASE = "http://127.0.0.1:" + WardrobeService.PORT + "/";
     /** startActivityForResult 的请求码，随便取一个不会被别处用到的值 */
     private static final int REQ_FILE_CHOOSER = 0x5141;
+    private static final int REQ_CAMERA = 0x5142;
+    private PermissionRequest pendingCamera;
 
     private WebView web;
     private TextView hint;
@@ -50,6 +56,7 @@ public class MainActivity extends Activity {
      * 不判这一下就是 NPE（首次启动解压 10-20 秒，用户在等待页按返回就能必现）。
      */
     private volatile boolean dead = false;
+    private boolean started = false;
     private Thread waitThread;
     /**
      * 正在等结果的 <input type=file> 回调。
@@ -71,6 +78,8 @@ public class MainActivity extends Activity {
             startService(svc);
         }
 
+        // 旧WebView不会自动为debug包开放调试；正式包明确关闭。
+        WebView.setWebContentsDebuggingEnabled((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0);
         web = new WebView(this);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -78,7 +87,17 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(false);   // 页面是 http://127.0.0.1，不需要 file://，关掉少一个攻击面
         s.setAllowContentAccess(true); // 必须开：文件选择器交回来的是 content:// Uri
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        web.setWebViewClient(new WebViewClient());
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                return request.isForMainFrame() && openReference(request.getUrl());
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                return openReference(Uri.parse(url));
+            }
+        });
         // ★ 必须用自己写的子类，不能直接 new WebChromeClient()。
         //   android.webkit.WebChromeClient 的 onShowFileChooser() 默认实现是
         //   `return false`（意思是"我不处理"）—— WebView 问了一圈没人接，
@@ -97,6 +116,22 @@ public class MainActivity extends Activity {
         setContentView(hint);
         ensurePermissions();
         waitForServer();
+    }
+
+    /** §20：方法来源交给系统浏览器，衣橱页及未保存的表单留在原WebView。 */
+    private boolean openReference(Uri uri) {
+        if ("http".equals(uri.getScheme()) && "127.0.0.1".equals(uri.getHost())
+                && uri.getPort() == WardrobeService.PORT) return false;
+        if ("https".equals(uri.getScheme())) {
+            try {
+                Intent browser = new Intent(Intent.ACTION_VIEW, uri);
+                browser.addCategory(Intent.CATEGORY_BROWSABLE);
+                startActivity(browser);
+            } catch (Exception e) {
+                Toast.makeText(this, "暂时无法打开资料链接", Toast.LENGTH_SHORT).show();
+            }
+        }
+        return true;
     }
 
     /** 相册直读要「所有文件访问」：普通读取权限在 Android 11+ 读不到 /sdcard/DCIM 的绝对路径。 */
@@ -171,6 +206,27 @@ public class MainActivity extends Activity {
     // 直接把这个洞补上，两条路都通。
 
     private class ChooserClient extends WebChromeClient {
+
+        /** §30：只批准本机衣橱页面的视频请求，系统权限由用户当场确认。 */
+        @Override
+        public void onPermissionRequest(PermissionRequest request) {
+            runOnUiThread(() -> {
+                if (!validCameraRequest(request)) { request.deny(); return; }
+                cancelPendingCamera();
+                pendingCamera = request;
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                        || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    finishCameraPermission(true);
+                } else {
+                    requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
+                }
+            });
+        }
+
+        @Override
+        public void onPermissionRequestCanceled(PermissionRequest request) {
+            runOnUiThread(() -> { if (pendingCamera == request) pendingCamera = null; });
+        }
 
         /**
          * 把页面 console 转发到 logcat。
@@ -264,7 +320,7 @@ public class MainActivity extends Activity {
             }
         }
 
-        // 页面写了 multiple 才允许多选（当前前端都是单选，留着不碍事）
+        // 录入页使用 multiple 多选；详情页补图仍按单选处理。
         if (params != null
                 && params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
@@ -335,13 +391,54 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean validCameraRequest(PermissionRequest request) {
+        if (dead || !started || web == null || request == null) return false;
+        Uri origin = request.getOrigin();
+        Uri current = Uri.parse(web.getUrl() == null ? "" : web.getUrl());
+        String[] resources = request.getResources();
+        return "http".equals(origin.getScheme()) && "127.0.0.1".equals(origin.getHost())
+                && origin.getPort() == WardrobeService.PORT
+                && "http".equals(current.getScheme()) && "127.0.0.1".equals(current.getHost())
+                && current.getPort() == WardrobeService.PORT
+                && resources.length == 1 && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0]);
+    }
+
+    private void cancelPendingCamera() {
+        PermissionRequest request = pendingCamera; pendingCamera = null;
+        if (request != null) request.deny();
+    }
+
+    private void finishCameraPermission(boolean granted) {
+        PermissionRequest request = pendingCamera; pendingCamera = null;
+        if (request == null) return;
+        if (granted && validCameraRequest(request)) request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+        else request.deny();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (code == REQ_CAMERA) finishCameraPermission(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        started = true;
+    }
+
+    @Override
+    protected void onStop() {
+        started = false;
+        cancelPendingCamera();
+        if (web != null) web.evaluateJavascript("window.dispatchEvent(new Event('wardrobe-camera-stop'))", null);
+        super.onStop();
+    }
+
     @Override
     public void onBackPressed() {
-        if (web != null && web.canGoBack()) {
-            web.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (web != null && web.canGoBack()) web.goBack();
+        else super.onBackPressed();
     }
 
     @Override
@@ -351,6 +448,7 @@ public class MainActivity extends Activity {
         if (waitThread != null) waitThread.interrupt();
         // WebView 销毁前把可能挂着的文件回调结掉，否则页面侧会留一个永不 resolve 的 Promise
         cancelPendingFileChooser();
+        cancelPendingCamera();
         if (web != null) {
             // 先从父容器摘下来再 destroy：某些 WebView 版本在仍 attached 时 destroy
             // 会打 "WebView.destroy() called while still attached"，甚至直接崩。

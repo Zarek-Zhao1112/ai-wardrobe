@@ -195,9 +195,10 @@ class TestReasonPromptCarriesItems:
         recommend.recommend(uid, limit=1, client=client)
 
         prompt = client.calls[0]["messages"][1]["content"]
-        assert "A1|" in prompt, "单品行（含别名前缀）必须进 prompt"
-        assert "|上装|" in prompt or "|下装|" in prompt or "|鞋|" in prompt, \
-            "单品行里应当有槽位标签，而不是光秃秃的代号"
+        import json
+        rows = [json.loads(line) for line in prompt.splitlines() if line.startswith('{"code":')]
+        assert rows and rows[0]["code"] == "A1", "单品属性行必须进入模型，不只发送组合代号"
+        assert any(row["slot"] in {"top", "bottom", "shoes"} and row["type"] for row in rows)
 
 
 # ---------------------------------------------------------------------------

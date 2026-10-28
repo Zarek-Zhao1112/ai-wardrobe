@@ -1,0 +1,30 @@
+/* §26：标题让位给页面操作；手机设置进入各页首行，桌面保留导航。 */
+.page-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--sp-2); min-height: 44px; margin: 0 0 var(--sp-4); }
+.page-settings { display: none; flex-shrink: 0; margin-left: 0; }
+.page-settings .status-menu > summary { width: 44px; height: 44px; min-width: 44px; padding: 0; border: 1px solid var(--glass-edge); border-radius: 50%; background: var(--surface-blur); box-shadow: inset 0 1px 0 var(--surface); }
+.page-settings .status-menu > summary > .dot, .page-settings .status-label { display: none; }
+.page-settings .status-menu > summary .icon { width: 18px; height: 18px; }
+.page-settings .status-menu[open] { z-index: 40; }
+.wardrobe-actions .wardrobe-count { margin-right: auto; font-size: 11px; }
+.wardrobe-actions .glass-import-button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; }
+.outfit-top-row { display: flex; align-items: flex-start; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.outfit-method-slot { flex: 1; min-width: 0; }
+.outfit-top-row .page-settings { margin-top: 6px; }
+.outfit-method-slot .aesthetic-chooser > summary { flex-wrap: nowrap; }
+.outfit-method-slot .aesthetic-chooser > summary strong { font-size: var(--fs-body); }
+.outfit-method-slot .aesthetic-chooser > summary span { font-size: var(--fs-xs); white-space: nowrap; }
+.purchase-heading > .purchase-saved-button { padding: 0; font-size: 11px; }
+.purchase-view .purchase-heading { margin-bottom: 10px; }
+.purchase-view .purchase-content { flex: 0 0 auto; }
+.purchase-collage { height: 222px; margin: 8px auto 14px; }
+.purchase-hero-copy { margin: 19px var(--sp-1) 27px; }
+.purchase-hero-copy h2 { font-size: 22px; }
+@media (max-width: 640px) {
+  .topbar { display: none; }
+  .page-settings { display: block; }
+  .view { padding-top: max(var(--sp-4), env(safe-area-inset-top, 0px)); }
+  .view[data-view="gaps"] { padding-bottom: 0; }
+  .purchase-view { display: flex; flex-direction: column; padding-bottom: 0; min-height: calc(100vh - var(--tabbar-h) - var(--tabbar-gap) - var(--sp-4) - max(var(--sp-4), env(safe-area-inset-top, 0px)) - env(safe-area-inset-bottom, 0px)); }
+  .purchase-heading { flex: 0 0 auto; justify-content: space-between; }
+  .purchase-content { margin-top: auto; }
+}

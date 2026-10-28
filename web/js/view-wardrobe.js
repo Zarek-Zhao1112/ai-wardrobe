@@ -9,78 +9,137 @@
  */
 
 import { api } from "./api.js";
+import { getImportProgress } from "./photo-import.js";
 import { slotOptionsHtml, typeOptionsHtml } from "./fields.js";
-import { emptyState, esc, labelOf, labelsOf, renderError, toast } from "./ui.js";
+import { emptyState, esc, icon, renderError, toast, serviceSettingsHtml } from "./ui.js";
 
 export const label = "衣橱";
+let badgeBinding=null;
+export function unmount(root){if(badgeBinding?.root===root){document.removeEventListener('import:progress',badgeBinding.listener);badgeBinding=null;}}
 
 const PAGE_SIZE = 60;
 const SEARCH_DEBOUNCE_MS = 250;
 
-function cardHtml(item, vocab) {
-  const url = api.imageUrl(item.image_path);
+function cardHtml(item) {
+  const url = api.presentationUrl(item);
   const media = url
-    ? `<img src="${esc(url)}" alt="" loading="lazy">`
+    ? `<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="" loading="lazy">`
     : `<span class="ph">${esc(item.type_label || "无照片")}</span>`;
-
-  const metaParts = [
-    item.type_label,
-    labelsOf(vocab.color, item.colors),
-    labelOf(vocab.material, item.material),
-    labelOf(vocab.fit, item.fit),
-  ].filter(Boolean);
 
   const badges = [];
   if (item.tagging_status === "pending") badges.push(`<span class="chip warn">待打标</span>`);
   if (item.is_archived) badges.push(`<span class="chip">已归档</span>`);
-  if (item.favorite) badges.push(`<span class="chip ok">常穿</span>`);
+  if (item.favorite) badges.push(`<span class="wardrobe-liked" aria-label="喜欢的衣服">${icon("heart")}</span>`);
 
   return `
-    <article class="card" data-id="${esc(item.id)}">
+    <a class="card" href="#item/${esc(item.id)}" data-id="${esc(item.id)}">
       <div class="card-media">${media}</div>
       <div class="card-body">
         <p class="card-title">${esc(item.name || item.type_label || "未命名")}</p>
-        <p class="card-meta">${esc(metaParts.join(" · ")) || "&nbsp;"}</p>
         <div class="card-foot">
-          <span>${item.wear_count > 0 ? `穿过 ${item.wear_count} 次` : "没穿过"}</span>
+          <span>${esc(item.type_label || "衣物")}</span>
           ${badges.join("")}
         </div>
       </div>
-    </article>`;
+    </a>`;
 }
 
-export async function mount(root, ctx) {
+export async function mount(root, ctx, arg, restore = null) {
   const taxonomy = ctx.taxonomy || {};
-  const vocab = taxonomy.vocabularies || {};
   const state = {
-    search: "",
-    slot: "",
-    type: "",
-    archived: false,
-    page: 1,
+    search: restore?.search || "",
+    slot: restore?.slot || "",
+    type: restore?.type || "",
+    archived: Boolean(restore?.archived),
+    page: Math.max(1, Number(restore?.page) || 1),
     items: [],     // 已加载的单品（翻页时累积）
     total: 0,      // 库里的总数（后端返回，用于算"还有多少没显示"）
   };
 
   root.innerHTML = `
-    <div class="view-head">
-      <h1>衣橱</h1>
-      <span class="faint" id="w-count"></span>
+    <div class="view-head page-actions wardrobe-actions">
+      <span class="faint wardrobe-count" id="w-count"></span>
+      <div class="page-settings status">${serviceSettingsHtml(ctx.health)}</div>
     </div>
-    <div class="toolbar">
-      <input type="search" id="w-search" placeholder="搜名称 / 品牌 / 备注">
-      <select id="w-slot">${slotOptionsHtml(taxonomy)}</select>
-      <select id="w-type">${typeOptionsHtml(taxonomy)}</select>
-      <label><input type="checkbox" id="w-archived"> 含已归档</label>
-      <span class="spacer"></span>
-      <button id="w-reload" class="ghost">刷新</button>
+    <div class="wardrobe-tools">
+      <div class="search-row">
+        <label class="search-field">${icon("search")}<input type="search" id="w-search" placeholder="搜索衣服" aria-label="搜索名称、品牌或备注"></label>
+        <button type="button" id="w-filter-toggle" class="filter-toggle" aria-expanded="false" aria-controls="w-filters">${icon("filter")}<span>筛选</span><span id="w-filter-count" class="filter-count" hidden></span></button>
+      </div>
+      <div id="w-filters" class="filter-fields" hidden>
+        <label class="field"><span>分类</span><select id="w-slot">${slotOptionsHtml(taxonomy, "全部分类")}</select></label>
+        <label class="field"><span>品类</span><select id="w-type">${typeOptionsHtml(taxonomy)}</select></label>
+        <label class="control-toggle"><input type="checkbox" id="w-archived"> 含已归档</label>
+        <button id="w-reload" class="ghost">刷新列表</button>
+      </div>
+      <div class="category-nav" role="group" aria-label="按衣服分类筛选">
+        ${[["", "全部"], ...Object.entries(taxonomy.slots || {})].map(([key, text]) => `<button type="button" class="category${key === "" ? " active" : ""}" data-slot="${esc(key)}" aria-pressed="${key === ""}">${esc(text)}</button>`).join("")}
+      </div>
     </div>
     <div id="w-body"><p class="muted">加载中…</p></div>
+    <button type="button" class="wardrobe-import-fab" data-open-import aria-haspopup="dialog" aria-label="录入衣物" title="录入衣物">${icon('plus')}<span class="import-fab-badge" hidden></span></button>
   `;
+
+  root.querySelector("[data-open-import]").onclick = () => { location.hash = "#add"; };
+  if(badgeBinding)unmount(badgeBinding.root);
+  const updateBadge=event=>{
+    if(!root.isConnected)return;
+    const progress=event.detail,button=root.querySelector('[data-open-import]'),badge=button.querySelector('.import-fab-badge');
+    badge.hidden=!progress.remaining;badge.textContent=`${progress.prepared}/${progress.total}`;
+    button.setAttribute('aria-label',progress.remaining?`继续录入衣物，已准备 ${progress.prepared} / ${progress.total} 件`:'录入衣物');
+  };
+  badgeBinding={root,listener:updateBadge};document.addEventListener('import:progress',updateBadge);
+  void getImportProgress().then(detail=>updateBadge({detail}));
+  root.addEventListener("wardrobe:refresh", event => {
+    const cards = [...root.querySelectorAll('.card')], position = cards.findIndex(card => card.dataset.id === event.detail?.focusItemId);
+    void load({ preserve: true }).then(() => {
+      if (!root.isConnected || document.querySelector('.item-glass-layer') || !event.detail?.focusItemId) return;
+      const fresh = [...root.querySelectorAll('.card')];
+      (fresh.find(card => card.dataset.id === event.detail.focusItemId) || fresh[Math.max(0, Math.min(position, fresh.length - 1))] || root.querySelector('[data-open-import]'))?.focus({ preventScroll: true });
+    });
+  });
 
   const bodyEl = root.querySelector("#w-body");
   const countEl = root.querySelector("#w-count");
   const searchEl = root.querySelector("#w-search");
+  const filterToggle = root.querySelector("#w-filter-toggle");
+  const filters = root.querySelector("#w-filters");
+  searchEl.value = state.search; root.querySelector("#w-slot").value = state.slot;
+  root.querySelector("#w-type").value = state.type; root.querySelector("#w-archived").checked = state.archived;
+  filters.hidden = !restore?.filters; filterToggle.setAttribute("aria-expanded", String(!filters.hidden));
+  root.captureState = () => ({ search: searchEl.value.trim(), slot: state.slot, type: state.type,
+    archived: state.archived, page: state.page, filters: !filters.hidden });
+  filterToggle.addEventListener("click", () => {
+    filters.hidden = !filters.hidden;
+    filterToggle.setAttribute("aria-expanded", String(!filters.hidden));
+  });
+  filters.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    filters.hidden = true;
+    filterToggle.setAttribute("aria-expanded", "false");
+    filterToggle.focus();
+  });
+  root.querySelector(".category-nav").addEventListener("click", (ev) => {
+    const button = ev.target.closest("[data-slot]");
+    if (!button) return;
+    state.slot = button.dataset.slot;
+    state.type = "";
+    root.querySelector("#w-slot").value = state.slot;
+    root.querySelector("#w-type").value = "";
+    load();
+  });
+
+  function syncFilters() {
+    root.querySelectorAll("[data-slot]").forEach((button) => {
+      const active = button.dataset.slot === state.slot;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    });
+    const count = [state.slot, state.type, state.archived].filter(Boolean).length;
+    const badge = root.querySelector("#w-filter-count");
+    badge.textContent = count;
+    badge.hidden = count === 0;
+  }
 
   let debounce = null;
   searchEl.addEventListener("input", () => {
@@ -113,8 +172,6 @@ export async function mount(root, ctx) {
       load({ append: true });
       return;
     }
-    const card = ev.target.closest(".card");
-    if (card && card.dataset.id) location.hash = `#item/${card.dataset.id}`;
   });
 
   function render() {
@@ -135,7 +192,7 @@ export async function mount(root, ctx) {
 
     const hidden = total - items.length;
     bodyEl.innerHTML =
-      `<div class="grid">${items.map((it) => cardHtml(it, vocab)).join("")}</div>` +
+      `<div class="grid">${items.map(cardHtml).join("")}</div>` +
       (hidden > 0
         ? `<div class="more-row"><button id="w-more" class="ghost">加载更多（还有 ${hidden} 件）</button></div>`
         : "");
@@ -156,30 +213,32 @@ export async function mount(root, ctx) {
    */
   let reqSeq = 0;
 
-  async function load({ append = false } = {}) {
+  async function load({ append = false, preserve = false } = {}) {
+    syncFilters();
     const seq = ++reqSeq;
-    if (!append) {
+    if (!append && !preserve) {
       state.page = 1;
       state.items = [];
       bodyEl.innerHTML = `<p class="muted">加载中…</p>`;
-    } else {
+    } else if (append) {
       state.page += 1;
     }
     try {
-      const data = await api.listItems({
-        search: state.search,
-        slot: state.slot,
-        type: state.type,
-        include_archived: state.archived ? "true" : "false",
-        page: state.page,
-        page_size: PAGE_SIZE,
-      });
+      const pages = preserve ? Array.from({ length: state.page }, (_, index) => index + 1) : [state.page];
+      const results = await Promise.all(pages.map(page => api.listItems({
+        search: state.search, slot: state.slot, type: state.type,
+        include_archived: state.archived ? "true" : "false", page, page_size: PAGE_SIZE,
+      })));
+      const data = { total: results[0].total, items: results.flatMap(result => result.items || []) };
       if (seq !== reqSeq) return;        // 已经不是最新那次请求了，丢弃
       state.total = data.total || 0;
       state.items = append ? state.items.concat(data.items || []) : data.items || [];
+      const currentScroll = window.scrollY;
       render();
+      if (preserve && root.isConnected && root === document.getElementById("view")) window.scrollTo(0, currentScroll);
     } catch (err) {
       if (seq !== reqSeq) return;
+      if (preserve) { toast("刷新失败，现有衣橱仍保留", "error"); return; }
       countEl.textContent = "";
       if (append) {
         // 追加失败：回退页码，保留已加载的，只把按钮恢复可点
@@ -201,5 +260,5 @@ export async function mount(root, ctx) {
     }
   }
 
-  await load();
+  await load({ preserve: Boolean(restore) });
 }

@@ -140,14 +140,17 @@ const OVERFLOW_ONLY = `(() => {
  * 只查**真控件**（按钮/下拉/勾选框的 label/可交互标签）；
  * 纯文字链接不在范围内（HIG 也不要求），避免制造噪音。 */
 const TAP_TARGETS = `(() => {
-  const sel = 'button, select, a.btn, a.tab, .chip-toggle > span,' +
+  const sel = 'button, select, summary, a.btn, a.tab, a.brand, .chip-toggle > span,' +
               // ⚠️ file input 要排除 sr-only 那一份（2026-10-22 起它被视觉隐藏，
               //    真入口是旁边的按钮，button 本来就在选择器里）。不排除的话，
               //    它那个 1x1 的盒子会被量成"触控目标太小"，是**假红**。
               //    ⚠️ 这段在模板字符串里，注释里**不能写反引号**（会截断字符串）。
-              'input[type=file]:not(.sr-only), input[type=text], input[type=search],' +
-              'label:has(input[type=checkbox]), label:has(input[type=radio])';
-  const els = [...document.querySelectorAll(sel)].filter(el => el.offsetParent !== null);
+              'input[type=file]:not(.sr-only), input[type=text], input[type=search]';
+  // 旧WebView不支持:has；按控件找label，仍然覆盖未预知类名的复选标签。
+  const labels = [...document.querySelectorAll('input[type=checkbox], input[type=radio]')]
+    .map(el => el.closest('label')).filter(Boolean);
+  const els = [...new Set([...document.querySelectorAll(sel), ...labels])].filter(el =>
+    el.offsetParent !== null && (!el.checkVisibility || el.checkVisibility()));
   const small = els
     .map(el => { const r = el.getBoundingClientRect();
       return { tag: el.tagName, cls: (el.className || '').toString().slice(0, 22),
@@ -162,6 +165,16 @@ const TAP_TARGETS = `(() => {
  *    结构上量不到。当时 `body { padding-bottom: … }` 静默失效（放错文件被覆盖），
  *    门禁全绿却真的有内容看不到。 */
 const TABBAR_CLEARANCE = `(() => {
+  // §22：录入浮层覆盖底栏，检查自己的滚动区最后一项能完整到达。
+  const sheet = document.querySelector('.wardrobe-import-layer.is-open .wardrobe-import-scroll');
+  if (sheet) {
+    const before = sheet.scrollTop; sheet.scrollTop = sheet.scrollHeight;
+    const kids = [...sheet.querySelector('.wardrobe-import-content').children].filter(el => el.getBoundingClientRect().height > 0);
+    const lastBottom = kids[kids.length - 1]?.getBoundingClientRect().bottom || 0;
+    const edge = sheet.getBoundingClientRect().bottom;
+    sheet.scrollTop = before;
+    return { sheet: true, last_child_bottom: Math.round(lastBottom), hidden_px: Math.round(Math.max(0, lastBottom - edge)), ok: lastBottom <= edge + 1 };
+  }
   const de = document.documentElement;
   const tb = document.querySelector('.tabbar');
   if (!tb || getComputedStyle(tb).display === 'none') return { skipped: '非手机端（无底部栏）' };

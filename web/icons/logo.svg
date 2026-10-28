@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="AI 衣橱">
+  <title>AI 衣橱 · 软软上衣</title>
+  <defs><clipPath id="tile"><rect width="256" height="256" rx="58"/></clipPath></defs>
+  <g clip-path="url(#tile)">
+    <rect id="background" width="256" height="256" fill="#0066cc"/>
+    <g id="mascot" transform="translate(32 9) rotate(6 125 180)">
+      <path id="body" d="M82 70Q89 65 96 73Q120 94 144 73Q151 65 158 70L211 101Q222 108 216 122L201 153Q195 165 184 160L178 157V282H62V157L56 160Q43 165 38 153L23 122Q17 108 30 101Z" fill="#f8fbff"/>
+      <path id="eyes" d="M102 147A7 7 0 0 1 109 154V162A7 7 0 0 1 95 162V154A7 7 0 0 1 102 147ZM148 147A7 7 0 0 1 155 154V162A7 7 0 0 1 141 162V154A7 7 0 0 1 148 147Z" fill="#11345f"/>
+      <path id="smile" d="M110.172 189.828Q125 204.656 139.828 189.828A4 4 0 0 0 134.172 184.172Q125 193.344 115.828 184.172A4 4 0 0 0 110.172 189.828Z" fill="#11345f"/>
+    </g>
+  </g>
+</svg>

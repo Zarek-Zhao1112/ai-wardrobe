@@ -75,6 +75,7 @@ CLOTHING_TYPES: Final[dict[str, tuple[str, str]]] = {
     "activewear":   ("运动套装",      "full"),
     # ---- 外套 ----
     "jacket":       ("夹克",         "outer"),
+    "sun_protection_jacket": ("防晒衣", "outer"),
     "denim_jacket": ("牛仔外套",      "outer"),
     "blazer":       ("西装外套",      "outer"),
     "coat":         ("大衣",         "outer"),
@@ -184,6 +185,8 @@ TYPE_ALIASES: Final[dict[str, str]] = {
     "牛仔短裤": "shorts", "运动短裤": "shorts", "五分短裤": "shorts",
     "包臀裙": "skirt", "a字裙": "skirt", "百褶裙": "skirt", "伞裙": "skirt",
     "冲锋衣": "jacket", "皮衣": "jacket", "棉袄": "parka",
+    # §17：只登记明确的衣物品类，防晒/UPF等卖点不能决定品类。
+    "防晒服": "sun_protection_jacket", "防晒外套": "sun_protection_jacket",
     "马夹": "vest", "围脖": "scarf", "皮带": "belt",
 }
 

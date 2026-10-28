@@ -50,7 +50,7 @@ cp "$HERE/app/build.gradle" "$PROJ/app/"
 cp "$HERE/app/src/main/AndroidManifest.xml" "$PROJ/app/src/main/"
 cp "$HERE/app/src/main/java/com/zarek/wardrobe/"*.java \
    "$PROJ/app/src/main/java/com/zarek/wardrobe/"
-cp "$HERE/app/src/main/res/values/strings.xml" "$PROJ/app/src/main/res/values/"
+cp -r "$HERE/app/src/main/res/." "$PROJ/app/src/main/res/"
 cp "$HERE/app/src/main/python/server.py" "$PY/"
 cp -r "$HERE/wheels/." "$PROJ/wheels/"
 
@@ -108,6 +108,14 @@ do
   cmp -s "$HERE/$f" "$PROJ/$f" || { echo "  ✗ 骨架未同步：$f"; exit 1; }
 done
 echo "  ✓ 骨架逐字节一致"
+
+# §13：图标及后续资源整目录校验，避免构建目录漏图或残留旧资源。
+if ! diff -r "$HERE/app/src/main/res" "$PROJ/app/src/main/res" >/dev/null; then
+  echo "  ✗ Android 资源与仓库不一致"
+  diff -r "$HERE/app/src/main/res" "$PROJ/app/src/main/res" | head -20
+  exit 1
+fi
+echo "  ✓ Android 资源逐字节一致"
 
 # wheels 单独比一次：仓库里**删掉**某个 wheel（比如换版本）时，构建目录会留着旧的，
 # 而 Chaquopy 从 --find-links 里挑，可能挑中那个废弃版本 —— 打出来的包依赖版本不对。

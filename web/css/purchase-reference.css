@@ -1,0 +1,50 @@
+/* §25.5：真实白底单品参考，保持购买方向与现有衣物的关系。 */
+.purchase-reference-photo{position:relative;display:block;width:100%;height:100%;overflow:hidden;background:var(--surface)}.purchase-reference-photo>img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}.purchase-reference-photo.is-shoes>img{object-fit:cover;object-position:center bottom}.purchase-reference-empty{width:100%;height:100%;min-height:70px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;text-align:center;font-size:11px;color:var(--text-faint);background:var(--surface);padding:12px}.purchase-reference-empty>.icon{height:27px;width:27px;color:var(--text-faint);stroke-width:1.3}.purchase-reference-empty small{font-size:10px;font-weight:400;line-height:1.8}.purchase-reference-card{display:block;overflow:hidden;padding:0;border:1px solid var(--surface);border-radius:23px;background:var(--surface);text-align:left}.purchase-reference-hero{height:276px;width:100%;padding:10px 18px 0;position:relative;background:var(--surface)}.purchase-reference-label{position:absolute;top:15px;left:16px;z-index:1;font-size:10px;color:var(--text-faint);background:var(--surface-blur);border:1px solid var(--glass-edge);border-radius:20px;padding:4px 8px;line-height:1.7}.purchase-reference-copy{padding:13px 20px 19px}.purchase-reference-copy>.purchase-badge{font-size:10px;padding:0;background:none;color:var(--text-faint);margin:0 0 5px}.purchase-reference-title{display:flex;align-items:center;justify-content:space-between;gap:12px}.purchase-reference-title h2{font-size:22px;font-weight:550;line-height:1.5;letter-spacing:var(--ls-tight);margin:0}.purchase-reference-title>span{width:38px;height:38px;border:1px solid var(--border);border-radius:50%;display:grid;place-items:center;flex:none;color:var(--accent)}.purchase-reference-title .icon{height:16px;width:16px}.purchase-reference-copy .purchase-reason{font-size:12px;line-height:1.9;color:var(--text-dim);margin:8px 0 12px}.purchase-reference-tags{display:flex;gap:6px;flex-wrap:wrap}.purchase-reference-tags>span{font-size:10px;line-height:1.8;padding:4px 8px;border:1px solid var(--border);border-radius:8px;color:var(--text-dim);background:var(--surface-2);overflow-wrap:anywhere}.purchase-reference-copy .purchase-owned-link{margin-top:15px;padding-top:13px;border-top:1px solid var(--border)}.purchase-reference-copy .purchase-thumbs>span{width:42px;height:42px;background:var(--surface)}.purchase-secondary .purchase-small-art{display:block;background:var(--surface);width:78px;height:84px;padding:0;border-radius:13px;overflow:hidden}.purchase-secondary{background:var(--surface)}.purchase-detail-photo{height:225px;width:100%;position:relative;background:var(--surface);border-radius:21px;overflow:hidden;margin:4px 0 16px}.purchase-detail-photo .purchase-reference-photo{padding:8px 18px}.purchase-detail-heading h2{font-size:23px;line-height:1.5;font-weight:550;letter-spacing:var(--ls-tight);margin:7px 0}.purchase-detail-heading p{font-size:12px;line-height:1.9;color:var(--text-dim);margin:0 0 15px}.purchase-detail .purchase-pair-piece{background:var(--surface)}.purchase-detail .purchase-pair-piece>.purchase-reference-photo{height:100%;width:100%}.purchase-reference-credit{font-size:10px;color:var(--text-faint);margin-top:16px;line-height:1.9}.purchase-reference-credit summary{min-height:44px;display:flex;align-items:center;cursor:pointer}.purchase-reference-credit a{display:inline-flex;align-items:center;min-height:44px;font-size:11px;color:var(--accent);text-decoration:underline;text-underline-offset:3px}.purchase-reference-credit p{margin:0}.outfit-season .sr-only{position:absolute;height:1px;width:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.has-deck .outfit-generate-bar>.primary{min-height:44px;background:transparent;border-color:transparent;color:var(--text-faint);font-size:11px;padding:0}.has-deck .outfit-generate-bar>.primary .icon{height:14px;width:14px}.has-deck .outfit-method-summary{display:none}
+@media(max-width:360px){.purchase-reference-hero{height:245px}.purchase-reference-copy{padding:12px 16px 17px}.purchase-reference-title h2{font-size:21px}.purchase-detail-photo{height:205px}}
+
+/* §31：真实搜图状态、独立重试与一主多备选。 */
+.purchase-search-status{display:flex;flex-wrap:wrap;gap:5px 10px;align-items:center;justify-content:space-between;font-size:10px;color:var(--text-faint);margin:0 2px 8px}
+.purchase-search-status button{min-height:44px;min-width:44px;padding:0 4px;color:var(--accent);background:none;border:0;font-size:11px}
+.purchase-search-status small{flex-basis:100%;line-height:1.8;font-size:10px;color:var(--text-dim);overflow-wrap:anywhere}
+.purchase-reference-gallery{margin-bottom:14px}
+.purchase-reference-main{height:215px;position:relative;border-radius:21px;background:var(--surface);overflow:hidden;touch-action:pan-y}
+.purchase-reference-main>.purchase-reference-photo,.purchase-reference-main>.purchase-reference-empty{height:100%;width:100%;display:flex}
+.purchase-reference-main img{height:100%;width:100%;object-fit:contain;padding:10px 26px}
+.purchase-reference-counter{position:absolute;bottom:10px;right:13px;font-size:10px;color:var(--text-faint);pointer-events:none}
+.purchase-reference-options{display:flex;gap:8px;margin:10px 0}
+.purchase-reference-options button{flex:1;min-width:44px;min-height:72px;padding:6px 5px;border:1px solid var(--glass-edge);border-radius:13px;background:var(--surface);font-size:9px;color:var(--text-faint)}
+.purchase-reference-options button[aria-pressed=true]{border-color:var(--accent-line);color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.purchase-reference-options img{height:44px;width:100%;object-fit:contain;margin-bottom:4px}
+.purchase-reference-credit{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:10px;line-height:1.8;color:var(--text-faint)}
+.purchase-reference-credit a{min-height:44px;min-width:64px;display:flex;align-items:center;justify-content:center;color:var(--accent)}
+.purchase-reference-empty.is-searching>.icon{color:var(--accent);animation:reference-pulse 1.6s ease-in-out infinite}
+@keyframes reference-pulse{50%{opacity:.3}}
+@media(prefers-reduced-motion:reduce){.purchase-reference-empty.is-searching>.icon{animation:none}}
+
+/* §32：商品图是建议的必要部分；未配齐只有准备/重试状态。 */
+.purchase-prepared-count{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--text-faint);margin:0 2px 10px;line-height:1.8}
+.purchase-prepared-count:before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent)}
+.purchase-preparation{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 22px 25px;min-height:375px;background:var(--surface);border:1px solid var(--surface);border-radius:23px;margin:0 0 14px;overflow:hidden}
+.purchase-preparation-symbol{position:relative;display:grid;place-items:center;width:124px;height:124px;border-radius:50%;margin-bottom:23px;background:radial-gradient(circle,var(--accent-soft),var(--accent-wash) 52%,var(--surface) 72%)}
+.is-preparing .purchase-preparation-symbol:before{content:"";position:absolute;inset:13px;border:1px solid var(--accent-line);border-top-color:var(--accent);border-radius:50%;animation:purchase-photo-orbit 3s linear infinite}
+.purchase-preparation-symbol>.icon{width:31px;height:31px;color:var(--accent);stroke-width:1.2}
+.purchase-preparation h2{font-size:17px;font-weight:500;letter-spacing:var(--ls-tight);line-height:1.5;margin:0 0 10px}
+.purchase-preparation p{font-size:11px;line-height:1.9;color:var(--text-faint);margin:0}
+.purchase-preparation-steps{display:flex;flex-wrap:wrap;gap:13px;justify-content:center;margin-top:24px;padding-top:17px;border-top:1px solid var(--surface-2);width:100%;font-size:10px;color:var(--text-faint)}
+.purchase-preparation-steps span:nth-child(2){color:var(--accent)}
+.purchase-preparation.is-compact{min-height:215px;padding:24px 20px}
+.purchase-preparation.is-compact .purchase-preparation-symbol{height:74px;width:74px;margin-bottom:12px}
+.purchase-preparation.is-compact .purchase-preparation-symbol:before{inset:8px}
+.purchase-preparation.is-compact .purchase-preparation-symbol>.icon{width:24px;height:24px}
+.purchase-preparation.is-compact .purchase-preparation-steps{display:none}
+.purchase-preparation.is-failed{min-height:240px}
+.is-failed .purchase-preparation-symbol{height:49px;width:49px;background:var(--surface-2);margin-bottom:15px}
+.is-failed .purchase-preparation-symbol>.icon{height:23px;width:23px;color:var(--text-faint)}
+.purchase-preparation.is-failed h2{font-size:14px}
+.purchase-reference-retry{width:100%;min-height:49px;border:1px solid var(--accent-line);background:var(--accent-wash);color:var(--accent);border-radius:14px;font-size:12px;margin-top:18px;display:flex;justify-content:center;align-items:center;gap:7px;padding:8px 12px}
+.purchase-reference-retry .icon{height:16px;width:16px}
+.purchase-preparation>small{font-size:10px;line-height:1.8;color:var(--text-faint);margin-top:10px;overflow-wrap:anywhere;max-width:100%}
+@keyframes purchase-photo-orbit{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.is-preparing .purchase-preparation-symbol:before{animation:none}}
+.purchase-detail.is-missing-photo .purchase-detail-scroll{visibility:hidden}
+.purchase-detail.is-missing-photo:after{content:"商品图暂时无法读取";position:absolute;inset:70px 20px 20px;display:grid;place-items:center;color:var(--text-faint);font-size:13px;pointer-events:none}

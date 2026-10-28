@@ -14,11 +14,19 @@
  */
 
 import { api } from "./api.js";
+import { attachImport, disposeImport, importSaving, checkpointImport } from "./photo-import.js";
 import { openCropper } from "./crop.js";
 import { fillForm, formHtml, readForm, summaryHtml, typeOptionsHtml } from "./fields.js";
-import { esc, itemChipsHtml, renderError, toast } from "./ui.js";
+import { esc, icon, itemChipsHtml, renderError, toast } from "./ui.js";
 
+import { loadManualDraft, saveManualDraft, manualStorageAvailable } from "./import-store.js";
 export const label = "录入";
+export const addSaving = root => Boolean((activeAdd?.root === root && activeAdd.saving()) || importSaving(root));
+export async function checkpointAdd(root) {
+  if (addSaving(root)) return false;
+  if (activeAdd?.root === root) await activeAdd.checkpoint();
+  return checkpointImport(root);
+}
 
 /** 打标返回字段 → 界面上的中文名（「识别」后提示填了哪几项用）。
  *  只列表单里真有的：`slot` 是后端算出来的，表单上没有它，故意不列。 */
@@ -58,6 +66,9 @@ function isImageFile(f) {
 function bindClipboardOnce() {
   if (bindClipboardOnce.bound) return;
   bindClipboardOnce.bound = true;
+  window.addEventListener("hashchange", () => {
+    if (activeAdd && !activeAdd.fileEl.isConnected) activeAdd.dispose();
+  });
 
   // ⚠️ 判据用 `fileEl.isConnected`，不是 `root.isConnected` ——
   //   外壳容器是持久的，切走别的页面后它照样连接着；
@@ -70,6 +81,7 @@ function bindClipboardOnce() {
     activeAdd &&
     activeAdd.fileEl &&
     activeAdd.fileEl.isConnected &&
+    !activeAdd.root.closest("[hidden]") && activeAdd.root.dataset.sheetActive !== "false" && !activeAdd.saving() &&
     !document.body.classList.contains("crop-open");
   const hasFiles = (dt) => !!dt && Array.prototype.includes.call(dt.types || [], "Files");
 
@@ -118,14 +130,29 @@ function bindClipboardOnce() {
   });
 }
 
-export async function mount(root, ctx) {
+export async function mount(root, ctx, options = {}) {
+  disposeImport();
+  activeAdd?.dispose();
   const taxonomy = ctx.taxonomy || {};
+  let saving = false, manualSaved = false, lockedControls = [], manualReady = Promise.resolve();
+  function beginSave() {
+    saving = true;
+    lockedControls = [...root.querySelectorAll("button,input,select,textarea")].map(node => [node, node.disabled]);
+    for (const [node] of lockedControls) node.disabled = true;
+  }
+  function endSave() {
+    saving = false;
+    for (const [node, disabled] of lockedControls) if (node.isConnected) node.disabled = disabled;
+    lockedControls = [];
+  }
+  const scrollTop = () => (root.closest(".wardrobe-import-scroll") || window).scrollTo({ top: 0, behavior: "smooth" });
 
   root.innerHTML = `
-    <div class="view-head"><h1>录一件衣服</h1></div>
+    <div class="view-head"><h1>录入</h1></div>
+    <p class="view-subtitle">给衣橱添一件</p>
 
-    <section class="panel">
-      <h2>① 粘商品链接 / 分享文案</h2>
+    <details class="panel paste-panel">
+      <summary>粘贴商品文案录入</summary>
       <p class="faint">
         在淘宝点「复制链接」拿到的那<strong>整段文案</strong>，直接粘进来即可 ——
         可以一次粘好几件。我只读你粘的这段文字，不会去打开那个网页。
@@ -138,31 +165,30 @@ export async function mount(root, ctx) {
         <button type="button" class="primary" id="paste-btn">识别</button>
         <span class="faint">认不出的品类会让你在下面选，不会硬猜。</span>
       </div>
-    </section>
+    </details>
 
     <div id="paste-result"></div>
 
-    <form id="add-form" class="panel" novalidate>
-      <h2>② 或者手动填</h2>
-      <div class="field field-wide"><span>照片（可选）</span>
+    <form id="add-form" class="panel photo-form" novalidate>
+      <div class="field field-wide photo-field"><span class="sr-only">照片（可选）</span>
         <!-- 原生 input 藏起来（.sr-only 类），只留下面那个按钮当入口 ——
              它俩现在做的是同一件事，摆两个一模一样的按钮只会让人犹豫点哪个。
              tabindex="-1"：藏起来的控件不该占 Tab 停点，否则键盘用户会聚焦到
              一个看不见的东西上（真正的键盘路径是那个 button）。
              ⚠️ 这段在模板字符串里，注释里**不能写反引号**，会截断字符串。 -->
-        <input type="file" id="add-image" accept="image/*" class="sr-only" tabindex="-1">
-        <div class="photo-tools">
-          <button type="button" class="ghost" id="add-album">选一张照片</button>
-          <button type="button" class="ghost" id="add-crop" hidden>裁剪商品图</button>
-        </div>
+        <input type="file" id="add-image" accept="image/*" multiple class="sr-only" tabindex="-1">
         <div class="album-picked" id="add-album-picked" hidden></div>
         <div class="add-shot" id="add-shot" hidden><img id="add-shot-img" alt=""></div>
+        <button type="button" class="photo-picker" id="add-album" aria-label="选择照片，可多选">${icon("photo")}<strong>把衣服放进衣橱</strong><span class="faint">一次选择多张照片，自动识别属性并生成白底平铺图。</span><span class="photo-select-cta">＋ 选择照片</span></button>
+        <div class="photo-tools">
+          <button type="button" class="ghost" id="add-crop" hidden>裁剪商品图</button>
+        </div>
         <small class="faint">电脑上可以直接 Ctrl+V 粘贴截图，或把图片拖进页面</small>
       </div>
       ${formHtml(taxonomy)}
       <div class="form-actions">
         <button type="button" class="ai" id="add-recognize" hidden>AI 识别</button>
-        <button type="submit" class="primary" id="add-submit">保存</button>
+        <button type="submit" class="primary" id="add-submit">保存到衣橱</button>
         <span class="faint" id="add-hint">只填品类也能存 —— 颜色、材质这些以后随时能补。</span>
       </div>
       <div class="note-line" id="add-recognize-note"></div>
@@ -171,11 +197,42 @@ export async function mount(root, ctx) {
   `;
 
   const pasteText = root.querySelector("#paste-text");
+  root.append(root.querySelector('.paste-panel'));
   const pasteBtn = root.querySelector("#paste-btn");
   const pasteResult = root.querySelector("#paste-result");
   const form = root.querySelector("#add-form");
   const fileEl = root.querySelector("#add-image");
   const addResult = root.querySelector("#add-result");
+
+  // §12：只撤回仍由 AI 管理的补值；用户编辑过的字段保留。
+  const aiFields = new Map();
+  function fieldValue(name) {
+    const nodes = [...form.querySelectorAll(`[name="${name}"]`)];
+    return nodes[0]?.type === "checkbox" ? nodes.filter(n => n.checked).map(n => n.value) : nodes[0]?.value;
+  }
+  function clearAiFields() {
+    for (const [name, saved] of aiFields) {
+      if (JSON.stringify(fieldValue(name)) !== JSON.stringify(saved.after)) continue;
+      for (const node of form.querySelectorAll(`[name="${name}"]`)) {
+        if (node.type === "checkbox") node.checked = saved.before.includes(node.value);
+        else node.value = saved.before ?? "";
+      }
+    }
+    aiFields.clear();
+  }
+  function applyRecognition(tags) {
+    clearAiFields();
+    const before = Object.fromEntries(Object.keys(tags || {}).map(name => [name, fieldValue(name)]));
+    const filled = fillForm(form, tags, { onlyEmpty: true });
+    for (const name of filled) aiFields.set(name, { before: before[name], after: fieldValue(name) });
+    return filled;
+  }
+  for (const event of ["input", "change"]) form.addEventListener(event, ev => {
+    if (ev.target.name) aiFields.delete(ev.target.name);
+  });
+
+  // §11：照片是主入口；文案功能移到表单后方，已有节点与事件逻辑不变。
+  form.after(root.querySelector(".paste-panel"), pasteResult);
 
   /** 把粘贴 / 拖拽来的图片塞进 file input，之后走的还是原来那条路：
    *  `change` → 保存时上传 → 后端自动打标。**不另开一条上传链路**，
@@ -207,8 +264,35 @@ export async function mount(root, ctx) {
   const shot = root.querySelector("#add-shot");
   const shotImg = root.querySelector("#add-shot-img");
   const cropBtn = root.querySelector("#add-crop");
+  // §24：照片统一交给逐件识别/平铺流程，旧裁剪控件不再进入界面。
+  cropBtn.remove();
 
-  activeAdd = { root, fileEl, accept: acceptImage };
+  async function checkpoint() {
+    await manualReady;
+    if (manualSaved || !fileEl.isConnected) return;
+    try {
+      await saveManualDraft({ version: 1, fields: readForm(form), text: pasteText.value,
+        more: form.querySelector(".more-fields")?.open || false });
+    } catch {}
+    if (!manualStorageAvailable()) toast("本次填写暂未保存到本机，请保持应用打开。", "error", 6000);
+  }
+  activeAdd = { root, fileEl, accept: acceptImage, dispose, saving: () => saving, checkpoint };
+  const editedManual = new Set();
+  const remember = event => {
+    if (event.target?.name) { editedManual.add(event.target.name); manualSaved = false; if (!saving) root.querySelector("#add-submit").disabled = false; }
+    else editedManual.add(event.target === pasteText ? "$text" : "$more");
+    void checkpoint();
+  };
+  form.addEventListener("input", remember); form.addEventListener("change", remember);
+  pasteText.addEventListener("input", remember);
+  form.querySelector(".more-fields")?.addEventListener("toggle", remember);
+  manualReady = loadManualDraft().then(draft => {
+    if (!draft || !fileEl.isConnected) return;
+    const toRestore = Object.fromEntries(Object.entries(draft.fields || {}).filter(([name]) => !editedManual.has(name)));
+    fillForm(form, toRestore, { names: Object.keys(toRestore) });
+    if (!editedManual.has("$text")) pasteText.value = draft.text || "";
+    const more = form.querySelector(".more-fields"); if (more && !editedManual.has("$more")) more.open = !!draft.more;
+  });
   bindClipboardOnce();
 
   // ------------------------------------------------------------------
@@ -309,10 +393,10 @@ export async function mount(root, ctx) {
    *    绝不在裁剪结果上再裁。 */
   function imageSource() {
     if (cropSource) {
-      return { src: cropSource.src, revoke: false, rect: cropSource.rect };
+      return { src: cropSource.src, revoke: false, rect: cropSource.rect, file: cropSource.file };
     }
     const file = fileEl.files && fileEl.files[0];
-    if (file) return { src: URL.createObjectURL(file), revoke: true, rect: null };
+    if (file) return { src: URL.createObjectURL(file), revoke: true, rect: null, file };
     if (pickedPhoto) {
       // 相册图走同源接口 —— canvas 能画。跨源图会让 `toBlob` 抛 SecurityError，
       // 那正是"裁完没反应"这类幽灵问题的来源。
@@ -323,6 +407,14 @@ export async function mount(root, ctx) {
 
   /** 上一次预览用的 blob URL。每次重画都先 revoke，否则拖十张图就漏十个。 */
   let shotUrl = null;
+
+  function dispose() {
+    dropCropSource();
+    if (shotUrl) URL.revokeObjectURL(shotUrl);
+    shotUrl = null;
+    aiFields.clear();
+    if (activeAdd?.fileEl === fileEl) activeAdd = null;
+  }
 
   /** 把当前图渲染成一张缩略图，并决定「裁剪商品图」按钮是否出现。
    *  没有这张预览的话，用户裁完看不到结果，只能等保存后进详情页才发现裁歪了。 */
@@ -344,6 +436,11 @@ export async function mount(root, ctx) {
       shot.hidden = true;
     }
     cropBtn.hidden = !(file || pickedPhoto);
+    const hasPhoto = !!(file || pickedPhoto);
+    albumBtn.classList.toggle("has-photo", hasPhoto);
+    albumBtn.innerHTML = hasPhoto
+      ? `${icon("photo")}<span>更换照片</span>`
+      : `${icon("photo")}<strong>选一张照片</strong><span class="faint">拍下衣服，或从相册中选择</span>`;
   }
 
   /** 正在裁剪。互斥位——两个浮层同时开着会互相覆盖结果：识别流程自动弹一个、
@@ -405,7 +502,7 @@ export async function mount(root, ctx) {
         cropSource.rect = out.rect;
       } else {
         dropCropSource();
-        cropSource = { src: source.src, revoke: source.revoke, rect: out.rect };
+        cropSource = { src: source.src, revoke: source.revoke, rect: out.rect, file: source.file };
         adopted = source.revoke;
       }
 
@@ -434,6 +531,7 @@ export async function mount(root, ctx) {
     //   那会把用户之前裁剪用的原图和框一起丢掉，下次「裁剪商品图」只能拿裁好的
     //   结果再裁，越裁越小（正是 `imageSource` 注释要防的事）。
     if (!picked) return;
+    clearAiFields();
     // 真的是"换了张图"才把裁剪记录清掉。裁剪流程自己塞回来的那份
     // （`fromCrop`）不算 —— 清了就等于裁完再也不能调了。
     const fromCrop = !!(ev.detail && ev.detail.fromCrop);
@@ -465,6 +563,7 @@ export async function mount(root, ctx) {
   let parseGen = 0;
 
   async function doParse() {
+    if (saving) return;
     const text = (pasteText.value || "").trim();
     if (!text) {
       toast("先粘点东西进来", "error");
@@ -562,7 +661,7 @@ export async function mount(root, ctx) {
 
     return `
       <div class="panel" data-row="${i}">
-        <label class="chips">
+        <label class="chips control-toggle">
           <span class="chip">
             <input type="checkbox" data-role="pick" data-i="${i}"
               ${row.needs_type ? "" : "checked"}>
@@ -587,6 +686,7 @@ export async function mount(root, ctx) {
   }
 
   async function doSubmit() {
+    if (saving) return;
     const picked = [];
     let missingType = 0;
 
@@ -614,12 +714,14 @@ export async function mount(root, ctx) {
 
     const saveBtn = pasteResult.querySelector("#paste-save");
     const clearBtn = pasteResult.querySelector("#paste-clear");
+    beginSave();
     saveBtn.disabled = true;
     saveBtn.textContent = "入库中…";
     // 提交中别让「清空」还能点 —— 点了之后返回的结果面板又会把清单"复活"，看着像没清掉（W4 抓到）
     if (clearBtn) clearBtn.disabled = true;
     try {
       const resp = await api.bulkItems({ items: picked });
+      root.dataset.wardrobeDirty = "true";
       renderBulkResult(resp);
       toast(resp.failed ? "部分入库失败" : "已入库", resp.failed ? "error" : "ok");
     } catch (err) {
@@ -634,7 +736,7 @@ export async function mount(root, ctx) {
       const c = pasteResult.querySelector("#paste-clear");
       if (b) { b.disabled = false; b.textContent = "入库选中的"; }
       if (c) c.disabled = false;
-    }
+    } finally { endSave(); }
   }
 
   function renderBulkResult(resp) {
@@ -663,7 +765,7 @@ export async function mount(root, ctx) {
     pasteResult.querySelector("#paste-again").addEventListener("click", () => {
       pasteResult.innerHTML = "";
       pasteText.value = "";
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollTop();
     });
   }
 
@@ -706,6 +808,10 @@ export async function mount(root, ctx) {
   const recognizeBtn = root.querySelector("#add-recognize");
   const recognizeNote = root.querySelector("#add-recognize-note");
 
+  function imageContext() {
+    return cropSource?.file ? { original: cropSource.file, rect: cropSource.rect } : {};
+  }
+
   async function recognize() {
     const file = fileEl.files && fileEl.files[0];
     if (!file && !pickedPhoto) {
@@ -731,8 +837,8 @@ export async function mount(root, ctx) {
     try {
       // 照片可能来自两条通道：浏览器里的 File，或手机相册的 id。
       // 后端 `/tagging/preview` 两个都收，识别结果一模一样（同一条打标链路）。
-      const res = file
-        ? await api.previewTags(file)
+      let res = file
+        ? await api.previewTags(file, imageContext())
         : await api.previewTagsFromAlbum(pickedPhoto.id);
 
       // 200 但 body 不是 JSON 时，`request()` 会把**原始字符串**当 payload 返回
@@ -758,9 +864,6 @@ export async function mount(root, ctx) {
       // 弹一句「识别完成」，很莫名其妙。这里用和剪贴板监听同一套判据。
       if (!recognizeBtn.isConnected) return;
 
-      const filled = fillForm(form, res.tags, { onlyEmpty: true });
-      refreshHint();
-
       // ★ 识别完先走一步裁剪 —— 这是用户要的"单独一个过程"。
       //
       // 为什么排在报结果**之前**：裁剪窗口会盖住整页，用户从窗口回来才看到
@@ -777,11 +880,27 @@ export async function mount(root, ctx) {
       const crop = res.crop;
       if (crop && crop.w * crop.h <= 0.75 && !cropSource) {
         recognizeNote.textContent = "识别完了 —— 先把商品图框出来";
-        await cropImage(crop);
+        const changed = await cropImage(crop);
         // 框图那几十秒里用户可能已经切走页面了：这时别再往下写 note/toast，
         // 否则会在别的页面上弹一句"识别完成"。
         if (!recognizeBtn.isConnected) return;
+        if (changed) {
+          const croppedFile = fileEl.files[0];
+          recognizeNote.textContent = "正在结合商品图与原图描述重新识别…";
+          res = await api.previewTags(croppedFile, imageContext());
+          if (!recognizeBtn.isConnected) return;
+          if (!res || typeof res !== "object" || !res.tags || typeof res.tags !== "object") {
+            throw new Error("返回格式不对（可能被网关拦了），看下后端日志");
+          }
+          if (fileEl.files[0] !== croppedFile) {
+            toast("图换了，请对新图重新识别", "error");
+            return;
+          }
+        }
       }
+
+      const filled = applyRecognition(res.tags);
+      refreshHint();
 
       const names = filled.map((k) => FIELD_LABELS[k]).filter(Boolean);
       const missed = unresolvedText(res.unresolved);
@@ -793,6 +912,7 @@ export async function mount(root, ctx) {
           : "没有可补的字段（你填过的我没动）",
       ];
       if (missed) parts.push(`没认出来：${missed}（没写进表单）`);
+      if (Object.keys(res.conflicts || {}).length) parts.push(`需确认：${Object.entries(res.conflicts).map(([key, reason]) => `${FIELD_LABELS[key] || key}：${reason}`).join("；")}（待确认项未自动填入）`);
       if (names.length && conf && conf < 0.5) parts.push("AI 把握不大，建议核对");
       recognizeNote.textContent = parts.join(" · ");
 
@@ -844,6 +964,12 @@ export async function mount(root, ctx) {
 
   /** 打标结果的说明块。`tagging` 缺失（老服务）时返回空串。 */
   function taggingNoteHtml(tagging) {
+    const conflicts = Object.entries(tagging?.conflicts || {});
+    return taggingSummaryHtml(tagging) + (conflicts.length
+      ? `<div class="alert">以下属性需确认：${conflicts.map(([key, reason]) => esc(`${FIELD_LABELS[key] || key}：${reason}`)).join("；")}</div>` : "");
+  }
+
+  function taggingSummaryHtml(tagging) {
     if (!tagging || !tagging.status) return "";
     const missed = unresolvedText(tagging.unresolved);
     switch (tagging.status) {
@@ -901,6 +1027,8 @@ export async function mount(root, ctx) {
     `;
     addResult.querySelector("#add-again").addEventListener("click", () => {
       form.reset();
+      manualSaved = false; submitBtn.disabled = false; void saveManualDraft(null).catch(() => {});
+      aiFields.clear();
       // `form.reset()` **只还原 selected / checked，不删节点**。上一步 AI 若
       // 认出了词表外的值（`fields.js` 会动态补 option / chip），不清就一直挂在
       // 下拉和 chip 区里 —— 下一件能选中上一件的垃圾值。
@@ -911,14 +1039,18 @@ export async function mount(root, ctx) {
       renderPicked();
       recognizeNote.innerHTML = ""; // 上一件的"AI 填了…"别留到下一件
       addResult.innerHTML = "";
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollTop();
     });
   }
 
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
+    if (saving || manualSaved) return;
+    beginSave();
+    await manualReady;
     const payload = readForm(form);
     const file = fileEl.files && fileEl.files[0];
+    const uploadContext = imageContext();
 
     // ★ 品类门槛：**传了照片就不逼你先选**。
     //
@@ -930,6 +1062,7 @@ export async function mount(root, ctx) {
     // （`tag_and_apply` 的 `_only_blank` 特判 `other` = 还没填）。
     if (!payload.type) {
       if (!file && !pickedPhoto) {
+        endSave();
         toast("先选一个品类（或者传张照片，让我来认）", "error");
         return;
       }
@@ -943,6 +1076,7 @@ export async function mount(root, ctx) {
     submitBtn.textContent = "保存中…";
     try {
       const resp = await api.createItem(payload);
+      root.dataset.wardrobeDirty = "true";
 
       // 图片要等单品建好才有 id —— 分两步。
       // 图失败**不能**说成"保存失败"：单品已经进库了。
@@ -954,7 +1088,7 @@ export async function mount(root, ctx) {
       let tagging = null;
       if (file) {
         try {
-          const up = await api.uploadImage(resp.item.id, file);
+          const up = await api.uploadImage(resp.item.id, file, uploadContext);
           tagging = up.tagging || null;
         } catch (err) {
           imageError = err;
@@ -969,6 +1103,7 @@ export async function mount(root, ctx) {
         }
       }
 
+      manualSaved = true; await saveManualDraft(null).catch(() => {});
       renderFeedback(resp, imageError, tagging);
       // toast 只说"照片没传上"这种**用户需要马上知道**的事；
       // 打标是增强信息，放在结果区里说清（toast 3 秒就没了）。
@@ -977,9 +1112,13 @@ export async function mount(root, ctx) {
       renderError(addResult, err);
       toast("保存失败", "error");
     } finally {
-      submitBtn.disabled = false;
+      endSave();
+      submitBtn.disabled = manualSaved;
       recognizeBtn.disabled = false;
-      submitBtn.textContent = "保存";
+      submitBtn.textContent = "保存到衣橱";
     }
   });
+  attachImport(root, ctx, { fileEl, ready: () => manualReady, isSaving: () => saving, onPreparing: value => value ? beginSave() : endSave(),
+    onStart: ({ consumeManual = false } = {}) => { if (consumeManual) void saveManualDraft(pasteText.value ? { version: 1, fields: {}, text: pasteText.value } : null).catch(() => {}); dispose(); },
+    onExit: () => mount(root, ctx, options), initialFields: () => readForm(form) });
 }

@@ -9,7 +9,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-from fastapi import APIRouter, Body, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from .. import db, taxonomy
@@ -28,6 +28,8 @@ from ..models import (
     WearLogIn,
 )
 from ..services import images as image_svc
+from ..services import photo_import
+from ..services import presentation
 from ..services import ingest as ingest_svc
 from ..services import items as svc
 from ..services import tagging as tagging_svc
@@ -41,6 +43,20 @@ logger = logging.getLogger(__name__)
 
 def _uid() -> str:
     return db.get_default_user_id()
+
+
+@router.post("/{item_id}/presentation", response_model=ItemOut)
+def save_presentation(item_id: str, file: UploadFile = File(...), source_hash: str = Form(...), only_if_empty: bool = Form(False), expected_display_path: str | None = Form(None, max_length=512)):
+    if file.size is not None and file.size > image_svc.MAX_IMAGE_BYTES: raise HTTPException(400, "平铺图超过10MB")
+    try: return presentation.attach(item_id, _uid(), file.file.read(image_svc.MAX_IMAGE_BYTES + 1), source_hash, only_if_empty=only_if_empty, expected_display_path=expected_display_path)
+    except presentation.PresentationError as error: raise HTTPException(error.status, str(error)) from error
+    except OSError: raise HTTPException(503, "平铺图未能保存，源照片仍保留")
+
+
+@router.patch("/{item_id}/presentation", response_model=ItemOut)
+def choose_presentation(item_id: str, selected: bool = Body(..., embed=True)):
+    try: return presentation.select(item_id, _uid(), selected)
+    except presentation.PresentationError as error: raise HTTPException(error.status, str(error)) from error
 
 
 @router.get("", response_model=ItemListOut)
@@ -206,6 +222,34 @@ def parse_pasted_items(payload: ItemParseIn) -> dict:
     return {"total": len(items), "items": items, "message": None}
 
 
+@router.post("/import-photo")
+def import_photo(file: UploadFile = File(...), token: str = Form(...), payload: str = Form(...),
+                 original: UploadFile | None = File(None), display: UploadFile | None = File(None)) -> dict:
+    """§14：用户确认后整件提交，不在保存时重复识别。"""
+    try:
+        for upload in (file, original, display):
+            if upload is not None and upload.size is not None and upload.size > image_svc.MAX_IMAGE_BYTES:
+                raise photo_import.ImportError("照片超过10MB")
+        return photo_import.commit(_uid(), token, photo_import.parse_payload(payload), file.file.read(image_svc.MAX_IMAGE_BYTES + 1),
+            original_data=original.file.read(image_svc.MAX_IMAGE_BYTES + 1) if original else None,
+            display_data=display.file.read(image_svc.MAX_IMAGE_BYTES + 1) if display else None)
+    except photo_import.ImportError as error:
+        raise HTTPException(error.status, {"code": error.code, "message": str(error), "item_id": error.item_id}) from error
+    except OSError as error:
+        raise HTTPException(400, "照片暂时无法保存，当前内容保留，请重试") from error
+    except sqlite3.OperationalError as error:
+        raise HTTPException(503, "保存暂时不可用，请重试核对同一件") from error
+
+
+@router.get("/import-photo/{token}")
+def import_photo_status(token: str) -> dict:
+    try:
+        item = photo_import.lookup(_uid(), token)
+    except photo_import.ImportError as error:
+        raise HTTPException(400, str(error)) from error
+    return {"item": item, "saved": item is not None}
+
+
 @router.get("/{item_id}", response_model=ItemOut)
 def get_item(item_id: str) -> dict:
     got = svc.get(item_id, _uid())
@@ -245,14 +289,14 @@ def list_wear_events(limit: int = 50) -> list[dict]:
     return wear_svc.list_wear_events(_uid(), limit=limit)
 
 
-def _save_and_tag(uid: str, item_id: str, data: bytes) -> dict:
+def _save_and_tag(uid: str, item_id: str, data: bytes, *, reference_image: Path | None = None, reference_crop: dict | None = None) -> dict:
     """落盘一张图 + 顺手打标。**上传接口与「从相册导入」共用这一段**。
 
     分成两个入口却共用实现，是为了不让两条上传路径慢慢走岔
     （一条有打标、一条没有 —— 这种事最难被发现）。
     """
     try:
-        saved = image_svc.save_image(uid, item_id, data)
+        saved = image_svc.save_image(uid, item_id, data, **({"original_data": reference_image.read_bytes()} if reference_image else {}))
     except image_svc.ImageError as e:
         raise HTTPException(400, str(e)) from e
     except LookupError as e:
@@ -275,7 +319,8 @@ def _save_and_tag(uid: str, item_id: str, data: bytes) -> dict:
     #    照片已经换成新的了，用户却收到"上传失败"，重试还会再撞一次
     #    `image_hash` 唯一索引。这里兜住，把结果如实告诉前端。
     try:
-        tagging = tagging_svc.tag_and_apply(uid, item_id)
+        context = {"reference_image": reference_image, "reference_crop": reference_crop} if reference_image is not None else {}
+        tagging = tagging_svc.tag_and_apply(uid, item_id, **context)
     except Exception as e:  # noqa: BLE001 —— 兜底就是这里的目的
         tagging = {
             "status": "failed",
@@ -294,13 +339,26 @@ def _save_and_tag(uid: str, item_id: str, data: bytes) -> dict:
 
 
 @router.post("/{item_id}/image")
-def upload_item_image(item_id: str, file: UploadFile = File(...)) -> dict:
+def upload_item_image(
+    item_id: str,
+    file: UploadFile = File(...),
+    reference_image: UploadFile | None = File(None),
+    reference_crop: str | None = Form(None),
+) -> dict:
     """给单品传一张照片。**会覆盖旧图**（一个单品只保留一张）。
 
     类型靠**读文件头**判断，不信 `content_type` —— 微信转发的图片
     有时报 `application/octet-stream`，信它会把正常图片拒之门外。
     """
-    return _save_and_tag(_uid(), item_id, file.file.read())
+    try:
+        crop = tagging_svc.parse_reference_crop(reference_crop)
+        if crop and reference_image is None:
+            raise ValueError("给出原图选区时也需要参考原图")
+        reference_data = reference_image.file.read(image_svc.MAX_IMAGE_BYTES + 1) if reference_image is not None else None
+        with image_svc.temporary_image(reference_data) as reference:
+            return _save_and_tag(_uid(), item_id, file.file.read(image_svc.MAX_IMAGE_BYTES + 1), reference_image=reference, reference_crop=crop)
+    except (image_svc.ImageError, ValueError) as e:
+        raise HTTPException(400, str(e)) from e
 
 
 # ---------------------------------------------------------------------------

@@ -129,6 +129,12 @@ class ItemOut(BaseModel):
     id: str
     user_id: str
     image_path: Optional[str] = None
+    image_hash: Optional[str] = None
+    original_image_path: Optional[str] = None
+    display_image_path: Optional[str] = None
+    display_source_hash: Optional[str] = None
+    display_model: Optional[str] = None
+    display_selected: bool = False
     thumbnail_path: Optional[str] = None
 
     type: str
@@ -333,6 +339,7 @@ class OutfitOut(BaseModel):
     weather: Optional[str] = None
     reason: Optional[str] = None
     confidence: Optional[float] = None
+    aesthetic: Optional[dict[str, Any]] = None
     status: str = "proposed"
     generated_by: str = "llm"
     created_at: str

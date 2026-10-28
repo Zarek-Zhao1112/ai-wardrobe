@@ -84,19 +84,27 @@ function chipsHtml(name, text, vocab) {
 }
 
 /** 整张属性表单的 HTML（不含「保存」按钮）。 */
-export function formHtml(taxonomy) {
+export function formHtml(taxonomy, { compact = false } = {}) {
   const vocab = (taxonomy && taxonomy.vocabularies) || {};
   return `
-    <div class="form-grid">
-      <label class="field"><span>品类</span>
-        <select name="type">${typeOptionsHtml(taxonomy, "选一个品类")}</select></label>
+    <div class="form-grid${compact ? " compact-fields" : ""}">
       <label class="field"><span>名称</span>
         <input type="text" name="name" placeholder="例如：白色棉T恤"></label>
-      ${SINGLE_FIELDS.map(([k, label, v]) => selectHtml(k, label, vocab[v])).join("")}
-      ${MULTI_FIELDS.map(([k, label, v]) => chipsHtml(k, label, vocab[v])).join("")}
-      <label class="field"><span>品牌</span><input type="text" name="brand"></label>
-      <label class="field"><span>备注</span><input type="text" name="notes"></label>
+      <label class="field"><span>品类</span>
+        <select name="type">${typeOptionsHtml(taxonomy, "选一个品类")}</select></label>
+      ${selectHtml("primary_color", compact ? "颜色" : "主色", vocab.color)}
+      ${compact ? "" : chipsHtml("season", "季节", vocab.season)}
     </div>
+    <details class="more-fields">
+      <summary>更多属性<span class="faint">材质、版型、风格等</span></summary>
+      <div class="form-grid">
+        ${compact ? chipsHtml("season", "季节", vocab.season) : ""}
+        ${SINGLE_FIELDS.filter(([k]) => k !== "primary_color").map(([k, label, v]) => selectHtml(k, label, vocab[v])).join("")}
+        ${MULTI_FIELDS.filter(([k]) => k !== "season").map(([k, label, v]) => chipsHtml(k, label, vocab[v])).join("")}
+        <label class="field"><span>品牌</span><input type="text" name="brand"></label>
+        <label class="field"><span>备注</span><input type="text" name="notes"></label>
+      </div>
+    </details>
   `;
 }
 
@@ -188,9 +196,10 @@ export function readForm(root, original = {}) {
  *
  * @returns 真正填上的字段名数组（`["type","colors"]`），调用方拿去提示"填了哪几项"。
  */
-export function fillForm(root, item, { onlyEmpty = false } = {}) {
+export function fillForm(root, item, { onlyEmpty = false, names = null } = {}) {
   const filled = [];
   for (const name of TEXT_NAMES) {
+    if (names && !names.includes(name)) continue;
     const el = root.querySelector(`[name="${name}"]`);
     if (!el) continue;
     const value = item[name] === null || item[name] === undefined ? "" : String(item[name]);
@@ -225,6 +234,7 @@ export function fillForm(root, item, { onlyEmpty = false } = {}) {
     if (value) filled.push(name);
   }
   for (const name of MULTI_NAMES) {
+    if (names && !names.includes(name)) continue;
     const boxes = Array.from(root.querySelectorAll(`[name="${name}"]`));
     const known = new Set(boxes.map((el) => el.value));
     const picked = new Set(item[name] || []);

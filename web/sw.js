@@ -40,7 +40,16 @@
  *    那会被当成注释结束符 —— 后面的中文立刻变成代码，浏览器只报
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
-const VERSION = "v14";  // v13→v14：**所有** fetch 加 `cache: "no-store"`（networkFirst
+// Android打包文件时间固定；更新说明同时改变字节数，避免同长度ETag把新脚本误判为未变化。
+const VERSION = "v46"; // §33：只读衣物详情、红色喜欢、玻璃确认删除与本次必选搭配。
+                        // v21：移除独立大图预览，保留裁剪与随表单滚动的操作。
+                        // v20：图片大图预览与随表单滚动的操作按钮。
+                        // v19：旧WebView兼容的JSON草稿复制。
+                        // v18：多选照片、逐件确认入库及本机草稿。
+                        // v17：C 款上衣 Logo 定稿。
+                        // v16：双图识别 + 裁剪双指缩放。
+                        // v15：A 版清冷极简 + 悬浮玻璃导航。
+                        // v13→v14：**所有** fetch 加 `cache: "no-store"`（networkFirst
                         //          与 install 的预缓存都加了）。v13 及之前会吃浏览器的
                         //          HTTP 磁盘缓存 —— 覆盖安装后手机上可能长期跑旧 js，
                         //          普通刷新救不回来（2026-10-22 实测：清缓存前页面里
@@ -79,13 +88,38 @@ const SHELL_ASSETS = [
   "/manifest.webmanifest",
   "/css/tokens.css",
   "/css/style.css",
+  "/css/item-sheet.css",
+  "/css/purchase.css",
+  "/css/headerless.css",
+  "/css/import-batch.css",
+  "/css/outfits.css",
+  "/css/purchase-reference.css",
+
+  "/js/purchase-art.js",
+  "/js/purchase-reference.js", "/js/purchase-reference-media.js", "/js/purchase-reference-store.js", "/js/horizontal-swipe.js",
+  "/js/tryon-camera.js",
+  "/js/tryon-sheet.js",
+
+  "/js/purchase-sheet.js",
   "/js/app.js",
+  "/js/page-transition.js",
+  "/js/desktop-settings.js",
   "/js/api.js",
   "/js/ui.js",
   "/js/fields.js",
   "/js/view-wardrobe.js",
   "/js/view-item.js",
+  "/js/item-detail.js",
+  "/js/item-sheet.js",
   "/js/view-add.js",
+  "/js/photo-import.js",
+  "/js/import-queue.js",
+  "/js/import-store.js",
+  "/js/import-sheet.js",
+  "/js/flatlay.js",
+  "/js/flatlay-item.js",
+  "/js/flatlay-display.js",
+  "/js/import-assistant.js",
   // ⚠️ 新增模块必须加进这份清单（`view-add.js` 会 import 它）。
   //    漏了的话服务活着时看不出问题（网络优先拿得到），但**断网/后端没起**时
   //    模块请求 404 → 整个 `view-add.js` 的依赖树加载失败 → 录入页白屏。
@@ -98,7 +132,17 @@ const SHELL_ASSETS = [
   "/js/view-gaps.js",
   "/js/view-outfits.js",
   "/icons/icon-192.png",
+  "/icons/logo.svg",
+  "/reference/cream-tapered-pants.jpg",
+  "/reference/white-wide-pants.jpg",
+  "/reference/gray-cardigan.jpg",
+  "/reference/white-tshirt.jpg",
+  "/reference/white-sneakers.jpg",
+  "/reference/light-blue-shirt.jpg",
+
+  "/icons/favicon-32.png",
   "/icons/icon-512.png",
+  "/icons/icon-maskable-512.png",
   // `index.html:11` 引用了它（iOS 加到主屏用）。漏在清单外 → 离线时那一个图标取不到。
   "/icons/apple-touch-icon.png",
 ];
@@ -161,13 +205,55 @@ self.addEventListener("activate", (event) => {
         //        以前漏在名单外，它们超时反而会被当成安装成功。
         const critical = [
           "/",
+          "/css/item-sheet.css",
+          "/css/purchase.css",
+  "/css/headerless.css",
+  "/css/import-batch.css",
+  "/css/outfits.css",
+  "/css/purchase-reference.css",
+
+          "/js/purchase-art.js",
+  "/js/purchase-reference.js", "/js/purchase-reference-media.js", "/js/purchase-reference-store.js", "/js/horizontal-swipe.js",
+  "/js/tryon-camera.js",
+  "/js/tryon-sheet.js",
+
+          "/js/purchase-sheet.js",
+          "/js/view-gaps.js",
+          "/js/view-outfits.js",
           "/js/app.js",
+          "/js/page-transition.js",
+          "/js/desktop-settings.js",
           "/js/api.js",
           "/js/ui.js",
           "/js/fields.js",
           "/js/crop.js",
           "/js/view-add.js",
+          "/js/photo-import.js",
+  "/js/import-queue.js",
+          "/js/import-store.js",
+  "/js/import-sheet.js",
+  "/js/flatlay.js",
+  "/js/flatlay-item.js",
+  "/js/flatlay-display.js",
+  "/js/import-assistant.js",
           "/js/view-item.js",
+  "/js/item-detail.js",
+  "/js/item-sheet.js",
+          // §13：图标缺失时也保留旧桶，离线仍能回落到上一版。
+          "/manifest.webmanifest",
+          "/icons/logo.svg",
+  "/reference/cream-tapered-pants.jpg",
+  "/reference/white-wide-pants.jpg",
+  "/reference/gray-cardigan.jpg",
+  "/reference/white-tshirt.jpg",
+  "/reference/white-sneakers.jpg",
+  "/reference/light-blue-shirt.jpg",
+
+          "/icons/favicon-32.png",
+          "/icons/icon-192.png",
+          "/icons/icon-512.png",
+          "/icons/icon-maskable-512.png",
+          "/icons/apple-touch-icon.png",
         ];
         const got = await Promise.all(critical.map((u) => fresh.match(u)));
         if (got.some((r) => !r)) return; // 保留所有旧桶
@@ -255,8 +341,11 @@ self.addEventListener("fetch", (event) => {
     url.pathname.startsWith("/css/") ||
     url.pathname.startsWith("/js/") ||
     url.pathname.startsWith("/icons/") ||
+    url.pathname.startsWith("/reference/") ||
     url.pathname === "/manifest.webmanifest";
 
   if (isShell) event.respondWith(networkFirst(req, SHELL));
   // 其余（API）不拦截 —— 数据必须新鲜
 });
+
+// v46：只读衣物详情、红色喜欢、确认删除与必选衣物搭配。

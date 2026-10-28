@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Final
 
-SCHEMA_VERSION: Final[int] = 2
+SCHEMA_VERSION: Final[int] = 4
 
 # 首次建库（version 0 -> 1）
 _MIGRATION_001: Final[list[str]] = [
@@ -254,4 +254,14 @@ _MIGRATION_002: Final[list[str]] = [
 MIGRATIONS: Final[list[tuple[int, list[str]]]] = [
     (1, _MIGRATION_001),
     (2, _MIGRATION_002),
+    # §20：保留生成时的方法与评估，不回填旧搭配，不改衣服和照片。
+    (3, ["ALTER TABLE outfits ADD COLUMN aesthetic_snapshot TEXT"]),
+    # §23：真实裁剪图仍是识别/去重依据，展示图和原截图单独保留。
+    (4, [
+        "ALTER TABLE clothing_items ADD COLUMN original_image_path TEXT",
+        "ALTER TABLE clothing_items ADD COLUMN display_image_path TEXT",
+        "ALTER TABLE clothing_items ADD COLUMN display_source_hash TEXT",
+        "ALTER TABLE clothing_items ADD COLUMN display_model TEXT",
+        "ALTER TABLE clothing_items ADD COLUMN display_selected INTEGER NOT NULL DEFAULT 0",
+    ]),
 ]

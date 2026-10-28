@@ -16,7 +16,50 @@ export function esc(value) {
   return String(value).replace(/[&<>"']/g, (c) => ESCAPES[c]);
 }
 
+/** §11：统一的线性图标。路径来自静态白名单，外部输入不进入 SVG。 */
+export function icon(name) {
+  const paths = {
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    wardrobe: '<path d="m9 4-4 2-2 5 4 2v8h10v-8l4-2-2-5-4-2a3 3 0 0 1-6 0Z"/>',
+    add: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+    gaps: '<path d="M5 7h14l1 13H4zM8 8V6a4 4 0 0 1 8 0v2"/>',
+    bookmark: '<path d="M6 4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17l-6-4-6 4z"/>',
+    check: '<path d="m5 12 4 4 10-10"/>',
+    back: '<path d="m14 6-6 6 6 6M8 12h12"/>',
+    history: '<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/>',
+    right: '<path d="m10 6 6 6-6 6"/>',
+    chevron: '<path d="m7 10 5 5 5-5"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/>',
+    outfits: '<path d="m9 4-5 3-2 5 5 2v7h10v-7l5-2-2-5-5-3a3 3 0 0 1-6 0Z"/><path d="m15 3 1-2 1 2 2 1-2 1-1 2-1-2-2-1Z"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+    filter: '<path d="M4 6h6m4 0h6M4 12h2m4 0h10M4 18h10m4 0h2"/><circle cx="12" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/>',
+    photo: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/>',
+    camera: '<path d="M4 7h4l2-3h4l2 3h4v14H4V7Z"/><circle cx="12" cy="13" r="4"/>',
+    flip: '<path d="M3 8a9 9 0 0 1 15-3l3 3M21 2v6h-6M21 16a9 9 0 0 1-15 3l-3-3M3 22v-6h6"/>',
+    compare: '<path d="M12 3v18M8 5H4v14h4M16 5h4v14h-4"/>',
+    stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+    replay: '<path d="M4 11a8 8 0 1 1 2 7M4 5v6h6"/>',
+    spark: '<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5zM20 2v4M18 4h4"/>',
+    heart: '<path d="M20 5c-3-3-6-1-8 1-2-2-5-4-8-1-4 4 1 10 8 15C19 15 24 9 20 5Z"/>',
+    close: '<path d="m6 6 12 12M6 18 18 6"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="m9 3-1 3-3 1-2 3 2 2-1 3 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2 1-3-2-3-3 1-2-3Z"/>',
+  };
+  return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths[name] || paths.wardrobe}</svg>`;
+}
+
 let toastTimer = null;
+
+/** §26：同一份设置菜单供桌面顶栏和手机页面操作行使用，无独立状态副本。 */
+export function serviceSettingsHtml(health) {
+  const h = health || {};
+  return `<details class="status-menu">
+    <summary aria-label="设置：查看服务与模型状态" title="设置"><span class="dot${h.llm_ready ? "" : " off"}"></span><span class="status-label">${h.desktop_bridge?.configured ? "电脑识别" : h.llm_ready ? "AI 已就绪" : "本地模式"}</span>${icon("settings")}</summary>
+    <div class="status-popover"><strong>服务状态</strong>
+      <p>${h.llm_ready ? `模型：${esc(h.llm_model || "已配置")}` : "搭配使用本地排序"}</p>
+      <p>${h.desktop_bridge?.configured ? "已配置电脑中转，识别时需电脑在线" : h.vision_ready ? "照片自动识别可用" : "视觉模型未配置，属性可手动填写"}</p>
+      <button type="button" data-desktop-settings>电脑识别设置</button><a class="btn" href="/bind.html">微信绑定</a>
+    </div></details>`;
+}
 
 /** 底部浮动提示。`kind` ∈ info | ok | error */
 export function toast(message, kind = "info", ms = 2600) {

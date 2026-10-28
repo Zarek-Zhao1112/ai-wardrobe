@@ -4,6 +4,10 @@
 
     <!-- 本机监听 8787 其实不需要 INTERNET，但调 DeepSeek API 需要 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- §30：仅在用户打开试衣摄像头时请求；不采集麦克风。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <!-- 前台服务保活：不然切到后台几分钟进程就被系统回收 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -20,6 +24,8 @@
         android:name=".WardrobeApp"
         android:allowBackup="false"
         android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:usesCleartextTraffic="true"
         android:largeHeap="true"
         android:theme="@android:style/Theme.Material.NoActionBar">

@@ -14,18 +14,23 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="穿搭助手">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <!-- 图标内联成 SVG（data URI）：省一个文件，也免掉浏览器自动请求
-       /favicon.ico 造成的 404（首次加载时控制台会红一条）。 -->
-  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%230066cc'/%3E%3Cpath%20d='M10%209h12M16%209v15M12%2024h8'%20stroke='white'%20stroke-width='2.4'%20stroke-linecap='round'%20fill='none'/%3E%3C/svg%3E">
+  <!-- §13：与 PWA / Android 共用上衣 Logo，PNG 兼容旧浏览器。 -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
+  <link rel="icon" type="image/svg+xml" sizes="any" href="/icons/logo.svg">
   <!-- token 层在前、组件层在后（层叠的直觉顺序）。变量只在 tokens.css 定义一处。 -->
   <link rel="stylesheet" href="/css/tokens.css">
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/item-sheet.css">
+  <link rel="stylesheet" href="/css/purchase.css">
+  <link rel="stylesheet" href="/css/headerless.css">
+  <link rel="stylesheet" href="/css/import-batch.css">
+  <link rel="stylesheet" href="/css/outfits.css">
+  <link rel="stylesheet" href="/css/purchase-reference.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">AI 穿搭助手</div>
     <nav id="nav" class="nav" aria-label="主导航"></nav>
-    <div id="status" class="status" title="服务与模型状态"></div>
+    <div id="status" class="status"></div>
   </header>
 
   <main id="view" class="view">

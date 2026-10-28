@@ -20,7 +20,14 @@
   --surface-2:    #f2f2f5;
   --border:       #e0e0e0;
   --border-strong:#c9c9ce;
-  --surface-blur: rgba(255, 255, 255, .92);   /* 毛玻璃面板底（底部 tab 栏）*/
+  --surface-blur: rgba(255, 255, 255, .68);   /* §11：悬浮玻璃，仅模糊外层 */
+  --glass-edge:   rgba(255, 255, 255, .90);
+  --import-glass: rgba(250, 251, 253, .88);
+  --import-scrim: rgba(36, 43, 55, .16);
+  --import-shadow: 0 -12px 56px rgba(29, 40, 60, .15);
+  --glass-button-shadow: inset 1px 1px 1px rgba(255,255,255,.95), inset -1px -1px 1px rgba(107,121,145,.18), 0 4px 14px rgba(29,40,60,.06);
+  --import-radius: 30px;
+  --focus-ring:   rgba(0, 102, 204, .28);
   --text:         #1d1d1f;   /* Apple 的 "ink" —— 16.8:1 */
   --text-dim:     #5c5c61;   /* 次级文字 —— 6.7 / 6.1 / 6.0:1 */
   --text-faint:   #6b6b70;   /* 三级文字 —— 5.3 / 4.9 / 4.7:1 */
@@ -72,11 +79,13 @@
   /* ── 阴影：极克制，只给"浮起"的元素 ── */
   --shadow:    0 1px 2px rgba(0, 0, 0, .04);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, .08);
+  --shadow-glass: 0 8px 32px rgba(29, 29, 31, .12), inset 0 1px 0 rgba(255, 255, 255, .90);
 
   /* ── 布局尺寸 ── */
   --topbar-h:    52px;
   --topbar-h-sm: 48px;   /* 手机端顶栏（矮一点，给内容让位） */
-  --tabbar-h:    56px;   /* 手机端底部导航 */
+  --tabbar-h:    72px;   /* §11：悬浮导航的内容高度，安全区由 bottom 单独计入 */
+  --tabbar-gap:  12px;
   --page-max:    1100px;
 }
 
