@@ -5,8 +5,8 @@
 # （2026-10-20 用户拍板：装成自动，不接受"依赖我记得"。）
 #
 # 查两道：
-#   1. scripts/scan_leaks.py   —— 暂存的文件里有没有密钥 / 私钥
-#   2. scripts/check_contrast.py —— 界面的文字/背景对比度够不够（WCAG 4.5:1）
+#   1. scripts/checks/scan_leaks.py   —— 暂存的文件里有没有密钥 / 私钥
+#   2. scripts/checks/check_contrast.py —— 界面的文字/背景对比度够不够（WCAG 4.5:1）
 #
 # 安装（每台机器一次）：
 #   git config core.hooksPath .githooks
@@ -21,6 +21,7 @@
 #   门禁等于废掉。宁可诚实地说"这次没查"。
 
 set -u
+export PYTHONUTF8=1
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT" || exit 0
@@ -56,9 +57,15 @@ fi
 
 FAILED=""
 
+# 目录迁移后先核对ES模块和离线清单。
+if ! "$PY" scripts/checks/web_assets.py; then
+  echo "[拒绝] 前端资源引用或缓存清单不一致"
+  exit 1
+fi
+
 # ── 第一道：密钥 / 隐私泄漏 ────────────────────────────────────────────
-if [ -f "scripts/scan_leaks.py" ]; then
-  if ! "$PY" scripts/scan_leaks.py >/tmp/.wardrobe_leak_$$ 2>&1; then
+if [ -f "scripts/checks/scan_leaks.py" ]; then
+  if ! "$PY" scripts/checks/scan_leaks.py >/tmp/.wardrobe_leak_$$ 2>&1; then
     echo ""
     echo "[拒绝] 暂存的文件里发现疑似密钥 / 私钥："
     sed 's/^/    /' /tmp/.wardrobe_leak_$$ | tail -40
@@ -68,8 +75,8 @@ if [ -f "scripts/scan_leaks.py" ]; then
 fi
 
 # ── 第二道：对比度（WCAG 4.5:1）────────────────────────────────────────
-if [ -f "scripts/check_contrast.py" ]; then
-  if ! "$PY" scripts/check_contrast.py >/tmp/.wardrobe_contrast_$$ 2>&1; then
+if [ -f "scripts/checks/check_contrast.py" ]; then
+  if ! "$PY" scripts/checks/check_contrast.py >/tmp/.wardrobe_contrast_$$ 2>&1; then
     echo ""
     echo "[拒绝] 界面颜色对比度不达标（文字可能看不清）："
     # 只取结果行（`FAIL ...` / `共查 ...`）。
@@ -85,7 +92,7 @@ if [ -n "$FAILED" ]; then
   echo ""
   echo "  ─────────────────────────────────────────────"
   echo "  这两道检查防的是**不可逆**的事，建议改掉再提交。"
-  echo "  密钥：挪到 .env（已 gitignore）；颜色：改 web/css/tokens.css。"
+  echo "  密钥：挪到 .env（已 gitignore）；颜色：改 web/css/base/tokens.css。"
   echo "  确认是误报可以绕过：git commit --no-verify"
   echo "  ─────────────────────────────────────────────"
   echo ""

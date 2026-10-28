@@ -138,7 +138,7 @@ class TestNoDeadBranch:
         """前端同款恒假条件也要修掉：`!needs_type && used_llm && llm_error` 永不成立。"""
         from pathlib import Path
 
-        src = (Path(C.__file__).resolve().parents[2] / "web" / "js" / "view-add.js").read_text(
+        src = (Path(C.__file__).resolve().parents[2] / "web" / "js" / "features" / "import" / "text-input.js").read_text(
             encoding="utf-8"
         )
         assert "!row.needs_type && row.used_llm && row.llm_error" not in src

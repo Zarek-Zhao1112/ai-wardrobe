@@ -1,6 +1,6 @@
 #!/bin/sh
 # ── commit-msg 防线 ─────────────────────────────────────────────────────────
-# 为什么要有它：scripts/scan_leaks.py 扫的是**文件内容**，而提交信息只存在于
+# 为什么要有它：scripts/checks/scan_leaks.py 扫的是**文件内容**，而提交信息只存在于
 # git object 里 —— 密钥 / 私密路径写在 message 里，内容扫描永远抓不到。
 # 本钩子在**写入之前**拦住，比事后清理便宜得多。（借鉴 pharos-open 的做法）
 #
@@ -11,7 +11,7 @@
 # 绕过（不推荐）：git commit --no-verify
 #
 # 拦什么：只在 message 里出现**高置信密钥形态**时才拒 —— 刻意**不拦**姓名 / 普通路径，
-#         那类误报率高（会把正常提交也挡了），交给 scripts/scan_leaks.py 在发布前扫。
+#         那类误报率高（会把正常提交也挡了），交给 scripts/checks/scan_leaks.py 在发布前扫。
 #
 # 零依赖：只用 Git 自带的 sh / grep / sed，不依赖 Python 或 node。
 

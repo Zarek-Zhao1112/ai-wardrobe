@@ -3,7 +3,7 @@
 走**真实 HTTP 栈**（TestClient）—— service 层测试证明不了"端点接对了"，
 尤其这条：`/parse` 必须声明在 `/{item_id}` **之前**，否则会被当成品单 id。
 
-⚠️ 规格 `docs/设计文档_v0.2.md` §11.3。
+⚠️ 规格 `docs/history/设计文档_v0.2.md` §11.3。
 """
 
 from __future__ import annotations

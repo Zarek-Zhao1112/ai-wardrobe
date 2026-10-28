@@ -17,8 +17,8 @@ from app import db
 from app.main import app
 from app.models import ItemCreate
 from app.services import images, items, photo_import, presentation
-from scripts import desktop_bridge
-from scripts.flatlay_bridge import FlatlayJobs, IMAGE_MODEL, hook_command
+from scripts.bridge import desktop_bridge
+from scripts.bridge.flatlay_bridge import FlatlayJobs, IMAGE_MODEL, hook_command
 
 SOURCE = b"\x89PNG\r\n\x1a\nreal-source-flatlay"
 ORIGINAL = b"\xff\xd8\xfforiginal-screenshot-flatlay"
@@ -335,7 +335,7 @@ def test_bridge_flatlay_requires_pairing_and_offline_feature_is_honest(tmp_path)
 
 
 NODE = Path(r'C:/Program Files/nodejs/node.exe')
-GUARD = Path(__file__).resolve().parent.parent / "scripts/flatlay_guard.cjs"
+GUARD = Path(__file__).resolve().parent.parent / "scripts/bridge/flatlay_guard.cjs"
 
 
 @pytest.mark.skipif(not NODE.exists(), reason="requires Node for real hook exit-code checks")

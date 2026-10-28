@@ -14,7 +14,7 @@ import pytest
 
 from app import config
 from app.services.llm import client, desktop
-from scripts import desktop_bridge as bridge
+from scripts.bridge import desktop_bridge as bridge
 
 TOKEN = "test_pairing_" + "x" * 32
 MESSAGES = [{"role": "system", "content": "衣服识别"}, {"role": "user", "content": [

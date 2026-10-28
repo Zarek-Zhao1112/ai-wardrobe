@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f5f5f7">
   <meta name="description" content="会逐渐了解你衣橱、身材与审美的个人 AI 穿搭助手">
   <title>AI 穿搭助手</title>
-  <!-- PWA：加到主屏幕后像原生 App（独立图标 / 全屏 / 无地址栏）。见 docs/ui-contract.md -->
+  <!-- PWA：加到主屏幕后像原生 App（独立图标 / 全屏 / 无地址栏）。见 docs/design/ui-contract.md -->
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <!-- 两个都要写：标准名给 Chromium，apple- 前缀给 iOS（Chrome 会对只写 apple- 的版本报弃用警告）。 -->
@@ -18,14 +18,14 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="icon" type="image/svg+xml" sizes="any" href="/icons/logo.svg">
   <!-- token 层在前、组件层在后（层叠的直觉顺序）。变量只在 tokens.css 定义一处。 -->
-  <link rel="stylesheet" href="/css/tokens.css">
-  <link rel="stylesheet" href="/css/style.css">
-  <link rel="stylesheet" href="/css/item-sheet.css">
-  <link rel="stylesheet" href="/css/purchase.css">
-  <link rel="stylesheet" href="/css/headerless.css">
-  <link rel="stylesheet" href="/css/import-batch.css">
-  <link rel="stylesheet" href="/css/outfits.css">
-  <link rel="stylesheet" href="/css/purchase-reference.css">
+  <link rel="stylesheet" href="/css/base/tokens.css">
+  <link rel="stylesheet" href="/css/base/style.css">
+  <link rel="stylesheet" href="/css/features/wardrobe.css">
+  <link rel="stylesheet" href="/css/features/purchase.css">
+  <link rel="stylesheet" href="/css/base/headerless.css">
+  <link rel="stylesheet" href="/css/features/import.css">
+  <link rel="stylesheet" href="/css/features/outfits.css">
+  <link rel="stylesheet" href="/css/features/purchase-reference.css">
 </head>
 <body>
   <header class="topbar">
@@ -44,7 +44,7 @@
 
   <div id="toast" class="toast" hidden></div>
 
-  <script type="module" src="/js/app.js"></script>
+  <script type="module" src="/js/core/app.js"></script>
 
   <!-- ★ 启动看门狗（2026-10-21 加，2026-10-22 改判据）
        为什么必须是**内联**脚本：CSS / 模块脚本整批加载失败时，app.js 一行都不会执行，

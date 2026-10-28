@@ -12,7 +12,7 @@ function setup(count=2){
  const completed=async id=>({id,state:'completed',source_hash:await context.sourceHash(file),image:'data:image/png;base64,'+sample.toString('base64')});
  const api={previewTags:async()=>{calls.recognition++;return{tags:{type:'tshirt',name:'AI名字',brand:'AI品牌'}}},startFlatlay:async id=>{calls.start++;return completed(id)},flatlayStatus:async id=>{calls.status++;return completed(id)}};
  context=vm.createContext({api,crypto:crypto.webcrypto,File,Uint8Array,atob,Map,Set,Date,JSON,Error,setTimeout,clearTimeout,loadPhoto:async id=>photos.get(id),newToken:()=>crypto.randomBytes(16).toString('hex'),copy:v=>v===undefined?undefined:JSON.parse(JSON.stringify(v)),storageAvailable:()=>true,cropFile:async()=>({file,rect:{x:0,y:0,w:.5,h:.5}}),esc:String,layoutMessage:()=>''});
- const source=['web/js/flatlay.js','web/js/import-queue.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'')).join('\n');
+ const source=['web/js/features/import/flatlay.js','web/js/features/import/queue.js'].map(name=>fs.readFileSync(path.join(root,name),'utf8').replace(/^import .*;\r?\n/gm,'').replace(/export /g,'')).join('\n');
  vm.runInContext(source+'\nglobalThis.Queue=ImportQueue;',context);
  const options={draft,ctx:{health:{vision_ready:true,flatlay_configured:true}},persist:async()=>true,capture:()=>{},changed:()=>{},fields:()=>{},error:e=>({kind:'recognition',code:e.code||'unknown',text:'测试错误'})};
  return{context,api,calls,draft,file,options,queue:()=>new context.Queue(options)};

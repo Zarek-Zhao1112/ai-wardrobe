@@ -127,12 +127,12 @@ async function runCase(name, expect, opts = {}) {
   results.push(await runCase("A 正常 → 不许出现兜底面板", "正常内容", {}));
   results.push(
     await runCase("B app.js 被拦（模块没跑）→ 说脚本没起来", "页面脚本没加载起来", {
-      blocked: ["*/js/app.js"],
+      blocked: ["*/js/core/app.js"],
     })
   );
   results.push(
     await runCase("C app.js + /health 都断 → 才说后端没响应", "后端没响应", {
-      blocked: ["*/js/app.js", "*/health*"],
+      blocked: ["*/js/core/app.js", "*/health*"],
     })
   );
   results.push(

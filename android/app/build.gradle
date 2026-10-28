@@ -52,7 +52,7 @@ android {
 //   用专门装的 3.14，因为本机默认环境是 3.13。
 //   注意：跑 Gradle 时必须清掉 PYTHONPATH / PYTHONHOME，否则会挤掉这个解释器自己的 Lib
 //   （build_apk.sh 已经 unset 了）。
-def aiwBuildPython = project.findProperty('aiw.buildPython') ?: 'C:/wbuild/py314/python.exe'
+def aiwBuildPython = System.getenv('AIW_BUILD_PYTHON') ?: project.findProperty('aiw.buildPython') ?: 'python3.14'
 
 chaquopy {
     defaultConfig {
@@ -88,7 +88,7 @@ chaquopy {
 // 解析时用的是 project 级仓库。settings.gradle 里统一声明后这里再兜一次底，
 // 避免 PREFER 模式下被忽略。
 repositories {
-    maven { url "C:/wbuild/local-maven" }
+    maven { url System.getenv('AIW_MAVEN_DIR') ?: uri("${rootDir}/.local-maven") }
     maven { url 'https://maven.aliyun.com/repository/public' }
     maven { url 'https://maven.aliyun.com/repository/google' }
     google()

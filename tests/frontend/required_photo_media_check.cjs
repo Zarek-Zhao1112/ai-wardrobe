@@ -2,7 +2,7 @@
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert/strict');
 const root=path.resolve(__dirname,'../..');
 function factory(api={}){const images=[],scope={api:{imageUrl:p=>'/images/'+p,...api},document:{hidden:false,addEventListener(){}},crypto:{randomUUID:()=> 'new-job'},Date,URL,esc:String,icon:()=>'<svg></svg>',bindHorizontalSwipe:()=>({}),setTimeout:()=>1,clearTimeout(){},Image:class{constructor(){images.push(this)}decode(){return Promise.resolve()}}};
- for(const name of ['purchase-reference-store.js','purchase-reference-media.js'])vm.runInNewContext(fs.readFileSync(path.join(root,'web/js',name),'utf8').replace(/^import .*;\r?\n/gm,'').replaceAll('export ',''),scope);
+ for(const name of ['features/purchase/reference-store.js','features/purchase/reference-media.js'])vm.runInNewContext(fs.readFileSync(path.join(root,'web/js',name),'utf8').replace(/^import .*;\r?\n/gm,'').replaceAll('export ',''),scope);
  vm.runInNewContext('globalThis.h={seedReferences,referenceState,purchaseReference,createReferenceController}',scope);return {...scope.h,images};}
 const d={id:'d'},row={id:'photo',image_path:'reference-'+'1'.repeat(64)+'.png',source_url:'https://shop.example.com/item',name:'实物'},state=(id,status)=>({job_id:id,status,issued_at:1,references:[row]});
 (async()=>{

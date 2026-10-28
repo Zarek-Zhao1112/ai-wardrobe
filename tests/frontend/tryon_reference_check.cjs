@@ -2,7 +2,7 @@
 const fs=require('fs'),path=require('path'),vm=require('vm'),assert=require('assert/strict');
 const ROOT=path.resolve(__dirname,'../..');let passed=0;
 const check=async(name,work)=>{await work();passed++;};
-function cameraFactory(){const scope={};vm.runInNewContext(fs.readFileSync(path.join(ROOT,'web/js/tryon-camera.js'),'utf8').replace('export function','function')+';globalThis.factory=createTryonCamera',scope);return scope.factory;}
+function cameraFactory(){const scope={};vm.runInNewContext(fs.readFileSync(path.join(ROOT,'web/js/features/outfits/camera.js'),'utf8').replace('export function','function')+';globalThis.factory=createTryonCamera',scope);return scope.factory;}
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject};}
 function media(facing='user'){let stops=0;const listeners={};const track={stop(){stops++;},getSettings:()=>({facingMode:facing}),addEventListener:(name,fn)=>listeners[name]=fn};return {stream:{getTracks:()=>[track],getVideoTracks:()=>[track]},stops:()=>stops,end:()=>listeners.ended?.()};}
 function video(play=()=>Promise.resolve()){return {srcObject:null,play,pause(){}};}
@@ -17,7 +17,7 @@ function video(play=()=>Promise.resolve()){return {srcObject:null,play,pause(){}
  await check('设备结束会释放流并通知用户',async()=>{const m=media(),c=factory({video:video(),mediaDevices:{getUserMedia:async()=>m.stream}});await c.start();m.end();assert.equal(c.snapshot().active,false);assert.equal(c.snapshot().state,'error');});
  await check('销毁后不能再次请求摄像头',async()=>{let calls=0;const c=factory({video:video(),mediaDevices:{getUserMedia:async()=>{calls++;return media().stream;}}});c.dispose();assert.equal(await c.start(),false);assert.equal(calls,0);});
  const states=new Map();let index=0;const scope={esc:s=>String(s),icon:()=>'<svg></svg>',URL,api:{imageUrl:p=>'/images/'+p},referenceState:d=>states.get(d.id)||{status:'idle',references:[]},referenceIndex:()=>index,selectReference:(_,i)=>{index=i},bindHorizontalSwipe:()=>({})};
- let code=fs.readFileSync(path.join(ROOT,'web/js/purchase-reference-media.js'),'utf8').replace(/^import .*;\r?\n/gm,'').replaceAll('export ','');vm.runInNewContext(code+';globalThis.refs={purchaseReference,referencePhoto,referenceCredit,referenceStatus}',scope);const {purchaseReference:match,referencePhoto:html,referenceCredit:credit,referenceStatus:status}=scope.refs;
+ let code=fs.readFileSync(path.join(ROOT,'web/js/features/purchase/reference-media.js'),'utf8').replace(/^import .*;\r?\n/gm,'').replaceAll('export ','');vm.runInNewContext(code+';globalThis.refs={purchaseReference,referencePhoto,referenceCredit,referenceStatus}',scope);const {purchaseReference:match,referencePhoto:html,referenceCredit:credit,referenceStatus:status}=scope.refs;
  const d={id:'direction',image_url:'https://invented.example/photo.jpg'},row=(n=1)=>({id:'photo'+n,image_path:'reference-'+String(n).repeat(64)+'.jpg',source_url:'https://shop.example.com/item'+n,name:'真实单品'});
  await check('旧方向不强行匹配固定图库或模型网址',()=>{assert.equal(match(d),null);assert.ok(!html(d).includes('invented.example'));assert.match(html(d),/正在匹配商品图/)});
  await check('展示服务核对并缓存的实际照片',()=>{states.set(d.id,{status:'complete',references:[row()]});assert.equal(match(d).id,'photo1');assert.match(html(d),/src="\/images\/reference-/)});

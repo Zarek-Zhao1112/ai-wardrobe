@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from .. import db
 from . import aesthetics, preference, wardrobe
+from .outfit_constraints import AnchorUnavailable, validate_anchor as _check_anchor
 from .llm.client import LLMClient, LLMError, get_client
 from .llm.prompts import AliasMap
 
@@ -350,24 +351,6 @@ def _to_out(row: dict, items_by_id: dict[str, dict]) -> dict:
 # 主流程
 # ---------------------------------------------------------------------------
 
-class AnchorUnavailable(ValueError):
-    """必选衣物不可用时明确失败，不回退为任意搭配。"""
-
-
-def _check_anchor(items: list[dict], anchor_item_id: str | None, season: str) -> None:
-    if not anchor_item_id:
-        return
-    item = next((it for it in items if it["id"] == anchor_item_id), None)
-    if not item:
-        raise AnchorUnavailable("这件衣服已不存在，请返回衣橱重新选择。")
-    if item.get("is_archived") or item.get("type") in wardrobe.taxonomy.HOME_LIKE:
-        raise AnchorUnavailable("这件衣服暂不能参与搭配，请选择衣橱中未归档的外出衣物。")
-    if not wardrobe.taxonomy.usable_in(item, season):
-        raise AnchorUnavailable("这件衣服不适合所选季节，请调整季节后再试。")
-    if item.get("slot") not in {"top", "bottom", "full", "shoes", "outer", "accessory"} or (
-        item.get("slot") == "accessory" and item.get("type") not in aesthetics._ACCESSORIES
-    ):
-        raise AnchorUnavailable("这件衣服的品类暂不能参与搭配。")
 
 def recommend(
     user_id: str,

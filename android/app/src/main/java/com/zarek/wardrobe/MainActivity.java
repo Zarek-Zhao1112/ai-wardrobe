@@ -197,7 +197,7 @@ public class MainActivity extends Activity {
 
     // ───────────────────────── 文件选择器 ─────────────────────────
     //
-    // 背景：前端 upload 走的是原生 <input type="file" accept="image/*">（web/js/view-add.js、
+    // 背景：前端 upload 走的是原生 <input type="file" accept="image/*">（web/js/features/import/view.js、
     // web/js/view-item.js）。WebView 自身没有 UI，页面点这个控件时它会问 WebChromeClient
     // "你要不要处理"。默认实现返回 false → 什么也不发生。
     //

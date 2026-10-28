@@ -11,7 +11,7 @@ pluginManagement {
         //    要走 settings.providers，写法脆弱。换机器就改这一行（+ gradle.properties
         //    里的 aiw.buildPython）。local-maven 体积约几 MB，不进仓库，重建方法见
         //    android/README.md。
-        maven { url 'C:/wbuild/local-maven' }
+        maven { url System.getenv('AIW_MAVEN_DIR') ?: uri("${settingsDir}/.local-maven") }
         maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
         maven { url 'https://maven.aliyun.com/repository/public' }
         maven { url 'https://maven.aliyun.com/repository/google' }
@@ -22,7 +22,7 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
-        maven { url 'C:/wbuild/local-maven' }
+        maven { url System.getenv('AIW_MAVEN_DIR') ?: uri("${settingsDir}/.local-maven") }
         maven { url 'https://maven.aliyun.com/repository/public' }
         maven { url 'https://maven.aliyun.com/repository/google' }
         google()

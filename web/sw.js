@@ -41,7 +41,7 @@
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
 // Android打包文件时间固定；更新说明同时改变字节数，避免同长度ETag把新脚本误判为未变化。
-const VERSION = "v46"; // §33：只读衣物详情、红色喜欢、玻璃确认删除与本次必选搭配。
+const VERSION = "v47"; // §33：只读衣物详情、红色喜欢、玻璃确认删除与本次必选搭配。
                         // v21：移除独立大图预览，保留裁剪与随表单滚动的操作。
                         // v20：图片大图预览与随表单滚动的操作按钮。
                         // v19：旧WebView兼容的JSON草稿复制。
@@ -53,7 +53,7 @@ const VERSION = "v46"; // §33：只读衣物详情、红色喜欢、玻璃确�
                         //          与 install 的预缓存都加了）。v13 及之前会吃浏览器的
                         //          HTTP 磁盘缓存 —— 覆盖安装后手机上可能长期跑旧 js，
                         //          普通刷新救不回来（2026-10-22 实测：清缓存前页面里
-                        //          `window.__wz` 不存在，而 `fetch('/js/app.js')` 返回新版）。
+                        //          `window.__wz` 不存在，而 `fetch('/js/core/app.js')` 返回新版）。
                         //          缓存策略变了 → 必须 +1，否则新逻辑不会被激活。
                         // v12→v13：照片入口收口成原生 `<input type=file>`
                         //          （动了 view-add.js / view-item.js / style.css 的 .sr-only）
@@ -63,10 +63,9 @@ const VERSION = "v46"; // §33：只读衣物详情、红色喜欢、玻璃确�
                         //          开到整个显示区、框外以 58% 黑露出来（动了 crop.js /
                         //          style.css；改 sw.js 一个字节是为了让离线缓存也跟着更新）
                         //（v9→v10 是"选区铺满 / 按下变整图"双态 + 去掉放大镜；
-                        //  v8→v9：推近动画 + 框内放大预览；v7→v8：新增 /js/crop.js；
+                        //  v8→v9：推近动画 + 框内放大预览；v7→v8：新增 /js/features/import/crop.js；
                         //  v6→v7：录入页加「AI 识别」；v5→v6：重装外壳；
                         //  v4→v5：activate 不再盲目删旧桶；v3→v4：外壳请求加超时）
-const SHELL = `wzbbti-shell-${VERSION}`;
 const IMAGES = `wzbbti-img-${VERSION}`;
 
 /** 单次网络请求的超时（毫秒）。**这是本文件最重要的一个数字。**
@@ -75,77 +74,69 @@ const IMAGES = `wzbbti-img-${VERSION}`;
  *   Android 会挂起后台的 Termux —— 进程还活着、CPU 也在跑，但新连接迟迟不被处理。
  *   这种状态下 `fetch(request)` **不会立刻失败**，而是一直挂着等浏览器自己的超时
  *   （可达数分钟）。后果链条是：
- *       请求挂住 → 页面外壳（/ 、/js/app.js）拿不到 → 连 HTML 都渲染不出来
+ *       请求挂住 → 页面外壳（/ 、/js/core/app.js）拿不到 → 连 HTML 都渲染不出来
  *       → PWA 的原生启动闪屏一直不退 → 用户看到的就是「打不开」。
  *   给了上限之后，超时即**回落缓存**：页面 3 秒内就能渲染出来，再由 app.js 显示
  *   「后端还没启动」的引导页。用户至少有出路，不用再去划掉 Termux。
  */
 const NET_TIMEOUT_MS = 3000;
 
-/* 预缓存清单：与 index.html 里引用的资源保持一致（手动维护，别漏）。 */
+// 清单由 scripts/checks/web_assets.py 生成，激活检查复用同一清单。
+// BEGIN GENERATED ASSETS
+const ASSET_REVISION = "dfe35ad1d97c9547";
 const SHELL_ASSETS = [
   "/",
-  "/manifest.webmanifest",
-  "/css/tokens.css",
-  "/css/style.css",
-  "/css/item-sheet.css",
-  "/css/purchase.css",
-  "/css/headerless.css",
-  "/css/import-batch.css",
-  "/css/outfits.css",
-  "/css/purchase-reference.css",
-
-  "/js/purchase-art.js",
-  "/js/purchase-reference.js", "/js/purchase-reference-media.js", "/js/purchase-reference-store.js", "/js/horizontal-swipe.js",
-  "/js/tryon-camera.js",
-  "/js/tryon-sheet.js",
-
-  "/js/purchase-sheet.js",
-  "/js/app.js",
-  "/js/page-transition.js",
-  "/js/desktop-settings.js",
-  "/js/api.js",
-  "/js/ui.js",
-  "/js/fields.js",
-  "/js/view-wardrobe.js",
-  "/js/view-item.js",
-  "/js/item-detail.js",
-  "/js/item-sheet.js",
-  "/js/view-add.js",
-  "/js/photo-import.js",
-  "/js/import-queue.js",
-  "/js/import-store.js",
-  "/js/import-sheet.js",
-  "/js/flatlay.js",
-  "/js/flatlay-item.js",
-  "/js/flatlay-display.js",
-  "/js/import-assistant.js",
-  // ⚠️ 新增模块必须加进这份清单（`view-add.js` 会 import 它）。
-  //    漏了的话服务活着时看不出问题（网络优先拿得到），但**断网/后端没起**时
-  //    模块请求 404 → 整个 `view-add.js` 的依赖树加载失败 → 录入页白屏。
-  "/js/crop.js",
-  // 相册浮层（2026-10-21 从 view-add.js 抽出来共享）。
-  // ⚠️ 2026-10-22 起**没有任何模块 import 它**（手机端换成自建 APK，两个 UI 入口
-  //    收口成原生 `<input type=file>`）。留在清单里是为了"哪天要接回来时，
-  //    离线也拿得到"，不是因为还有人用。
-  "/js/album.js",
-  "/js/view-gaps.js",
-  "/js/view-outfits.js",
-  "/icons/icon-192.png",
-  "/icons/logo.svg",
-  "/reference/cream-tapered-pants.jpg",
-  "/reference/white-wide-pants.jpg",
-  "/reference/gray-cardigan.jpg",
-  "/reference/white-tshirt.jpg",
-  "/reference/white-sneakers.jpg",
-  "/reference/light-blue-shirt.jpg",
-
+  "/bind.html",
+  "/css/base/headerless.css",
+  "/css/base/style.css",
+  "/css/base/tokens.css",
+  "/css/features/import.css",
+  "/css/features/outfits.css",
+  "/css/features/purchase-reference.css",
+  "/css/features/purchase.css",
+  "/css/features/wardrobe.css",
+  "/icons/apple-touch-icon.png",
   "/icons/favicon-32.png",
+  "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-maskable-512.png",
-  // `index.html:11` 引用了它（iOS 加到主屏用）。漏在清单外 → 离线时那一个图标取不到。
-  "/icons/apple-touch-icon.png",
+  "/icons/logo.svg",
+  "/js/components/flatlay-display.js",
+  "/js/components/horizontal-swipe.js",
+  "/js/components/page-transition.js",
+  "/js/core/api.js",
+  "/js/core/app.js",
+  "/js/core/desktop-settings.js",
+  "/js/core/fields.js",
+  "/js/core/ui.js",
+  "/js/features/import/assistant.js",
+  "/js/features/import/clipboard.js",
+  "/js/features/import/crop.js",
+  "/js/features/import/flatlay.js",
+  "/js/features/import/markup.js",
+  "/js/features/import/photo-import.js",
+  "/js/features/import/queue.js",
+  "/js/features/import/sheet.js",
+  "/js/features/import/store.js",
+  "/js/features/import/text-input.js",
+  "/js/features/import/view.js",
+  "/js/features/outfits/camera.js",
+  "/js/features/outfits/tryon-sheet.js",
+  "/js/features/outfits/view.js",
+  "/js/features/purchase/reference-media.js",
+  "/js/features/purchase/reference-store.js",
+  "/js/features/purchase/reference.js",
+  "/js/features/purchase/sheet.js",
+  "/js/features/purchase/view.js",
+  "/js/features/wardrobe/detail.js",
+  "/js/features/wardrobe/sheet.js",
+  "/js/features/wardrobe/view.js",
+  "/manifest.webmanifest"
 ];
+// END GENERATED ASSETS
+// 同一VERSION下的不同资源构建也使用独立桶，避免新HTML与旧模块混合。
+const SHELL = `wzbbti-shell-${VERSION}-${ASSET_REVISION}`;
+const COMPLETE = "/__wardrobe_shell_complete__";
 
 /** 带超时的 `cache.add`。**不能直接用 `cache.add`**：它没有超时参数，
  *  服务不响应时会一直挂着 → `Promise.all` 永远不 resolve → `install` 事件不完成
@@ -163,12 +154,23 @@ function addWithTimeout(cache, url) {
 }
 
 self.addEventListener("install", (event) => {
+  let existed = true;
   event.waitUntil(
     caches
-      .open(SHELL)
+      .has(SHELL)
+      .then(present => { existed = present; return caches.open(SHELL); })
       // 逐个 add 而不是 addAll：addAll 里任何一个 404 都会让整批失败，
-      // 而这份清单是手工维护的 —— 漏一个文件就整个 SW 装不上，很难查。
-      .then((cache) => Promise.all(SHELL_ASSETS.map((url) => addWithTimeout(cache, url))))
+      // 清单由资源检查工具生成 —— 漏一个文件就整个 SW 装不上，很难查。
+      .then(async (cache) => {
+        await Promise.all(SHELL_ASSETS.map((url) => addWithTimeout(cache, url)));
+        const ready = await Promise.all(SHELL_ASSETS.map(url => cache.match(url)));
+        if (ready.some(response => !response)) {
+          // 目录迁移时旧缓存无法补齐新模块路径，缺资源就拒绝安装，沿用旧worker。
+          if (!existed) await caches.delete(SHELL);
+          throw new Error("离线资源未齐，保留当前版本");
+        }
+        await cache.put(COMPLETE, new Response(ASSET_REVISION));
+      })
       .then(() => self.skipWaiting())
   );
 });
@@ -203,58 +205,7 @@ self.addEventListener("activate", (event) => {
         //        文件超时"误判成"这次安装没成功"，白留旧桶；
         //      · crop.js / fields.js / ui.js 是 view-add / view-item 的静态依赖，
         //        以前漏在名单外，它们超时反而会被当成安装成功。
-        const critical = [
-          "/",
-          "/css/item-sheet.css",
-          "/css/purchase.css",
-  "/css/headerless.css",
-  "/css/import-batch.css",
-  "/css/outfits.css",
-  "/css/purchase-reference.css",
-
-          "/js/purchase-art.js",
-  "/js/purchase-reference.js", "/js/purchase-reference-media.js", "/js/purchase-reference-store.js", "/js/horizontal-swipe.js",
-  "/js/tryon-camera.js",
-  "/js/tryon-sheet.js",
-
-          "/js/purchase-sheet.js",
-          "/js/view-gaps.js",
-          "/js/view-outfits.js",
-          "/js/app.js",
-          "/js/page-transition.js",
-          "/js/desktop-settings.js",
-          "/js/api.js",
-          "/js/ui.js",
-          "/js/fields.js",
-          "/js/crop.js",
-          "/js/view-add.js",
-          "/js/photo-import.js",
-  "/js/import-queue.js",
-          "/js/import-store.js",
-  "/js/import-sheet.js",
-  "/js/flatlay.js",
-  "/js/flatlay-item.js",
-  "/js/flatlay-display.js",
-  "/js/import-assistant.js",
-          "/js/view-item.js",
-  "/js/item-detail.js",
-  "/js/item-sheet.js",
-          // §13：图标缺失时也保留旧桶，离线仍能回落到上一版。
-          "/manifest.webmanifest",
-          "/icons/logo.svg",
-  "/reference/cream-tapered-pants.jpg",
-  "/reference/white-wide-pants.jpg",
-  "/reference/gray-cardigan.jpg",
-  "/reference/white-tshirt.jpg",
-  "/reference/white-sneakers.jpg",
-  "/reference/light-blue-shirt.jpg",
-
-          "/icons/favicon-32.png",
-          "/icons/icon-192.png",
-          "/icons/icon-512.png",
-          "/icons/icon-maskable-512.png",
-          "/icons/apple-touch-icon.png",
-        ];
+        const critical = SHELL_ASSETS;
         const got = await Promise.all(critical.map((u) => fresh.match(u)));
         if (got.some((r) => !r)) return; // 保留所有旧桶
         await Promise.all(
@@ -276,6 +227,8 @@ async function matchShellAnywhere(request) {
   if (hit) return hit;
   for (const key of await caches.keys()) {
     if (!key.startsWith("wzbbti-shell-") || key === SHELL) continue;
+    const candidate = await caches.open(key);
+    if (!/^wzbbti-shell-v\d+$/.test(key) && !await candidate.match(COMPLETE)) continue;
     const old = await caches.open(key);
     const oldHit = await old.match(request);
     if (oldHit) return oldHit;
@@ -296,7 +249,7 @@ async function networkFirst(request, cacheName) {
     //      改完前端 → 覆盖安装 APK → 手机上跑的还是**旧的 js**，
     //      普通刷新、甚至 SW 的 network-first 都拿的缓存副本。
     //    实测（小米 12S Ultra / Android 15）：清缓存前页面里 `window.__wz` 不存在
-    //    （旧 app.js），同一时刻 `fetch('/js/app.js')` 却返回新版（走的另一条路）；
+    //    （旧 app.js），同一时刻 `fetch('/js/core/app.js')` 却返回新版（走的另一条路）；
     //    `Network.clearBrowserCache` + 强制重载后立刻变正常。
     //    也就是说"改了没生效"这类幽灵问题的最后一层就是这个。
     //    代价：每次请求都真发出去（本地回环，几十 KB，可忽略；这也让 304 失去意义）。

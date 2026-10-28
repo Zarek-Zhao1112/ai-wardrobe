@@ -15,7 +15,7 @@ http.get("http://127.0.0.1:" + PORT + "/json", (r) => {
         const reg = navigator.serviceWorker && navigator.serviceWorker.controller;
         let netHas = null, netLen = 0, netErr = null;
         try {
-          const r = await fetch('/js/app.js', { cache: 'no-store' });
+          const r = await fetch('/js/core/app.js', { cache: 'no-store' });
           const txt = await r.text();
           netHas = txt.includes('__wz');
           netLen = txt.length;
@@ -24,7 +24,7 @@ http.get("http://127.0.0.1:" + PORT + "/json", (r) => {
         let cached = {};
         for (const k of keys) {
           const c = await caches.open(k);
-          const hit = await c.match('/js/app.js');
+          const hit = await c.match('/js/core/app.js');
           if (hit) {
             const txt = await hit.text();
             cached[k] = { has_wz: txt.includes('__wz'), len: txt.length };

@@ -23,6 +23,13 @@ Thumbs.db
 # 本地环境变量（可能含模型 API key）
 .env
 
+# 本机工具、CLI依赖、配对状态与归档不发布
+.local/
+node_modules/
+*.apk
+*.log
+android/.local-maven/
+
 # APK 构建产物与本机配置
 # 实际构建在纯 ASCII 路径 C:/wbuild/aiw 下跑（见 android/README.md），
 # 这几条是兜底：万一有人在 android/ 里直接跑了 gradle。

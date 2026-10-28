@@ -14,3 +14,15 @@
 #   本地发版已改用 _phone_install/build_pkg.py（直接读 git blob，天然 LF），
 #   这里再钉一道，避免以后有人用 git archive / 换机器时又踩。
 *.sh text eol=lf
+
+# 源码与生成清单跨机器保持相同换行，避免无意义整文件diff。
+*.py text eol=lf
+*.js text eol=lf
+*.cjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.webmanifest text eol=lf
+*.gradle text eol=lf
+*.properties text eol=lf

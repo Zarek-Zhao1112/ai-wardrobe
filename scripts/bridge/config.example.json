@@ -1,0 +1,6 @@
+{
+  "cli": "node",
+  "cli_entry": ".local/tools/workbuddy-cli/node_modules/@tencent-ai/codebuddy-code/bin/codebuddy",
+  "state": ".local/runtime/desktop-bridge",
+  "port": 8891
+}

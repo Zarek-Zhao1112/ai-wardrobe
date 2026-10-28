@@ -13,7 +13,7 @@ import pytest
 from fastapi import HTTPException
 from app import db, config
 from app.services import purchase, purchase_reference as phone
-from scripts import reference_bridge as pc, reference_net as net
+from scripts.bridge import reference_bridge as pc, reference_net as net
 
 SPEC={'type':'tshirt','primary_color':'white','title':'白色圆领T恤','color':'纯白','fit':'常规合身','pattern':'纯色','texture':'棉质'}
 PNG=b'\x89PNG\r\n\x1a\n'+b'\x00\x00\x00\x0dIHDR'+(600).to_bytes(4,'big')+(800).to_bytes(4,'big')+b'public-test-photo'*100

@@ -23,23 +23,32 @@
 # Chaquopy 在 Windows 上处理中文路径会出转义问题，所以统一铺到纯 ASCII 短路径
 # C:/wbuild/aiw 去构建。想看别的目录：AIW_BUILD_DIR=D:/x sh android/build_apk.sh
 set -e
+export PYTHONUTF8=1
 
 HERE=$(cd "$(dirname "$0")" && pwd)          # <repo>/android
 REPO=$(cd "$HERE/.." && pwd)                 # <repo>
+# 本机工具链配置集中在忽略目录；外部环境变量也可直接指定。
+if [ -f "$REPO/.local/toolchain.env" ]; then . "$REPO/.local/toolchain.env"; fi
 PROJ="${AIW_BUILD_DIR:-C:/wbuild/aiw}"       # 纯 ASCII 短路径，见上
 PY="$PROJ/app/src/main/python"
 
 # 本机工具链：不在仓库里（jdk / android-sdk / gradle / local-maven 合计几百 MB）
-TOOLS="${AIW_TOOLCHAIN:-C:/Users/MCXS/工作流打通/ai衣橱/_build}"
+TOOLS="${AIW_TOOLCHAIN:-$REPO/../_build}"
+TOOLS=$(cd "$TOOLS" && (pwd -W 2>/dev/null || pwd))
 JDK="$TOOLS/jdk"
 GRADLE="$TOOLS/gradle/bin/gradle.bat"
 # android-sdk 实际在中文路径下，C:/wbuild/sdk 是指向它的 ASCII 符号链接。
 # 用 ASCII 那个：local.properties 里也是它，两处必须一致。
-SDK="C:/wbuild/sdk"
+SDK="${AIW_SDK_DIR:-C:/wbuild/sdk}"
 
 for p in "$JDK" "$GRADLE" "$SDK"; do
   [ -e "$p" ] || { echo "  ✗ 工具链缺失：$p"; echo "    见 android/README.md「工具链」一节"; exit 1; }
 done
+
+# 任何复制/创建目录之前先核对最终目标，拒绝指向源码或目录外链接。
+HOST_PY="${AIW_HOST_PYTHON:-$REPO/.venv/Scripts/python.exe}"
+if [ ! -x "$HOST_PY" ]; then HOST_PY=python3; fi
+"$HOST_PY" "$HERE/tools/sync_sources.py" "$REPO" "$PROJ" --check
 
 echo "=== 1/4 铺 Gradle 工程骨架（仓库 android/ → $PROJ） ==="
 mkdir -p "$PROJ/app/src/main/java/com/zarek/wardrobe" \
@@ -56,21 +65,14 @@ cp -r "$HERE/wheels/." "$PROJ/wheels/"
 
 # local.properties 不随仓库走（含本机绝对路径，Android 标准做法也是 gitignore）。
 # SDK 路径用 ASCII 符号链接，避开中文路径转义问题。
-printf 'sdk.dir=C\\:\\\\wbuild\\\\sdk\n' > "$PROJ/local.properties"
+printf 'sdk.dir=%s\n' "$(printf '%s' "$SDK" | sed 's/:/\\:/g')" > "$PROJ/local.properties"
 
 echo "=== 2/4 同步 web/ 与 app/ ==="
-# ⚠️ 不要 `rm -rf` 整个目录：宿主的批量删除保护会拦（98 个文件 > 阈值 50），
-#    而且在构建目录里做整目录删除本身也没必要 —— 覆盖写就够了。
-#    源里**删掉**的文件不会被这条清掉，但下面的 `diff -r` 会把它报成
-#    "只在目标存在" → 脚本停下，由人决定是删还是留。宁可停一次，也别静默带上废弃文件。
-mkdir -p "$PY/web" "$PY/app"
-cp -r "$REPO/web/." "$PY/web/"
-cp -r "$REPO/app/." "$PY/app/"
-# 清字节码：`cp -r` 会把宿主机上一轮的 .pyc 一起带进包，而 Python 只要发现
-# 同目录有 magic number 匹配的 pyc 就**直接用旧的**，源码改了也不生效。
-# 这一步必须做，且只删 pyc/__pycache__（构建产物，不是源码）。
-find "$PY" -name "*.pyc" -delete 2>/dev/null || true
-find "$PY" -name "__pycache__" -type d -empty -delete 2>/dev/null || true
+# 目录迁移后按源文件清单同步，清掉目标中过期文件；不复制宿主pyc。
+HOST_PY="${AIW_HOST_PYTHON:-$REPO/.venv/Scripts/python.exe}"
+if [ ! -x "$HOST_PY" ]; then HOST_PY=python3; fi
+"$HOST_PY" "$HERE/tools/sync_sources.py" "$REPO" "$PROJ"
+"$HOST_PY" "$REPO/scripts/checks/web_assets.py"
 
 # .env：APK 里也要有，否则视觉打标和 LLM 排序全哑，而且**报错很不像配置问题**。
 # 这一步之前是手工 cp 的 —— 构建目录一丢就打不出能用的包，所以写进脚本。
@@ -79,6 +81,7 @@ find "$PY" -name "__pycache__" -type d -empty -delete 2>/dev/null || true
 if [ -f "$REPO/.env" ]; then
   cp "$REPO/.env" "$PY/.env"
 else
+  "$HOST_PY" "$HERE/tools/sync_sources.py" "$REPO" "$PROJ" --clear-env
   echo "  ! 仓库根没有 .env —— 打出来的包不会有模型配置"
 fi
 
@@ -128,7 +131,7 @@ fi
 echo "  ✓ wheels 一致"
 
 echo "=== 4/4 特征串（挡「同步了一份本身就不是新版的东西」） ==="
-grep -q 'window.__wz' "$PY/web/js/app.js" \
+grep -q 'window.__wz' "$PY/web/js/core/app.js" \
   || { echo "  ✗ app.js 里没有 window.__wz（看门狗状态协议）—— 前端不是新版"; exit 1; }
 grep -q 'wd-hard' "$PY/web/index.html" \
   || { echo "  ✗ index.html 里没有 wd-hard（清缓存重载）—— 前端不是新版"; exit 1; }
@@ -140,6 +143,7 @@ grep -q 'onShowFileChooser' "$PROJ/app/src/main/java/com/zarek/wardrobe/MainActi
   || { echo "  ✗ 壳里没有 onShowFileChooser —— 选照片按钮会点不动"; exit 1; }
 echo "  ✓ 特征串齐全"
 
+export AIW_BUILD_PYTHON AIW_MAVEN_DIR
 export JAVA_HOME="$JDK"
 export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"

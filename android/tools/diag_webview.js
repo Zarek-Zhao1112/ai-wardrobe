@@ -95,7 +95,7 @@ function getJson(url) {
   console.log("缓存桶:", JSON.stringify(await evalJs(
     "caches.keys().then(ks=>ks)", true)));
   console.log("缓存里的 view-add.js 是否含 tabindex:", await evalJs(
-    "caches.open((await caches.keys())[0]).then(c=>c.match('/js/view-add.js')).then(r=>r?r.text():'').then(t=>t.includes('tabindex'))", true));
+    "caches.open((await caches.keys())[0]).then(c=>c.match('/js/features/import/view.js')).then(r=>r?r.text():'').then(t=>t.includes('tabindex'))", true));
 
   console.log("\n=== 重载并收集 8 秒事件 ===");
   events.length = 0;
