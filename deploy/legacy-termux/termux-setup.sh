@@ -6,7 +6,7 @@
 # 用法（在 Termux 里）：
 #     pkg install -y git
 #     git clone --depth 1 https://github.com/Zarek-Zhao1112/ai-wardrobe.git ~/wzbbti
-#     sh ~/wzbbti/deploy/termux-setup.sh
+#     sh ~/wzbbti/deploy/legacy-termux/termux-setup.sh
 #
 # 这个脚本**可以反复跑**：中断了、或者隔一阵要更新，再跑一次就行。
 #
@@ -16,7 +16,7 @@
 #   ① pydantic-core 是 Rust 扩展。PyPI 上的 aarch64 wheel 是 manylinux(glibc)，
 #      Termux 是 bionic libc → 装不上。社区有预编译（TUR），但**包本体在
 #      GitHub Releases，国内手机上直连拉不动**（实测 90 秒没下完 2MB）。
-#      → 由 `deploy/fetch_android_wheel.py` 走代理取回来再装。
+#      → 由 `deploy/legacy-termux/fetch_android_wheel.py` 走代理取回来再装。
 #
 #   ② requirements.txt 锁的是 `pydantic==2.13.4`（要 pydantic-core 2.46.4），
 #      而 TUR 只有 2.50.1 → 锁死的版本在安卓上永远装不上。
@@ -107,7 +107,7 @@ if WHEEL=$(python "$HERE/fetch_android_wheel.py" --dest "$CACHE"); then
   pip install -i "$INDEX" "$WHEEL"
 else
   warn "  取预编译包失败 → 现场编译 Rust（要装 100+MB 工具链，十几分钟，很吃内存）"
-  warn "  想避开的话：在电脑上跑 deploy/fetch_android_wheel.py，把下到的 wheel 传进手机再 pip install"
+  warn "  想避开的话：在电脑上跑 deploy/legacy-termux/fetch_android_wheel.py，把下到的 wheel 传进手机再 pip install"
   pkg install -y rust clang cmake make binutils
   CARGO_BUILD_JOBS=2 pip install -i "$INDEX" pydantic-core
 fi
@@ -149,7 +149,7 @@ if [ -d "$PREFIX/var/service" ]; then
   mkdir -p "$SVDIR/log"
   cat > "$SVDIR/run" <<EOF
 #!$PREFIX/bin/sh
-# 由 deploy/termux-setup.sh 生成 —— 重跑脚本会覆盖它。
+# 由 deploy/legacy-termux/termux-setup.sh 生成 —— 重跑脚本会覆盖它。
 termux-wake-lock                      # 别让 CPU 深睡把服务掐了
 export APP_HOST=0.0.0.0               # 让同一 WiFi 下的电脑也能访问
 cd $REPO && exec python run.py

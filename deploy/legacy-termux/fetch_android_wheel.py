@@ -22,7 +22,7 @@
 
 ## 用法
 
-    python deploy/fetch_android_wheel.py [--dest DIR]
+    python deploy/legacy-termux/fetch_android_wheel.py [--dest DIR]
 
 成功时 stdout **只打印 wheel 的完整路径**（方便 shell 里 `WHEEL=$(...)`），
 其余说明都走 stderr。失败时退出码非 0，并给出可照做的替代方案。

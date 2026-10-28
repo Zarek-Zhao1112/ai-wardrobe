@@ -69,4 +69,3 @@ export function bindClipboardOnce(getActive) {
     getActive().accept(img);
   });
 }
-

@@ -14,7 +14,7 @@
 - 新增`app/services/aesthetics.py`：方案目录、召回/有界组套/五维评估/短名单。
 - `recommend.py`：接入新链路，保持真实单品和编号校验；`routes/outfits.py`增加方案目录和选择参数。
 - 明确限定共享文件改动：`schema.py`增加v3迁移，仅新增outfits.aesthetic_snapshot TEXT；`models.py`仅给OutfitOut增加可空aesthetic字段，保证详情响应不丢快照。不改config/main/taxonomy。
-- `web/js/view-outfits.js`、`api.js`、`style.css`、`sw.js`：方案选择与完整说明，移除场合和置信度百分比，展示事实依据和生成时快照。失败保留上一结果，busy及挂载身份隔离迟到响应；反馈“换一套”改为准确的“先不选”，本轮不实现局部换衣。
+- `web/js/features/outfits/view.js`、`api.js`、`style.css`、`sw.js`：方案选择与完整说明，移除场合和置信度百分比，展示事实依据和生成时快照。失败保留上一结果，busy及挂载身份隔离迟到响应；反馈“换一套”改为准确的“先不选”，本轮不实现局部换衣。
 
 数据：v2→v3增量迁移，旧搭配快照NULL，不补成当前方案；已有衣服、照片、草稿、场合历史和反馈不删除。新生成scene=NULL。只在系统临时库测试迁移，真实手机覆盖安装前后核对衣橱/草稿哈希。
 

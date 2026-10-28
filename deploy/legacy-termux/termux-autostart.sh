@@ -34,7 +34,7 @@ mkdir -p "$BOOTDIR"
 HOOK="$BOOTDIR/wzbbti.sh"
 cat > "$HOOK" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
-# 由 deploy/termux-autostart.sh 生成（2026-10-20）
+# 由 deploy/legacy-termux/termux-autostart.sh 生成（2026-10-20）
 # 开机时执行：防止 CPU 深睡 + 确保 sv 托管在跑。
 command -v termux-wake-lock >/dev/null 2>&1 && termux-wake-lock
 
@@ -60,7 +60,7 @@ if command -v sv >/dev/null 2>&1; then
     echo "  ✓ sv 正在托管 wzbbti（崩了会自动重启）"
   else
     echo "  · sv 没在托管。可能是 termux-services 没装，或者 Termux 重启后 runsvdir 没起来。"
-    echo "    → 跑一次 deploy/termux-setup.sh 的第 6 步，或直接重跑那个脚本"
+    echo "    → 跑一次 deploy/legacy-termux/termux-setup.sh 的第 6 步，或直接重跑那个脚本"
   fi
 else
   echo "  · 没有 sv（termux-services 没装）→ 服务靠上面那个兜底手动起"

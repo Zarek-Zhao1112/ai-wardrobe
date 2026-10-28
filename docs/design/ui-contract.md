@@ -2,7 +2,7 @@
 
 > **更新日期**：2026-10-22，用户选定 A「清冷科技感」。本次变更以 §11 为准。这是一份**规格**：前端"应该长什么样、为什么这么定"。
 > 改动它要先改这份文件、再改代码 —— 不是反过来。
-> 工具定义在 `web/css/tokens.css`；这里只写**决定与理由**。
+> 工具定义在 `web/css/base/tokens.css`；这里只写**决定与理由**。
 
 ## 0. 视觉基准
 
@@ -114,7 +114,7 @@ Apple（取自 `awesome-design-md/design-md/apple/DESIGN.md`）。它自己的�
 - [x] 手机上所有可点元素 **≥ 44px**（CDP 断言：#gaps 6 个 / #add 108 个 / #outfits 9 个控件全部达标）
 - [x] **滚到底时内容不被底部 tab 栏遮住**（`hidden_px` 全为 0；这条断言**自证过**：打掉占位后会报 32px 遮挡）
 - [x] 颜色 / 字号 / 间距**全部来自 token**，无硬编码（例外清单见下表）
-- [x] **文字对比度达 WCAG AA**（`scripts/check_contrast.py`，15 组全 ≥4.5:1）
+- [x] **文字对比度达 WCAG AA**（`scripts/checks/check_contrast.py`，15 组全 ≥4.5:1）
 - [x] 无 console 报错（含 warning）
 - [x] **后端没起来时显示引导页**，而不是浏览器的错误白页
       （端到端验过：停后端 → 重载 → 出引导页 → 起后端 → 点「重试」→ 恢复成「衣橱」）
@@ -178,14 +178,14 @@ DoD 说"全部来自 token"，但下面几类**刻意保留字面值** —— �
 | 底部栏占位写在 `tokens.css` | 引入顺序改成 token 在后之后，它被 `style.css` 的 `html, body{padding:0}` **静默覆盖**（同特异性、后加载者赢） | 挪进 `style.css` 的手机段 |
 | 门禁只看"横向溢出" | 纵向遮挡在结构上量不到 —— 门禁全绿，却有内容真的看不到 | 门禁加 `tabbar_clearance` 判据 |
 
-> 每一条都配了**可机检的证据**（`scripts/cdp_ui_check.js` / `scripts/check_contrast.py`），
+> 每一条都配了**可机检的证据**（`scripts/checks/cdp_ui_check.js` / `scripts/checks/check_contrast.py`），
 > 不是"我觉得改好了"。
 
 ## 9. 门禁（每次改前端都跑）
 
 ```bash
-node scripts/cdp_ui_check.js            # 三视口 + 4 页溢出 + 触控 ≥44px + 底部栏遮挡 + SW + manifest
-.venv/Scripts/python.exe scripts/check_contrast.py   # 文字对比度（WCAG AA）
+node scripts/checks/cdp_ui_check.js            # 三视口 + 4 页溢出 + 触控 ≥44px + 底部栏遮挡 + SW + manifest
+.venv/Scripts/python.exe scripts/checks/check_contrast.py   # 文字对比度（WCAG AA）
 ```
 
 前置三样：Node ≥ 18、Chrome 以 `--remote-debugging-port=9333` 常驻（**profile 目录每次新建**）、
@@ -233,7 +233,7 @@ node scripts/cdp_ui_check.js            # 三视口 + 4 页溢出 + 触控 ≥44
 - 原生 SVG 母版为 `web/icons/logo.svg`，网页 favicon、PWA、Apple touch 与 Android 图标由同一母版生成；图标不带文字。网页主体配色保持 §11。
 - 普通图标有预览圆角；PWA maskable 与 Apple touch 图片使用不透明满幅蓝底，由平台裁切。Android API 24–25 提供各密度普通/圆形 PNG，26+ 使用独立背景与矢量前景的自适应图标，33+ 提供带五官镂空的单色图层。
 - Android 前景的 108dp 图层按中央 72dp 可见区域留边，不把预览圆角烘焙进前景。圆形/方形裁切均应保留领口与五官，肩袖及衣身边缘允许按探头构图裁切。
-- `scripts/generate_icons.js` 通过本地 Chrome CDP 渲染和导出资源；新增 Android 资源随构建脚本同步并逐字节核对。更新 SW 缓存版本，网页在线/离线图标一致。
+- `scripts/assets/generate_icons.js` 通过本地 Chrome CDP 渲染和导出资源；新增 Android 资源随构建脚本同步并逐字节核对。更新 SW 缓存版本，网页在线/离线图标一致。
 
 验收：SVG 与 PNG 尺寸、满幅背景、单色镂空及平台裁切预览；三视口 UI 与对比度门禁；APK 资源与 manifest 绑定，真机覆盖安装后的应用图标与已有衣橱数量。
 

@@ -58,8 +58,8 @@
 ### 前端 UI 门禁（只读）
 
 ```bash
-node scripts/cdp_ui_check.js                          # 浏览器里量
-.venv/Scripts/python.exe scripts/check_contrast.py    # 纯算，不用浏览器
+node scripts/checks/cdp_ui_check.js                          # 浏览器里量
+.venv/Scripts/python.exe scripts/checks/check_contrast.py    # 纯算，不用浏览器
 ```
 
 `cdp_ui_check.js` 用 CDP 驱动真 Chrome，量**三视口**（390 / 768 / 1440）的横向溢出、
@@ -69,7 +69,7 @@ node scripts/cdp_ui_check.js                          # 浏览器里量
 `check_contrast.py` 按 WCAG 2.1 检查 token 色板上的**实际文字组合**（15 组，全部要 ≥4.5:1）。
 **对比度是肉眼查不出来的那一类缺陷** —— 别跳过它。
 
-判据见两个脚本的头部注释，规格见 `docs/ui-contract.md`。
+判据见两个脚本的头部注释，规格见 `docs/design/ui-contract.md`。
 
 ⚠️ **Chrome 的 `--user-data-dir` 必须每次用全新目录** —— 复用会踩 ES module / SW 缓存，
 表现为"改了代码却看不到变化"（假失败）。
@@ -87,14 +87,14 @@ chmod +x .githooks/pre-commit .githooks/commit-msg   # macOS / Linux 需要
 | 钩子 | 拦什么 | 失败表现 |
 |---|---|---|
 | `commit-msg` | **提交信息**里的高置信密钥形态（`ghp_` / `sk-` / `AKIA` / 私钥 …） | 拒收，提示改 message |
-| `pre-commit` | ① `scripts/scan_leaks.py`（暂存文件里的密钥）② `scripts/check_contrast.py`（对比度 < 4.5:1） | 拒收，列出命中的行 / 不达标的配色 |
+| `pre-commit` | ① `scripts/checks/scan_leaks.py`（暂存文件里的密钥）② `scripts/checks/check_contrast.py`（对比度 < 4.5:1） | 拒收，列出命中的行 / 不达标的配色 |
 
 - 两者都**自带自证**（先证明扫描器真能命中已知坏样本，再报结果），所以"通过"不是假绿。
 - 误报可 `git commit --no-verify` 绕过 —— 但**先确认真的是误报**。
 - `pre-commit` **找不到 Python 时只警告、不拦**（开源用户可能没建 venv）。
   因为"环境没装好"就挡住正常提交，会让人养成习惯性 `--no-verify`，门禁等于废掉。
 - 暂存区为空时直接跳过（内容跟上次提交一样 → 上次已查过）。
-- `scripts/scan_leaks.py` 只扫 `git ls-files`（即"进仓库的那一份"）。个人 needle
+- `scripts/checks/scan_leaks.py` 只扫 `git ls-files`（即"进仓库的那一份"）。个人 needle
   （真实姓名 / 本机路径）放 `scripts/leak_needles.local.txt`（已 gitignore，不进仓库）。
 
 ⚠️ **改门禁脚本后必须自证**：造一个假密钥 / 一个不达标的颜色，确认它真的拒收。
@@ -159,10 +159,10 @@ c = sqlite3.connect(...)
 
 | 内容 | 文件 |
 |---|---|
-| 行为规格：定位 / 场景 / 数据模型 / 指标 | `docs/设计文档_v0.2.md` |
-| 算法规格：偏好衰减公式、LLM 架构 | `docs/设计文档_v0.2.md` §5 / §10 |
-| 微信通道的实现设计 | `docs/p3-design.md` |
-| 微信 iLink 协议（带 ✅实测 / 📄资料 分级） | `docs/ilink-protocol.md` |
+| 行为规格：定位 / 场景 / 数据模型 / 指标 | `docs/history/设计文档_v0.2.md` |
+| 算法规格：偏好衰减公式、LLM 架构 | `docs/history/设计文档_v0.2.md` §5 / §10 |
+| 微信通道的实现设计 | `docs/history/p3-design.md` |
+| 微信 iLink 协议（带 ✅实测 / 📄资料 分级） | `docs/history/ilink-protocol.md` |
 | 路线图与当前阶段 | `README.md` 的「路线图」一节 |
 
 **关键公式**（实现时逐字对齐，别自己简化）：`context_key = {season}|{scene}`、
@@ -175,3 +175,11 @@ c = sqlite3.connect(...)
 - 没验证的结论标"未验证"；是推断就写"推断"。**不要用"唯一 / 只有 / 必然"这类排他性词**，
   除非你真的穷举验证过。
 - 发现规格本身有问题（矛盾、缺口）→ **停下来报告**，不要自己拍板填。
+
+## 目录整理后的入口
+
+继续开发先读docs/DEVELOPMENT.md与docs/HANDOFF.md。现行设计集中docs/design/，历史讨论docs/history/。web/js分core、components与features；features包含wardrobe/import/outfits/purchase。新增或移动前端文件必须运行scripts/checks/web_assets.py --write，再以默认检查模式验证。不要手抄SW清单。
+
+电脑中转入口scripts/bridge/manage.py start|stop|status，本机配置在忽略目录.local/bridge.json；登录和pairing.json保持本机。Android工具链配置在.local/toolchain.env，构建目录不要放源码内部。构建同步工具会清过期副本，路径检查必须在任何骨架复制之前。
+
+保留既有IndexedDB标识、模型、账号、手机用户数据与schema，目录重构不得顺带变更这些契约。

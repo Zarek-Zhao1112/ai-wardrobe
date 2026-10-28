@@ -26,3 +26,5 @@
 *.webmanifest text eol=lf
 *.gradle text eol=lf
 *.properties text eol=lf
+*.java text eol=lf
+android/toolchain.env.example text eol=lf
