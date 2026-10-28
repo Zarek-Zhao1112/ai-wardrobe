@@ -11,6 +11,8 @@ import threading
 import time
 import pytest
 from fastapi.testclient import TestClient
+from app.main import app as phone_app
+from app import config
 from android.tools.sync_sources import sync_sources, validate_build
 from scripts.checks import scan_leaks, web_assets, check_contrast
 from scripts.bridge import desktop_bridge, manage
@@ -23,6 +25,22 @@ def test_offline_install_is_complete_and_preserves_active_cache():
     result = subprocess.run([node, str(Path(__file__).parent / "frontend/shell_cache_check.cjs")], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout)["passed"] == 5
+
+
+def test_same_size_fixed_time_worker_update_never_returns_stale_304(tmp_path, monkeypatch):
+    path = tmp_path / "sw.js"
+    monkeypatch.setattr(config, "WEB_DIR", tmp_path)
+    path.write_bytes(b"const revision='before';")
+    os.utime(path, (1234567890, 1234567890))
+    with TestClient(phone_app) as client:
+        old = client.get("/sw.js")
+        path.write_bytes(b"const revision='after!';")
+        os.utime(path, (1234567890, 1234567890))
+        fresh = client.get("/sw.js", headers={"If-None-Match": old.headers["etag"]})
+    assert len(old.content) == len(fresh.content)
+    assert fresh.status_code == 200 and fresh.content == path.read_bytes()
+    assert old.headers["etag"] != fresh.headers["etag"]
+    assert fresh.headers["cache-control"] == "no-store"
 
 
 def test_source_sync_removes_stale_paths_but_preserves_server_and_settings(tmp_path):

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from urllib.parse import urlsplit
+import hashlib
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .. import config, db, taxonomy
@@ -14,6 +16,20 @@ from ..services.llm.client import LLMError, model_ready
 from ..services.llm.desktop import bridge_status, save_settings
 
 router = APIRouter(tags=["meta"])
+
+
+@router.get("/sw.js", include_in_schema=False)
+def service_worker_script() -> Response:
+    # APK静态文件时间固定，默认mtime+大小ETag会把同长度的新worker误判成旧版。
+    # 用同一份字节生成响应和内容摘要，不沿用StaticFiles的条件304判断。
+    try:
+        content = (config.WEB_DIR / "sw.js").read_bytes()
+    except FileNotFoundError as error:
+        raise HTTPException(404, "离线脚本不存在") from error
+    return Response(content, media_type="application/javascript", headers={
+        "Cache-Control": "no-store",
+        "ETag": '"' + hashlib.sha256(content).hexdigest() + '"',
+    })
 
 
 @router.get("/health")
