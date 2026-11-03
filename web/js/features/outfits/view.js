@@ -4,7 +4,7 @@ import { esc, icon, fmtDateTime, itemChipsHtml, toast, serviceSettingsHtml } fro
 import { openTryonSheet } from "./tryon-sheet.js";
 import { bindHorizontalSwipe } from "../../components/horizontal-swipe.js";
 import { createAestheticSheet } from "./aesthetic-sheet.js";
-import { examplesFor, profileCardHtml, methodDetails } from "./aesthetic-ui.js";
+import { profileCardHtml, methodDetails } from "./aesthetic-ui.js";
 export const label = "搭配";
 const FB_TEXT = { like: "喜欢这套", dislike: "不喜欢", swap: "先不选" };
 const STATUS_TEXT = { proposed: "待反馈", accepted: "已采纳", rejected: "未采纳", swapped: "暂未选择" };
@@ -133,10 +133,8 @@ export async function mount(root, ctx, arg = "", restore = null) {
   container.querySelector("#o-chooser").onclick = event => sheet.openSelector(event.currentTarget);
   container.querySelector("#o-options").onclick = event => sheet.openOptions(event.currentTarget);
   container.querySelector("#o-intro").onclick = event => {
-    const guide = event.target.closest("[data-aesthetic-guide]"), example = event.target.closest("[data-aesthetic-example]");
-    const profile = profiles.find(row => row.id === state.aesthetic);
-    if (guide) sheet.openGuide(profile, guide);
-    if (example) sheet.openExample(profile, Number(example.dataset.aestheticExample), example);
+    const guide = event.target.closest("[data-aesthetic-guide]");
+    if (guide) sheet.openGuide(profiles.find(row => row.id === state.aesthetic), guide);
   };
 
   function outfitCardHtml(outfit, index) {
@@ -154,7 +152,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
     const palette = { black: '#292929', white: '#eee', gray: '#c9c9c5', navy: '#293247', blue: '#8cabc8', light_blue: '#c5d9eb', khaki: '#baa078', beige: '#dfd6c4', brown: '#82634f', burgundy: '#702e3c', green: '#8b9f83', army_green: '#7e8863', red: '#ae4949', yellow: '#dbc371', pink: '#dba8b7', purple: '#a18db8', orange: '#c58c5d', silver: '#aeb8c1', gold: '#bfac71' };
     const colors = [...new Set(items.map(item => item.primary_color).filter(color => palette[color]))].slice(0, 4);
     const labels = colors.map(color => typeof taxonomy.vocabularies?.color?.[color] === 'string' ? taxonomy.vocabularies.color[color] : ({ black: '黑', white: '白', gray: '灰', navy: '藏蓝', blue: '蓝', light_blue: '浅蓝', khaki: '卡其', beige: '米色', brown: '棕', burgundy: '酒红' }[color] || '')) .filter(Boolean);
-    return `<div class="outfit-result-guide"><span>${esc(profile?.name || "历史搭配")} · ${deck.length} 套搭配</span>${profile ? `<button type="button" data-outfit-guide>${icon("photo")}${examplesFor(profile).length ? "回看审美样图" : "查看审美方案"}</button>` : ""}</div><article class="outfit" data-id="${esc(outfit.id)}"><div class="outfit-stage"><div class="outfit-stage-art" aria-label="这套搭配中的单品，可左右滑动换套"><span class="outfit-stage-count"><span>${index + 1} / ${deck.length} · ${esc(profile?.name || '来自你的衣橱')}</span>${deck.length > 1 ? '<small aria-hidden="true">↔ 左右滑动换套</small>' : ''}</span>
+    return `<div class="outfit-result-guide"><span>${esc(profile?.name || "历史搭配")} · ${deck.length} 套搭配</span>${profile ? `<button type="button" data-outfit-guide>${icon("photo")}查看审美方案</button>` : ""}</div><article class="outfit" data-id="${esc(outfit.id)}"><div class="outfit-stage"><div class="outfit-stage-art" aria-label="这套搭配中的单品，可左右滑动换套"><span class="outfit-stage-count"><span>${index + 1} / ${deck.length} · ${esc(profile?.name || '来自你的衣橱')}</span>${deck.length > 1 ? '<small aria-hidden="true">↔ 左右滑动换套</small>' : ''}</span>
       ${columns.length ? `<div class="outfit-stage-main ${columns.length === 1 ? 'is-single' : ''}">${columns.map(column => `<div class="outfit-stage-column">${piecesHtml(column)}</div>`).join('')}</div>` : ''}
       ${extras.length ? `<div class="outfit-stage-extras">${piecesHtml(extras)}</div>` : ''}</div><div class="outfit-stage-copy"><div class="outfit-stage-label"><span>${esc(profile?.name || "历史搭配")} · ${items.length} 件衣物</span><button type="button" class="outfit-like" data-fb="like" data-outfit-favorite aria-label="${liked ? "已喜欢这套" : "喜欢这套"}" title="${liked ? "已喜欢这套" : "喜欢这套"}" aria-pressed="${liked}" ${feedbackPending.has(outfit.id) ? "disabled" : ""}>${icon("bookmark")}</button></div><h2>${esc(labels.slice(0, 2).join('与') || profile?.name || '这套搭配')}${labels.length ? '，' + esc(profile?.name || '自然搭配') + '。' : ''}</h2>
       ${outfit.reason ? `<p class="outfit-reason">${esc(outfit.reason)}</p>` : `<p class="outfit-reason faint">按${esc(profile?.name || "本地规则")}选衣，具体依据见下方。</p>`}

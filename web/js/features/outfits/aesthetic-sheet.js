@@ -1,6 +1,5 @@
 /** §34：六审美、三图指南与真实搭配依据；嵌套返回不离开当前页面。 */
 import { esc, icon } from "../../core/ui.js";
-import { bindHorizontalSwipe } from "../../components/horizontal-swipe.js";
 import { examplesFor, rulesHtml, methodDetails, coverFor } from "./aesthetic-ui.js";
 const FOCUSABLE = "button,a[href],input,select,summary,[tabindex]";
 const FEEDBACK = { like: "喜欢这套", dislike: "不喜欢", swap: "先不选" };
@@ -73,19 +72,16 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
         return `<article class="aesthetic-choice-card ${p.id === getSettings().aesthetic ? "is-selected" : ""}"><button type="button" data-sheet-pick="${esc(p.id)}" aria-pressed="${p.id === getSettings().aesthetic}">${cover ? `<img src="${esc(cover)}" alt="${esc(p.name)}质感示意" loading="lazy">` : ""}<strong>${esc(p.name)}</strong><small>${esc((p.points || []).slice(0, 2).join(" · "))}</small>${p.id === getSettings().aesthetic ? `<span class="aesthetic-choice-check">${icon("check")}</span>` : ""}</button><button type="button" data-sheet-guide="${esc(p.id)}">看三套穿搭${icon("right")}</button></article>`;
       }).join("")}</div>`;
     } else if (frame.kind === "guide") {
-      const examples = examplesFor(profile), index = frame.example || 0, sample = examples[index];
+      // 视觉只留一张平铺静物（与卡片同一张、同一比例），不再放模特上身照 ——
+      // 两者是两套视觉语言，点进来会像换了个页面。三套具体穿法改成文字条，
+      // 每条可展开看五条安排要点，信息一条没少。
+      const cover = coverFor(profile), plans = examplesFor(profile);
       body = `<h3 class="aesthetic-guide-name">${esc(profile.name)}</h3><p class="aesthetic-sheet-intro">${esc(profile.core || profile.summary)}</p>
-        ${sample ? `<button type="button" class="aesthetic-example-photo" data-sheet-example="${index}" aria-label="查看${esc(sample.title)}的具体安排"><img src="${esc(sample.image)}" alt="${esc(sample.items)}"><span class="aesthetic-example-badge">穿在身上</span></button>
-        <div class="aesthetic-example-caption"><strong>${esc(sample.title)}</strong><span>${index + 1} / ${examples.length} 套示例</span></div>
-        <div class="aesthetic-example-controls"><button type="button" data-sheet-step="-1" aria-label="上一套示例">${icon("back")}</button><div>${examples.map((_, i) => `<button type="button" data-sheet-page="${i}" aria-label="第${i + 1}套示例" aria-pressed="${index === i}"><i></i></button>`).join("")}</div><button type="button" data-sheet-step="1" aria-label="下一套示例">${icon("right")}</button></div>
-        <button type="button" class="aesthetic-example-link" data-sheet-example="${index}">看看这套的具体安排${icon("right")}</button>
-        <h3 class="aesthetic-rule-heading">三套变化，共同的审美安排</h3>` : '<p class="aesthetic-sheet-intro">此记录按生成时的审美目标显示，未附穿搭样图。</p>'}
+        ${cover ? `<div class="aesthetic-guide-cover"><img src="${esc(cover)}" alt="${esc(profile.name)}质感示意" decoding="async"></div>` : ""}
+        ${plans.length ? `<h3 class="aesthetic-rule-heading">三套具体穿法</h3><div class="aesthetic-plans">${plans.map((plan, index) => `<details class="aesthetic-plan"><summary><span class="aesthetic-plan-index">${index + 1}</span><span class="aesthetic-plan-text"><strong>${esc(plan.title)}</strong><small>${esc(plan.items)}</small></span>${icon("chevron")}</summary><dl class="aesthetic-plan-notes">${Object.entries(plan.notes || {}).map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl></details>`).join("")}</div>` : ""}
+        <h3 class="aesthetic-rule-heading">三套变化，共同的审美安排</h3>
         ${rulesHtml(profile)}<p class="aesthetic-example-note">${esc(profile.example_note || profile.flexible)}</p>`;
       if (profiles.some(p => p.id === profile.id && p.version === profile.version)) footer = `<button type="button" class="primary" data-sheet-use="${esc(profile.id)}">${icon("spark")}${esc(useLabel)}</button>`;
-    } else if (frame.kind === "example") {
-      const sample = examplesFor(profile)[frame.example || 0];
-      body = sample ? `<div class="aesthetic-example-large"><img src="${esc(sample.image)}" alt="${esc(sample.items)}"></div><h3 class="aesthetic-guide-name">${esc(sample.title)}</h3><p class="aesthetic-sheet-intro">${esc(sample.items)}</p><dl class="aesthetic-example-notes">${Object.entries(sample.notes || {}).map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl><p class="aesthetic-example-note">${esc(profile.example_note)}</p>` : "<p>这张示例暂不可用。</p>";
-      footer = `<button type="button" class="aesthetic-secondary" ${e.index ? "data-sheet-back" : "data-sheet-guide-root"}>${icon("back")}回到完整审美</button>`;
     } else if (frame.kind === "options") {
       const settings = getSettings();
       body = `<div class="aesthetic-setting-row"><strong>一次生成</strong><div class="aesthetic-counts">${[3, 5].map(n => `<button type="button" data-sheet-count="${n}" aria-pressed="${settings.limit === n}">${n} 套</button>`).join("")}</div></div><div class="aesthetic-setting-row"><div><strong>AI 比较</strong><p>从候选组合里挑选更协调的搭配。</p></div><button type="button" role="switch" data-sheet-ai aria-checked="${settings.useLlm}" aria-label="AI 比较" class="aesthetic-switch"></button></div><p class="aesthetic-example-note">按当前季节，从已有衣物中选择。</p>`;
@@ -97,20 +93,7 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
       footer = '<button type="button" class="aesthetic-secondary" data-sheet-close>回到搭配页</button>';
     }
     e.scroll.innerHTML = body; e.foot.innerHTML = footer; e.foot.hidden = !footer; e.scroll.scrollTop = frame.scroll || 0;
-    if (frame.kind === "guide" && examplesFor(profile).length > 1) {
-      e.gesture = bindHorizontalSwipe(e.scroll.querySelector(".aesthetic-example-photo"), {
-        selector: ".aesthetic-example-photo", enabled: () => alive(e) && e.phase !== "closing",
-        onSwipe: direction => changeExample(e, direction),
-        onDrag: (node, offset) => node.style.transform = offset ? `translateX(${offset}px)` : ""
-      });
-    }
     if (focus) e.head.querySelector("[data-sheet-close]").focus({ preventScroll: true });
-  }
-  function changeExample(e, direction, absolute = false) {
-    const frame = e.frames[e.index], count = examplesFor(frame.profile).length;
-    if (!count) return;
-    frame.scroll = e.scroll.scrollTop; frame.example = absolute ? direction : ((frame.example || 0) + direction + count) % count;
-    render(e, false); e.scroll.querySelector(`[data-sheet-page="${frame.example}"]`)?.focus({ preventScroll: true });
   }
   function open(frame, anchor) {
     if (disposed || !root.isConnected || entry) return;
@@ -166,10 +149,7 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
         const profile = profiles.find(p => p.id === (data.sheetPick || data.sheetUse)); if (!profile) return;
         onSelect(profile.id); requestClose("sheetUse" in data ? () => onGenerate() : undefined); return;
       }
-      if ("sheetGuide" in data) { const profile = profiles.find(p => p.id === data.sheetGuide); if (profile) push({ kind: "guide", profile, example: 0 }); return; }
-      if ("sheetGuideRoot" in data) { push({ kind: "guide", profile: frame.profile, example: frame.example }, true); return; }
-      if ("sheetExample" in data) { frame.scroll = e.scroll.scrollTop; push({ kind: "example", profile: frame.profile, example: Number(data.sheetExample) }); return; }
-      if ("sheetStep" in data || "sheetPage" in data) { changeExample(e, Number(data.sheetStep ?? data.sheetPage), "sheetPage" in data); return; }
+      if ("sheetGuide" in data) { const profile = profiles.find(p => p.id === data.sheetGuide); if (profile) push({ kind: "guide", profile }); return; }
       if ("sheetCount" in data) { onSettings({ limit: Number(data.sheetCount) }); render(e, false); e.scroll.querySelector(`[data-sheet-count="${data.sheetCount}"]`)?.focus({ preventScroll: true }); return; }
       if ("sheetAi" in data) { onSettings({ useLlm: !getSettings().useLlm }); render(e, false); e.scroll.querySelector("[data-sheet-ai]").focus({ preventScroll: true }); return; }
       if ("sheetFeedback" in data && !e.feedbackBusy) {
@@ -187,8 +167,7 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
   }
   return {
     openSelector: anchor => open({ kind: "select" }, anchor),
-    openGuide: (profile, anchor) => profile && open({ kind: "guide", profile, example: 0 }, anchor),
-    openExample: (profile, example, anchor) => profile && open({ kind: "example", profile, example }, anchor),
+    openGuide: (profile, anchor) => profile && open({ kind: "guide", profile }, anchor),
     openOptions: anchor => open({ kind: "options" }, anchor),
     openBasis: (outfit, anchor) => open({ kind: "basis", outfit }, anchor),
     itemRemoved(id) { if (entry?.frames.some(frame => frame.outfit?.item_ids?.includes(id))) requestClose(); },

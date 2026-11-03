@@ -70,21 +70,29 @@
 .aesthetic-choice-check{position:absolute;top:13px;right:13px;height:22px;width:22px;display:grid;place-items:center;border:1px solid var(--accent-line);border-radius:50%;background:var(--surface);color:var(--accent)}.aesthetic-choice-check>.icon{height:12px;width:12px}
 .aesthetic-choice-card>button:last-child{display:flex;align-items:center;justify-content:space-between;min-height:44px;width:100%;padding:0 10px;font-size:10px;color:var(--accent);border:0;background:none}.aesthetic-choice-card>button:last-child>.icon{height:14px;width:14px}
 .aesthetic-guide-name{font-size:21px;font-weight:550;line-height:1.65;letter-spacing:var(--ls-tight);margin:0 0 8px}
-.aesthetic-example-photo{display:block;position:relative;touch-action:pan-y;width:100%;aspect-ratio:2/3;min-height:44px;min-width:44px;border-radius:17px;overflow:hidden;border:1px solid var(--glass-edge);background:var(--surface-2);padding:0}
-.aesthetic-example-photo img{display:block;width:100%;height:100%;object-fit:contain}
-.aesthetic-example-badge{position:absolute;top:11px;left:11px;font-size:10px;border-radius:var(--radius-pill);padding:4px 8px;background:var(--surface-blur);border:1px solid var(--glass-edge);color:var(--text-dim)}
-.aesthetic-example-caption{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px}
-.aesthetic-example-caption strong{font-size:12px;font-weight:500}.aesthetic-example-caption span{font-size:10px;color:var(--text-faint);white-space:nowrap}
-.aesthetic-example-controls{display:flex;align-items:center;justify-content:space-between}.aesthetic-example-controls>div{display:flex}
-.aesthetic-example-controls button{display:grid;place-items:center;min-width:44px;min-height:44px;padding:0;border:0;background:none}.aesthetic-example-controls .icon{height:15px;width:15px}
-.aesthetic-example-controls i{height:5px;width:5px;border-radius:4px;background:var(--border-strong)}.aesthetic-example-controls [aria-pressed=true] i{width:17px;background:var(--accent)}
-.aesthetic-example-link{display:flex;align-items:center;gap:5px;min-height:44px;font-size:11px;padding:0 4px;color:var(--accent);border:0;background:none}.aesthetic-example-link>.icon{height:14px;width:14px}
+/* 详情页只放卡片上那一张平铺静物（同源同比例 900:1299，不裁），不再出现模特上身照。
+   两套视觉语言混在一个流程里，点进来会像换了个页面。 */
+.aesthetic-guide-cover{width:100%;border:1px solid var(--glass-edge);border-radius:17px;overflow:hidden;background:var(--surface-2)}
+.aesthetic-guide-cover img{display:block;width:100%;height:auto;aspect-ratio:900/1299}
+/* 三套具体穿法：文字条 + 可展开的五条安排要点，替代原来的三张示例大图。 */
+.aesthetic-plans{display:grid;gap:8px;margin:0}
+.aesthetic-plan{border:1px solid var(--glass-edge);border-radius:13px;background:var(--surface-2);overflow:hidden}
+.aesthetic-plan>summary{display:flex;align-items:center;gap:10px;min-height:44px;padding:10px 12px;cursor:pointer;list-style:none}
+.aesthetic-plan>summary::-webkit-details-marker{display:none}
+.aesthetic-plan-index{display:grid;place-items:center;flex:none;height:21px;width:21px;border-radius:50%;border:1px solid var(--accent-line);background:var(--surface);color:var(--accent);font-size:10px}
+.aesthetic-plan-text{flex:1;min-width:0}
+.aesthetic-plan-text strong{display:block;font-size:12px;font-weight:500;line-height:1.6}
+.aesthetic-plan-text small{display:block;font-size:10px;line-height:1.8;color:var(--text-faint);margin-top:3px}
+.aesthetic-plan>summary>.icon{flex:none;height:14px;width:14px;color:var(--text-faint);transition:transform .18s}
+.aesthetic-plan[open]>summary>.icon{transform:rotate(180deg)}
+.aesthetic-plan-notes{display:grid;gap:1px;margin:0;padding:2px 12px 12px}
+.aesthetic-plan-notes dt{font-size:10px;color:var(--accent);margin-top:8px}
+.aesthetic-plan-notes dt:first-child{margin-top:2px}
+.aesthetic-plan-notes dd{font-size:11px;line-height:1.9;color:var(--text-dim);margin:0}
 .aesthetic-rule-heading{font-size:13px;font-weight:500;line-height:1.7;margin:19px 0 12px}
 .aesthetic-rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:19px 15px;margin:0}.aesthetic-rules>div{padding-left:9px;border-left:2px solid var(--accent-line)}
 .aesthetic-rules dt{font-size:11px;color:var(--accent);margin:0 0 4px}.aesthetic-rules dd{font-size:12px;color:var(--text-dim);line-height:1.9;margin:0}
 .aesthetic-example-note{font-size:11px;line-height:1.9;color:var(--text-faint);margin:18px 0 0}
-.aesthetic-example-large{aspect-ratio:2/3;width:100%;border:1px solid var(--glass-edge);border-radius:19px;background:var(--surface-2);overflow:hidden;margin-bottom:16px}.aesthetic-example-large>img{width:100%;height:100%;object-fit:contain}
-.aesthetic-example-notes{display:grid;grid-template-columns:29px minmax(0,1fr);gap:11px 13px;margin:20px 0 0;padding-top:15px;border-top:1px solid var(--border);font-size:12px;line-height:1.85}.aesthetic-example-notes dt{color:var(--text-faint)}.aesthetic-example-notes dd{margin:0;color:var(--text-dim)}
 .aesthetic-setting-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:72px;border-bottom:1px solid var(--border)}.aesthetic-setting-row strong{display:block;font-size:12px;font-weight:500}.aesthetic-setting-row p{font-size:11px;color:var(--text-faint);line-height:1.8;margin:3px 0}
 .aesthetic-counts{display:flex;background:var(--surface);border:1px solid var(--border);padding:3px;border-radius:var(--radius-pill);flex:none}.aesthetic-counts>button{min-width:48px;min-height:44px;border-radius:var(--radius-pill);font-size:11px;padding:0;border:0;background:none}.aesthetic-counts>[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}
 .aesthetic-switch{position:relative;height:44px;width:52px;min-width:52px;border:0;background:none;padding:0}.aesthetic-switch:before{content:"";position:absolute;left:2px;top:8px;width:48px;height:28px;background:var(--border-strong);border-radius:var(--radius-pill)}.aesthetic-switch:after{content:"";position:absolute;left:5px;top:11px;height:22px;width:22px;background:var(--surface);border-radius:50%;box-shadow:var(--shadow);transition:transform .2s}.aesthetic-switch[aria-checked=true]:before{background:var(--accent)}.aesthetic-switch[aria-checked=true]:after{transform:translateX(20px)}
