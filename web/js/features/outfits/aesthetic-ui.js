@@ -1,5 +1,5 @@
 /** §34：审美样片用于理解方法，与真实衣橱结果分开展示。 */
-import { esc } from "../../core/ui.js";
+import { esc, icon } from "../../core/ui.js";
 const STATUS = { matched: "有依据", approximate: "近似尝试", unknown: "信息不足" };
 export function examplesFor(profile) {
   return (profile?.examples || []).filter(row => row.kind === "ai_example" &&
@@ -27,6 +27,30 @@ export function thumbImage(profile) {
 /** 方向封面：平铺静物。没有 cover 的历史快照回退到第一张示例，行为与旧版一致。 */
 export function coverFor(profile) {
   return coverImage(profile) || examplesFor(profile)[0]?.image || "";
+}
+/* ---------- 一屏一张的审美卡：搭配页与添置页共用 ----------
+ * 两个页面的**主动作不同**（搭配页＝生成搭配，添置页＝按它分析衣橱），
+ * 但卡长一样，所以只把文案参数化，结构与样式共用一份。
+ * ⚠️ 两个 data 属性名是全站约定，事件由各自页面绑：
+ *    data-aesthetic-open  = 卡面按钮（主动作）
+ *    data-aesthetic-guide = 「认识这个」（进 guide 帧）
+ * ⚠️ 样式在 css/features/outfits-deck.css（裸类名，不挂在 .outfit-view 下），
+ *    添置页直接套同一个类名即可，别复制第二份。 */
+export function aestheticCardHtml(profile, { hint = "点这里生成搭配", openLabel = "" } = {}) {
+  const cover = coverFor(profile);
+  const label = openLabel || `用${profile.name}生成搭配`;
+  return `<article class="outfit-aesthetic-card" data-aesthetic-card="${esc(profile.id)}">
+      <button type="button" class="outfit-aesthetic-face" data-aesthetic-open="${esc(profile.id)}" aria-label="${esc(label)}">
+        ${cover ? `<img src="${esc(cover)}" alt="" decoding="async">` : `<span class="ph">暂无意向图</span>`}
+        <span class="outfit-aesthetic-hint">${icon("spark")}${esc(hint)}</span>
+      </button>
+      <div class="outfit-aesthetic-copy"><h2>${esc(profile.name)}</h2><p>${esc(profile.core || profile.summary || "")}</p>
+        <div class="outfit-aesthetic-row"><div class="chips">${(profile.points || []).slice(0, 3).map(point => `<span class="chip">${esc(point)}</span>`).join("")}</div><button type="button" class="outfit-aesthetic-learn" data-aesthetic-guide="${esc(profile.id)}">认识这个${icon("right")}</button></div>
+      </div></article>`;
+}
+/** 圆点：44×44 的按钮包 6px 的条 —— 契约 §4 量的是按钮，不是条。 */
+export function aestheticDotsHtml(profiles, active = 0) {
+  return profiles.map((profile, index) => `<button type="button" data-aesthetic-dot="${index}" aria-pressed="${index === active}" aria-label="第 ${index + 1} 个方向：${esc(profile.name)}"><i></i></button>`).join("");
 }
 export function rulesHtml(profile) {
   return `<dl class="aesthetic-rules">${arrangementFor(profile).map(row => `<div><dt>${esc(row.label)}</dt><dd>${esc(row.goal)}</dd></div>`).join("")}</dl>`;

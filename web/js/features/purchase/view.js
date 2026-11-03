@@ -16,6 +16,10 @@ const blocked=()=>Boolean(document.querySelector('.purchase-layer,.aesthetic-lay
 export async function mount(root,ctx){
  if(active)unmount(active.root);
  let disposed=false,ready=false,mode='home',draftId=null,resultPlanId=null,profiles=[],sheet=null,timer=null,ticket=0,dirty=false,composing=false,assistantId=null,depth=0,pending=null,returning=false,homeHtml='',starting=false;
+ // §41：一屏一张审美卡，横滑到第几张由这里记 —— paint() 会整块重建首页，
+ //   重建后必须把 scrollLeft 还回去，否则点卡→分析→返回会跳回第一张。
+ let aestheticIndex=0,scrollTick=0;
+ const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
  const hash=location.hash,abort=new AbortController(),positions=new Map(),alive=()=>!disposed&&root.isConnected;
  const currentDraft=()=>session.draft(draftId)||session.data?.analysis;
  const profile=()=>profiles.find(p=>p.id===session.style)||profiles.find(p=>p.id==='natural')||profiles[0];
@@ -49,15 +53,27 @@ export async function mount(root,ctx){
  }
  function renderHome(){
   const focus=root.contains(document.activeElement),data=session.data;
-  const content=ready?initialHtml({data,profile:profile(),analyzing:session.analyzing,preparation:data?.preparation,photosReady:readyPreparation()}):'<p class="faint">正在读取添置建议…</p><button type="button" class="quiet blue" data-purchase-query>重新读取</button>';
-  const html=`<section class="purchase-view purchase-intent" data-purchase-page="home"><div class="purchase-heading page-actions"><div class="intent-heading-right"><button type="button" class="purchase-saved-button saved-link" data-purchase-saved>${icon('bookmark')}已记下 ${savedIds().size}</button></div></div><div class="purchase-content">${session.message?`<p class="global-notice" role="status">${esc(session.message)}</p>`:''}${content}</div></section>`;
-  if(homeHtml!==html){root.innerHTML=html;homeHtml=html;if(focus)root.querySelector('[data-purchase-analyze],[data-purchase-query]')?.focus({preventScroll:true})}
+  const content=ready?initialHtml({data,profiles,analyzing:session.analyzing,preparation:data?.preparation,photosReady:readyPreparation()}):'<p class="faint">正在读取添置建议…</p><button type="button" class="quiet blue" data-purchase-query>重新读取</button>';
+  const html=`<section class="purchase-view purchase-intent" data-purchase-page="home"><div class="purchase-heading page-actions"><div class="intent-heading-right"><button type="button" class="purchase-saved-button saved-link" data-purchase-saved>${icon('bookmark')}已记下 ${savedIds().size}</button></div></div><div class="purchase-content is-aesthetic-home">${session.message?`<p class="global-notice" role="status">${esc(session.message)}</p>`:''}${content}</div></section>`;
+  if(homeHtml!==html){root.innerHTML=html;homeHtml=html;restoreDeck();if(focus)root.querySelector('[data-aesthetic-open],[data-purchase-query]')?.focus({preventScroll:true})}
+ }
+ /** 圆点与 deck 的当前页对齐。index 越界会被夹住 —— profiles 是异步来的，可能比上次少。 */
+ function syncAesthetic(index){
+  aestheticIndex=Math.max(0,Math.min(index,Math.max(0,profiles.length-1)));
+  const dots=root.querySelector('[data-aesthetic-dots]');if(!dots)return;
+  [...dots.children].forEach((dot,i)=>dot.setAttribute('aria-pressed',String(i===aestheticIndex)));
+ }
+ /** 重建首页后把横滑位置还回去。同步落一次、rAF 再对一次（首帧常常还没布局完）。 */
+ function restoreDeck(){
+  const deckEl=root.querySelector('[data-aesthetic-deck]');if(!deckEl)return;
+  const apply=()=>{if(!alive()||!deckEl.isConnected)return;const width=deckEl.clientWidth;if(width)deckEl.scrollLeft=aestheticIndex*width;syncAesthetic(aestheticIndex)};
+  apply();requestAnimationFrame(apply);
  }
  function paint({animate=false,position}={}){
   if(!alive())return;if(blocked()||composing||editing()||panel.dragging){defer();return}clearTimeout(timer);dirty=false;acceptRefs();
   if(mode==='home'){if(panel.open){void panel.close().then(()=>{if(alive()&&mode==='home')paint()});return}renderHome();return}
   const content=body(),head=header();
-  if(!panel.open){panel.show({header:head,content,anchor:root.querySelector('[data-purchase-analyze]')});bind(panel.content)}
+  if(!panel.open){const faces=root.querySelectorAll('[data-aesthetic-open]');panel.show({header:head,content,anchor:faces[aestheticIndex]||faces[0]||root.querySelector('[data-purchase-query]')});bind(panel.content)}
   else if(!panel.render({header:head,content,animate})){defer();return}
   panel.layer.dataset.purchasePage=mode;
   if(position!==undefined)panel.content.scrollTop=position;
@@ -91,6 +107,15 @@ export async function mount(root,ctx){
   if(session.analyzing||!ready||!session.data?.total)return;session.clearMessage();starting=true;let promise;try{promise=session.analyze(options)}finally{starting=false}if(!session.analyzing){void promise.catch(e=>toast(e.message,'error'));return}
   change('analyzing',{extra:{purchaseRequest:session.analysisRequestId}});try{await promise}catch{}if(alive())changed();
  }
+ /** §41：点审美卡 = 选定方向 + 立刻分析（原来要两步：先点面板选，再点底部的「按这个审美分析」）。
+  *  ⚠️ 两种情况都不会静默失败：分析中 / 衣橱为空。原来那个按钮是 disabled 的，
+  *    卡片没有 disabled 态，不说一声用户会以为点坏了。 */
+ function openAesthetic(id){
+  if(!profiles.some(row=>row.id===id))return;
+  if(session.analyzing){toast('正在分析中，等这一轮回来再换方向。','info');return}
+  if(!session.data?.total){toast('先录入几件已有衣物，建议才更有依据。','error');return}
+  session.setStyle(id);void analyze();
+ }
  async function choose(){
   const draft=readyDraft(),row=selection();if(!draft||session.preparing)return;
   const ids=row.ids.filter(id=>draft.directions.some(d=>d.id===id));row.ids=ids;session.setNote(draft.id,row.note);
@@ -104,7 +129,10 @@ export async function mount(root,ctx){
  async function returnToAnalysis(id){if(!id){closeAll();return}const run=++ticket;try{await session.loadDraft(id);if(alive()&&run===ticket&&location.hash===hash){draftId=id;change('assistant')}}catch{toast('原分析暂时无法读取。','error')}}
  async function card(button){const data=session.data,plan=[data.result,...(data.saved||[]),...(data.result_history||[]),lastReady].find(p=>p?.id===button.dataset.plan),direction=plan?.directions.find(d=>d.id===button.dataset.direction);if(!direction||!purchaseReference(direction))return;await openPurchaseSheet({root:panel.panel,anchor:button,direction,plan,items:data.items,taxonomy:ctx.taxonomy,saved:savedIds().has(direction.id),onChoice:action=>session.choice(plan.id,direction.id,action),onClose:()=>{if(history.state?.purchasePage!==mode)void syncHistory();else{paint();panel.content?.querySelector(`[data-direction="${direction.id}"]`)?.focus({preventScroll:true})}},onDismiss:()=>void returnToAnalysis(plan.source_draft_id),changeWithoutDismiss:true})}
  const click=event=>{const b=event.target.closest('button');if(!b||b.disabled)return;const d=b.dataset;
-  if('openAesthetics'in d){sheet?.openSelector(b);return}if('purchaseAnalyze'in d){void analyze();return}if(d.intentDirection){toggle(d.intentDirection);return}if('purchasePrepare'in d){void choose();return}
+  if(d.aestheticOpen){openAesthetic(d.aestheticOpen);return}
+  if(d.aestheticGuide){const row=profiles.find(p=>p.id===d.aestheticGuide);if(row)sheet?.openGuide(row,b);return}
+  if(d.aestheticDot){const deckEl=root.querySelector('[data-aesthetic-deck]'),index=Number(d.aestheticDot);if(deckEl){syncAesthetic(index);deckEl.scrollTo({left:index*deckEl.clientWidth,behavior:reducedMotion.matches?'auto':'smooth'})}return}
+  if('purchaseAnalyze'in d){void analyze();return}if(d.intentDirection){toggle(d.intentDirection);return}if('purchasePrepare'in d){void choose();return}
   if('openAnalysis'in d){change('analyzing',{extra:{purchaseRequest:session.analysisRequestId}});return}
   if('purchaseHome'in d){closeAll();return}if('purchaseReturn'in d){back();return}if('purchaseSaved'in d){change('saved');return}if('openPreparation'in d){change('processing');return}
   if('resumeAnalysis'in d){draftId=session.data?.analysis?.id;change('assistant');return}if('backToAnalysis'in d){void returnToAnalysis(d.sourceDraft||session.data?.preparation?.draft_id||draftId);return}
@@ -113,10 +141,32 @@ export async function mount(root,ctx){
   if('purchaseQuery'in d){void session.refresh().then(()=>{if(alive()){ready=true;paint()}}).catch(e=>toast(e.message,'error'));return}if(d.direction)void card(b);
  };
  function bind(container){container.addEventListener('click',click,{signal:abort.signal});container.addEventListener('input',event=>{if(event.target.matches('[data-intent-note]')&&currentDraft()){session.setNote(currentDraft().id,event.target.value);const button=panel.content?.querySelector('[data-purchase-prepare] span');if(button)button.textContent=event.target.value.trim()?'按补充偏好重新分析':`查看 ${selection().ids.length} 类款式`}},{signal:abort.signal});container.addEventListener('toggle',event=>{if(event.target.matches('[data-intent-extra]')&&currentDraft())session.setExpanded(currentDraft().id,event.target.open)},{capture:true,signal:abort.signal});container.addEventListener('compositionstart',()=>composing=true,{signal:abort.signal});container.addEventListener('compositionend',()=>{composing=false},{signal:abort.signal});container.addEventListener('focusout',()=>{if(dirty){clearTimeout(timer);timer=setTimeout(changed,160)}},{signal:abort.signal})}
- bind(root);window.addEventListener('popstate',()=>void syncHistory(),{signal:abort.signal});
+ bind(root);
+ // scroll 不冒泡，但 capture 能在 root 上收到子元素的滚动 —— 首页整块会被重建，
+ // 绑在 deck 元素上会随重建丢掉，绑在 capture 上不会。
+ root.addEventListener('scroll',event=>{
+  const deckEl=event.target;
+  if(!deckEl?.matches?.('[data-aesthetic-deck]')||scrollTick)return;
+  scrollTick=requestAnimationFrame(()=>{scrollTick=0;const width=deckEl.clientWidth;if(width)syncAesthetic(Math.round(deckEl.scrollLeft/width))});
+ },{capture:true,passive:true,signal:abort.signal});
+ window.addEventListener('popstate',()=>void syncHistory(),{signal:abort.signal});
  const unsubscribe=session.subscribe(changed),unmedia=subscribeReferenceMedia(()=>{if(!alive())return;if(document.querySelector('.purchase-layer')){refreshPurchaseSheetReferences();defer()}else changed()});
  active={root,dispose(){disposed=true;abort.abort();unsubscribe();unmedia();sheet?.dispose();panel.dispose();clearTimeout(timer)}};paint();
  const responses=await Promise.allSettled([api.aesthetics(),session.refresh()]);if(!alive())return;if(responses[0].status==='fulfilled')profiles=responses[0].value.aesthetics;ready=Boolean(session.data);draftId=history.state?.purchaseDraft||session.data?.analysis?.id||null;
- sheet=createAestheticSheet({root,profiles,getSettings:()=>({aesthetic:profile()?.id}),onSettings:()=>{},onSelect:id=>{session.setStyle(id);if(mode!=='home'){pending={next:'home',options:{replace:true},ticket,key:stateKey()}}defer()},onGenerate:()=>void analyze(),onFeedback:()=>{},useLabel:'按这个审美分析衣橱',getBackground:()=>[document.querySelector('.topbar'),root,document.querySelector('#tabbar'),panel.panel]});
+ // §41：sheet 只剩「认识这个」一种用途了。选择帧（openSelector / onSelect / onGenerate）
+ //   在 §40 收窄签名时被删掉，但这里的调用没跟着改 → 点「审美方向」报
+ //   `TypeError: sheet.openSelector is not a function`，面板根本不弹。
+ //   统一成一屏一张之后不再需要选择帧，**这条调用点连同上一条 bug 一起消失**。
+ sheet=createAestheticSheet({root,profiles,getSettings:()=>({aesthetic:profile()?.id}),onSettings:()=>{},
+  onUseProfile:row=>{
+   if(!row)return;
+   session.setStyle(row.id);
+   // guide 是根帧，back 一次就把面板收掉。绝不能 sheet.dispose() —— 那是不可逆的，
+   // 之后「认识这个」再也打不开。analyze() 撞到 blocked() 会自己 defer 重试。
+   if(history.state?.aestheticSheet)history.back();
+   void analyze();
+  },
+  onFeedback:()=>{},useLabel:'按这个审美分析衣橱',
+  getBackground:()=>[document.querySelector('.topbar'),root,document.querySelector('#tabbar'),panel.panel]});
  acceptRefs();if(history.state?.purchasePage&&history.state.purchasePage!=='home')await syncHistory();else{history.replaceState({...baseState(),purchasePage:'home'},'',location.href);paint()}
 }

@@ -12,7 +12,7 @@ import { api } from "../../core/api.js";
 import { esc, icon, fmtDateTime, itemChipsHtml, toast } from "../../core/ui.js";
 import { openTryonSheet } from "./tryon-sheet.js";
 import { createAestheticSheet } from "./aesthetic-sheet.js";
-import { coverFor, methodDetails } from "./aesthetic-ui.js";
+import { aestheticCardHtml, aestheticDotsHtml, methodDetails } from "./aesthetic-ui.js";
 
 export const label = "搭配";
 
@@ -127,17 +127,6 @@ export async function mount(root, ctx, arg = "", restore = null) {
   }
 
   /* ---------- 第一层：审美卡 ---------- */
-  function aestheticCardHtml(profile) {
-    const cover = coverFor(profile);
-    return `<article class="outfit-aesthetic-card" data-aesthetic-card="${esc(profile.id)}">
-      <button type="button" class="outfit-aesthetic-face" data-aesthetic-open="${esc(profile.id)}" aria-label="用${esc(profile.name)}生成搭配">
-        ${cover ? `<img src="${esc(cover)}" alt="" decoding="async">` : `<span class="ph">暂无意向图</span>`}
-        <span class="outfit-aesthetic-hint">${icon("spark")}点这里生成搭配</span>
-      </button>
-      <div class="outfit-aesthetic-copy"><h2>${esc(profile.name)}</h2><p>${esc(profile.core || profile.summary || "")}</p>
-        <div class="outfit-aesthetic-row"><div class="chips">${(profile.points || []).slice(0, 3).map(point => `<span class="chip">${esc(point)}</span>`).join("")}</div><button type="button" class="outfit-aesthetic-learn" data-aesthetic-guide="${esc(profile.id)}">认识这个${icon("right")}</button></div>
-      </div></article>`;
-  }
   function syncAesthetic(index, force = false) {
     const next = Math.min(Math.max(0, index), profiles.length - 1);
     if (!force && next === aestheticIndex) return;
@@ -146,8 +135,8 @@ export async function mount(root, ctx, arg = "", restore = null) {
     [...dotsEl.children].forEach((button, position) => button.setAttribute("aria-pressed", String(position === next)));
   }
   function renderAestheticDeck() {
-    deckEl.innerHTML = profiles.map(aestheticCardHtml).join("");
-    dotsEl.innerHTML = profiles.map((profile, index) => `<button type="button" data-aesthetic-dot="${index}" aria-pressed="${index === aestheticIndex}" aria-label="第 ${index + 1} 个方向：${esc(profile.name)}"><i></i></button>`).join("");
+    deckEl.innerHTML = profiles.map(profile => aestheticCardHtml(profile)).join("");
+    dotsEl.innerHTML = aestheticDotsHtml(profiles, aestheticIndex);
     syncAesthetic(aestheticIndex, true);
     // 首帧可能还没布局完，宽度拿不到就先落一次，等 rAF 再对一次。
     requestAnimationFrame(() => { if (alive() && deckEl.clientWidth) deckEl.scrollLeft = aestheticIndex * deckEl.clientWidth; });

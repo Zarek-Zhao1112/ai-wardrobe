@@ -2,30 +2,22 @@
 import { api } from '../../core/api.js';
 import { esc,icon } from '../../core/ui.js';
 import { referencePhoto, referenceLabel } from './reference.js';
-import { coverImage } from '../outfits/aesthetic-ui.js';
+import { aestheticCardHtml, aestheticDotsHtml } from '../outfits/aesthetic-ui.js';
 export function photo(item){const url=item&&api.presentationUrl(item);return url?`<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(item.name||item.type_label||'已有衣物')}">`:`<span class="purchase-ph">${esc(item?.type_label||'已有衣物')}</span>`;}
 const primary=(action,text,disabled=false)=>`<button type="button" class="purchase-primary primary" ${action} ${disabled?'disabled':''}>${icon('spark')}<span>${text}</span></button>`;
-/** 审美行的预览：**整套平铺封面**，与搭配页卡片、六宫格同源同比例。
- *  这条路换过四次，前三次都是为了绕开"像个人"：
- *  ① 三张 `examples[].image`（模特样图）各压成 25×52 —— 三条人形切片；
- *  ② 竖封面塞 36×52 —— 整叠缩到 36px，只够认色，看不出是几件；
- *  ③ 横条局部「鞋 + 裤脚」74×52 —— 确实不像人了，但也看不出整套；
- *  ④ 现在：竖框 60×87，比例与 900:1299 一致，整套都在、零裁切。
- *  ★ ②的"像人"是**尺寸太小的误读**，不是构图问题。40px 以下细节全丢，
- *  只剩「领口→白T→裤→鞋」一条纵向剪影，那才读成身体；放到 60px 宽，
- *  袖子是摊平的、裤腿是分开的、鞋是斜摆并排的，读作平铺。
- *  六张按「穿着展开」摆（flat lay 的通行做法），必然带一点人形轮廓 ——
- *  那是这套图能表达"整套怎么穿"的代价，不是缺陷。
- *  不设 `aspect-ratio`，宽高直接按原图比例写死，任何取景变化都不会切到鞋。
- *  拿不到 cover 就整块不渲染：宁可没有图，也不退回人像。 */
-function coverPreview(profile){
- const url=coverImage(profile);
- return url?`<span class="style-preview-images"><img src="${esc(url)}" alt="${esc(profile?.name||'审美方向')}整套平铺"></span>`:'';
-}
-export function initialHtml({data,profile,analyzing,preparation,photosReady=false}){
- const hero=(data?.hero||[]).slice(0,3),pending=preparation&&['running','unknown','interrupted'].includes(preparation.status)&&preparation.phase!=='finished';
- const resume=analyzing?'<button type="button" class="quiet blue home-return" data-open-analysis>查看分析进度 →</button>':data?.analysis?.workflow_version===2?'<button type="button" class="quiet blue home-return" data-resume-analysis>继续看看衣物方向 →</button>':'';
- return `<div class="home-layout"><div class="wardrobe-motif" aria-hidden="true">${hero.map(id=>`<div>${photo(data.items[id])}</div>`).join('')}${!hero.length?`<div>${icon('wardrobe')}</div>`:''}</div><h1 class="home-title">先选一种审美，<br>再看看添什么。</h1><p class="body-copy">让 AI 结合已有衣橱，<br>帮你想清楚下一件值得添什么。</p><button type="button" class="style-picker" data-open-aesthetics aria-haspopup="dialog">${coverPreview(profile)}<span><small>审美方向</small><strong>${esc(profile?.name||'自然日常')}</strong></span>${icon('right')}</button>${primary('data-purchase-analyze','按这个审美分析',analyzing||!data?.total||!profile)}${resume}${pending?'<button type="button" class="quiet blue home-return" data-open-preparation>查看本次准备 →</button>':data?.result?'<button type="button" class="quiet blue home-return" data-purchase-last>查看上次建议 →</button>':''}${!data?.total?'<p class="selection-note">先录入几件已有衣物，让建议更有依据。<br><a href="#add">去录入衣物</a></p>':''}</div>`;
+/* §41：首页原来的 `.style-picker`（60×87 缩略图 + 一行字）连同它的 coverPreview 一起删了。
+ * 那张缩略图当初换过四次才定到 60×87，理由是 40px 以下细节全丢、会读成一条人形剪影 ——
+ * 这条教训仍然有效，所以现在的一屏一张卡**继续用整套平铺封面**，不再回退到模特样图。
+ * 卡片本身与搭配页共用（aesthetic-ui.js 的 aestheticCardHtml + outfits-deck.css）。 */
+export function initialHtml({data,profiles=[],analyzing,preparation,photosReady=false}){
+ const pending=preparation&&['running','unknown','interrupted'].includes(preparation.status)&&preparation.phase!=='finished';
+ const resume=analyzing?'<button type="button" class="quiet blue home-return" data-open-analysis>看分析进度 →</button>':'';
+ const next=pending?'<button type="button" class="quiet blue home-return" data-open-preparation>看本次准备 →</button>':data?.result?'<button type="button" class="quiet blue home-return" data-purchase-last>看上次建议 →</button>':'';
+ // 「继续查看」那类入口只占一行 44px，跟圆点分开；没有任何入口时整块不出，卡片就能多长一点。
+ const links=resume||next?`<div class="aesthetic-home-links">${resume}${next}</div>`:'';
+ const empty=!data?.total?'<p class="selection-note aesthetic-home-empty">先录入几件已有衣物，建议才更有依据。<br><a href="#add">去录入衣物</a></p>':'';
+ if(!profiles.length)return `<div class="aesthetic-home">${data?.total?'<p class="faint aesthetic-home-empty">审美方向读取中…</p>':empty}</div>`;
+ return `<div class="aesthetic-home"><div class="outfit-aesthetic-deck" data-aesthetic-deck aria-label="审美方向，左右滑动切换">${profiles.map(row=>aestheticCardHtml(row,{hint:'点这里分析衣橱',openLabel:`用${row.name}分析衣橱`})).join('')}</div><div class="outfit-aesthetic-dots" data-aesthetic-dots role="group" aria-label="切换审美方向">${aestheticDotsHtml(profiles,0)}</div>${links}${empty}</div>`;
 }
 function proposal(draft,direction,index,selection,items){return `<button type="button" class="proposal" role="checkbox" aria-checked="${selection.ids.includes(direction.id)}" data-intent-direction="${esc(direction.id)}"><span class="pi-direction-photo">${referencePhoto(direction)}</span><span class="proposal-body"><span class="proposal-title"><strong>${esc(direction.title)}</strong></span><span class="proposal-description">${esc(direction.reason)}</span><span class="proposal-match">${direction.owned.slice(0,2).map(id=>`<span class="intent-owned-mini">${photo(items[id])}</span>`).join('')}<span>和已有衣物一起搭</span></span></span><span class="choice-mark">${icon('check')}</span></button>`;}
 export function assistantHtml({draft,selection,items,preparing}){

@@ -5,7 +5,7 @@ export function createAssistantPanel({root,onClose,onBack,isBlocked=()=>false}){
  const reduced=matchMedia('(prefers-reduced-motion: reduce)');
  const alive=e=>entry===e&&e.layer.isConnected;
  function restore(e){for(const row of e.background){const n=row.node;n.style.filter=row.filter;n.style.transform=row.transform;n.style.transition=row.transition;n.style.pointerEvents=row.pointer;row.aria===null?n.removeAttribute('aria-hidden'):n.setAttribute('aria-hidden',row.aria)}for(const[n,value]of e.focus)if(n.isConnected)value===null?n.removeAttribute('tabindex'):n.setAttribute('tabindex',value);document.body.classList.remove('purchase-assistant-open')}
- function finish(e,focus=true){if(entry!==e)return;e.resetDrag();clearTimeout(e.timer);e.abort.abort();restore(e);e.layer.remove();entry=null;if(focus&&root.isConnected&&!isBlocked())(e.anchor?.isConnected?e.anchor:root.querySelector('[data-purchase-analyze]'))?.focus({preventScroll:true});e.done?.()}
+ function finish(e,focus=true){if(entry!==e)return;e.resetDrag();clearTimeout(e.timer);e.abort.abort();restore(e);e.layer.remove();entry=null;if(focus&&root.isConnected&&!isBlocked())(e.anchor?.isConnected?e.anchor:root.querySelector('[data-aesthetic-open],[data-purchase-query]'))?.focus({preventScroll:true});e.done?.()}
  function resize(e){const v=window.visualViewport;e.layer.style.setProperty('--pi-height',(v?.height||innerHeight)+'px');e.layer.style.setProperty('--pi-offset',(v?.offsetTop||0)+'px')}
  function open({header,content,anchor}){
   if(entry)return entry;

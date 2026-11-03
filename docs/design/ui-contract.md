@@ -423,3 +423,31 @@ node scripts/checks/cdp_ui_check.js            # 三视口 + 4 页溢出 + 触�
 验收（390×844，demo 库 8 件）：第一层 `documentElement` 滚动 **0**，卡 358×608（封面 356×454），圆点 700–744，底栏顶 760；面板 378×832 起于 (6,6)，堆叠区 344×688，顶卡 344×660，后卡露边 11–14px；拖一次 `1/3 → 2/3` 且文案同步；关闭后 `body` 类清空、焦点回到那张审美卡；1440×900 无滚动。门禁 `cdp_ui_check.js` 三视口 0 异常 / 0 横向溢出 / 0 触控过小。
 
 遗留：v1 的 `.outfit-stage-*`、`.outfit-generate-bar`、`.outfit-recent-*`、`.outfit-dots`、`.aesthetic-choice-*` 等选择器**已成死代码**（只删了 JS 侧无调用的 `profileCardHtml`），建议单独一轮清；手机实机还没装机验证。
+
+## §41 添置首页统一成一屏一张（§40 的回归修复 + 两页共用一张卡）
+
+**起因是一次回归**：§40 重写 `aesthetic-sheet.js` 时按搭配页需要收窄了签名，删掉 `openSelector` 与它背后的 `select` 帧，**但添置页 `purchase/view.js` 的调用点没跟着改**。真机点「审美方向」报 `TypeError: sheet.openSelector is not a function`，玻璃面板根本不弹。
+
+三道检查都没拦住，原因值得记：
+- `web_assets.py` 只校验**模块 import 是否存在**，不校验对象上的**方法名**——文件在、import 通，检查就过；
+- 布局探针只采**加载期** console，这个异常发生在**点击之后**；
+- 四页自检只量了布局数字，**没有对 `data-*` 动作按钮逐个点一遍**。
+
+**修法不是复原，是统一**：添置页首页原来是一个 `.style-picker`（60×87 缩略图 + 一行字，点开弹选择面板），现在换成一屏一张审美大卡，**点卡＝选定方向 + 立刻分析**（原来两步：面板里选，再点底部「按这个审美分析」）。选择面板不再需要，`openSelector` 那条调用点连同 bug 一起消失。
+
+**卡片共用一份**：`aesthetic-ui.js` 的 `aestheticCardHtml(profile, {hint, openLabel})` + `aestheticDotsHtml(profiles, active)`，样式在 `outfits-deck.css` 的**裸类名**（`.outfit-aesthetic-card` 不挂在 `.outfit-view` 下，所以添置页直接套同一个类名）。两页只有文案不同：搭配页 `点这里生成搭配` / 添置页 `点这里分析衣橱`。`data-aesthetic-open` / `data-aesthetic-guide` / `data-aesthetic-dot` 三个属性名是全站约定，事件各页自己绑。
+
+**★ 高度链有一处必须显式写 `flex:1`**：`page-chrome.css` 有 `.purchase-view .purchase-content{flex:0 0 auto}`，与 `.purchase-intent .purchase-content{flex:1}` **同为 (0,2,0) 且加载更晚，它赢**。不覆盖的话内容容器不收缩 → 高度由内容决定 → 卡片按封面原图比例一路撑到 **893px**，底部压住 tabbar（实测 deck 底 786 > tabbar 顶 760）。`.purchase-intent .purchase-content.is-aesthetic-home` 是 (0,3,0)，压得住，里面必须写 `flex:1;min-height:0`。
+
+**高度账不用另算**：`.purchase-view.purchase-intent` 的 `calc()` 本来就扣掉了顶栏与 tabbar，而且它一直用 **`100vh`**（不是 `100dvh`），所以没有搭配页那个「`100dvh` 算成 0」的问题。见 §40 的高度陷阱。
+
+**状态归属**：`aestheticIndex` 留在 `purchase/view.js`。`paint()` 会整块重建首页（`homeHtml` 变了才重建），重建后必须把 `scrollLeft` 还回去，否则「点卡 → 分析 → 收起」会跳回第一张。`restoreDeck()` 同步落一次 + rAF 再对一次。横滑的 `scroll` 监听绑在 **`root` 的 capture 阶段**——`scroll` 不冒泡，绑在 deck 元素上会随重建丢掉。
+
+**「继续查看」入口收敛成一行**：`看分析进度 / 看本次准备 / 看上次建议` 最多同时出现两个，统一放进 `.aesthetic-home-links`（44px 一行），没有就整块不出。原来的 `.wardrobe-motif` / `.home-title` / `.body-copy` 三段为「底部对齐」服务的装饰全部撤掉——一屏一张放不下，也不需要。
+
+验收（390×844，demo 库 7 件）：卡片 356×563，deck 121–684，圆点 684–728，tabbar 760–832，**零重叠**；`docScroll 0` / `contentOverflowY 0` / `deckSnap x mandatory`；滑到第 3 张 `idx=2` 且圆点第 3 个亮；开 guide → 关 → **`idx` 仍是 3**；点卡 → `style` 写入 `purchaseIntentStyle:v1` → 收起 → **`idx` 仍是 3、焦点回那张卡**；三视口（390/1024/1440）`overflowX 0` / `console 0` / 手机视口 `small_count 0`。
+
+**遗留**：
+- 添置页旧选择器的样式已成死代码（`.style-picker`、`.style-preview-images`、`.home-layout`、`.wardrobe-motif`、`.home-title`、`.body-copy`），本轮**有意保留**当作回退参照，与 §40 那批一起清。
+- 桌面顶栏的「微信绑定」按钮是 **78×39**，低于 44 —— 既有问题，两页都有，不在本轮范围。
+- 分析链路这次没能端到端跑通：DeepSeek 返回 **402 Payment Required**（账户余额不足），界面正确降级成「余额或额度不足」+「重新分析」。充值后需复测真实出结果。

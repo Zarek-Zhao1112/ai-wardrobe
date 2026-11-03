@@ -159,3 +159,27 @@
 @media(prefers-reduced-motion:reduce){.purchase-intent *, .purchase-intent *:before,.purchase-intent *:after{animation:none!important;transition:none!important}}
 
 .purchase-intent .quiet{border:0;min-width:44px}
+
+/* ---------- §41 添置首页：一屏一张审美卡（与搭配页同一套卡片） ----------
+ * 卡片、横滑 deck、圆点的样式全部来自 features/outfits-deck.css 的裸类名，
+ * 这里只补「它被塞进添置页容器」时需要的那几条，**不要复制卡片样式第二份**。
+ * 高度不用另算：.purchase-view.purchase-intent 的 calc 已经扣掉顶栏与 tabbar，
+ * 且它一直用 100vh（不是 100dvh），所以没有搭配页那个「100dvh 算成 0」的问题。
+ * 原来这里有个 .style-picker（60×87 缩略图 + 一行字，点开弹选择面板）——
+ * 选择面板的入口在 §40 被收窄掉了，那个按钮点了只会报错，已随本次改动删除。 */
+.purchase-intent .purchase-content.is-aesthetic-home{
+  display:flex;flex-direction:column;
+  /* ⚠️ flex:1 必须**显式写在这里**：page-chrome.css 有
+   *    `.purchase-view .purchase-content{flex:0 0 auto}`，与
+   *    `.purchase-intent .purchase-content{flex:1}` 同为 (0,2,0)、它加载更晚所以赢。
+   *    不写这条，内容容器不收缩 → 高度由内容决定 → 卡片按封面原图比例
+   *    撑到 893px，底部压住 tabbar（实测 deck 底 786 > tabbar 顶 760）。
+   *    本选择器是 (0,3,0)，压得住。 */
+  flex:1;min-height:0;
+  /* 一屏一张：纵向不许滑，横滑交给 deck 的 scroll-snap。 */
+  overflow-y:hidden;padding:3px 1px 0;
+}
+.purchase-intent .aesthetic-home{flex:1;min-height:0;display:flex;flex-direction:column}
+/* 「看分析进度 / 看上次建议」那类回头入口：最多两个并排，没有就整块不出。 */
+.purchase-intent .aesthetic-home-links{flex:none;display:flex;align-items:center;justify-content:center;gap:2px;min-height:44px;flex-wrap:nowrap;overflow:hidden}
+.purchase-intent .aesthetic-home-empty{flex:none;margin:6px 0 0;text-align:center;font-size:12px;line-height:1.75}
