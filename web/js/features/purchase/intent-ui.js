@@ -2,18 +2,25 @@
 import { api } from '../../core/api.js';
 import { esc,icon } from '../../core/ui.js';
 import { referencePhoto, referenceLabel } from './reference.js';
-import { thumbImage } from '../outfits/aesthetic-ui.js';
+import { coverImage } from '../outfits/aesthetic-ui.js';
 export function photo(item){const url=item&&api.presentationUrl(item);return url?`<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(item.name||item.type_label||'已有衣物')}">`:`<span class="purchase-ph">${esc(item?.type_label||'已有衣物')}</span>`;}
 const primary=(action,text,disabled=false)=>`<button type="button" class="purchase-primary primary" ${action} ${disabled?'disabled':''}>${icon('spark')}<span>${text}</span></button>`;
-/** 审美行的预览：**一张横条局部**（鞋 + 裤脚），与搭配页封面同源同一次拍摄。
- *  这条路换过三次，每次都是"看起来像个人"：
+/** 审美行的预览：**整套平铺封面**，与搭配页卡片、六宫格同源同比例。
+ *  这条路换过四次，前三次都是为了绕开"像个人"：
  *  ① 三张 `examples[].image`（模特样图）各压成 25×52 —— 三条人形切片；
- *  ② 一张竖封面塞 36×52 —— 整叠缩到 36px，领口白 T 裤子鞋排成一条，像没头的人；
- *  ③ 现在：封面下方鞋与裤脚的局部，74×52。静物，没有身体链条。
- *  拿不到 thumb 就退到 cover，再拿不到整块不渲染：宁可没有图，也不退回人像。 */
+ *  ② 竖封面塞 36×52 —— 整叠缩到 36px，只够认色，看不出是几件；
+ *  ③ 横条局部「鞋 + 裤脚」74×52 —— 确实不像人了，但也看不出整套；
+ *  ④ 现在：竖框 60×87，比例与 900:1299 一致，整套都在、零裁切。
+ *  ★ ②的"像人"是**尺寸太小的误读**，不是构图问题。40px 以下细节全丢，
+ *  只剩「领口→白T→裤→鞋」一条纵向剪影，那才读成身体；放到 60px 宽，
+ *  袖子是摊平的、裤腿是分开的、鞋是斜摆并排的，读作平铺。
+ *  六张按「穿着展开」摆（flat lay 的通行做法），必然带一点人形轮廓 ——
+ *  那是这套图能表达"整套怎么穿"的代价，不是缺陷。
+ *  不设 `aspect-ratio`，宽高直接按原图比例写死，任何取景变化都不会切到鞋。
+ *  拿不到 cover 就整块不渲染：宁可没有图，也不退回人像。 */
 function coverPreview(profile){
- const url=thumbImage(profile);
- return url?`<span class="style-preview-images"><img src="${esc(url)}" alt="${esc(profile?.name||'审美方向')}封面"></span>`:'';
+ const url=coverImage(profile);
+ return url?`<span class="style-preview-images"><img src="${esc(url)}" alt="${esc(profile?.name||'审美方向')}整套平铺"></span>`:'';
 }
 export function initialHtml({data,profile,analyzing,preparation,photosReady=false}){
  const hero=(data?.hero||[]).slice(0,3),pending=preparation&&['running','unknown','interrupted'].includes(preparation.status)&&preparation.phase!=='finished';

@@ -15,9 +15,10 @@ export function coverImage(profile) {
   const cover = profile?.cover;
   return typeof cover === "string" && /^\/reference\/aesthetics\/[a-zA-Z0-9_-]+\.webp$/.test(cover) ? cover : "";
 }
-/** 横条缩略图：封面下方「鞋 + 裤脚」的局部，给添置行那种 74×52 的横向格子用。
- *  竖封面塞横向格子只会取到中间那条带（敞开外套 + 白 T = 一个胸口），所以另裁一张。
- *  拿不到 thumb 时退到 cover：旧快照没有 thumb，退回整张封面总比没有图强。 */
+/** 横条缩略图：封面下方「鞋 + 裤脚」的局部，给 74×52 那种横向格子用。
+ *  ⚠️ §38 起**不在渲染路径上** —— 添置行改回整套竖封面（60×87）了。
+ *  留着是因为 `thumb-<id>.webp` 六张图还在库里（111 KB），哪天又要横格子直接能用；
+ *  调用方为 0，改它不会影响任何页面。 */
 export function thumbImage(profile) {
   const thumb = profile?.thumb;
   if (typeof thumb === "string" && /^\/reference\/aesthetics\/[a-zA-Z0-9_-]+\.webp$/.test(thumb)) return thumb;
