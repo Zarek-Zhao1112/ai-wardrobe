@@ -23,7 +23,7 @@ function video(play=()=>Promise.resolve()){return {srcObject:null,play,pause(){}
  await check('展示服务核对并缓存的实际照片',()=>{states.set(d.id,{status:'complete',references:[row()]});assert.equal(match(d).id,'photo1');assert.match(html(d),/src="\/images\/reference-/)});
  await check('不采用伪造文件路径与脚本来源',()=>{states.set(d.id,{status:'complete',references:[{...row(),image_path:'../../unsafe.jpg'},{...row(),source_url:'javascript:alert(1)'}]});assert.equal(match(d),null)});
  await check('空结果和处理中状态不同',()=>{states.set(d.id,{status:'running',references:[]});assert.equal(status(d).busy,true);assert.match(html(d),/正在匹配商品图/);states.set(d.id,{status:'empty',references:[]});assert.equal(status(d).busy,false);assert.match(html(d),/商品图匹配未成功/)});
- await check('备选图与来源保持对应',()=>{states.set(d.id,{status:'complete',references:[row(1),row(2)]});index=1;assert.equal(match(d).id,'photo2');assert.ok(credit(d).includes('https://shop.example.com/item2'))});
+ await check('备选图保留对应来源，前台移除来源入口',()=>{states.set(d.id,{status:'complete',references:[row(1),row(2)]});index=1;assert.equal(match(d).id,'photo2');assert.equal(match(d).source_url,'https://shop.example.com/item2');assert.ok(!credit(d).includes('https://shop.example.com/item2'));assert.ok(!credit(d).includes('<a '));assert.ok(!credit(d).includes('图片来源'))});
  await check('来源凭据与不合法缓存名不会展示',()=>{states.set(d.id,{status:'complete',references:[{...row(),source_url:'https://name:secret@shop.example.com/item'},{...row(),image_path:'reference-evil.svg'}]});index=0;assert.equal(match(d),null)});
  console.log(JSON.stringify({passed,failed:0}));
 })().catch(error=>{console.error(error);process.exitCode=1;});

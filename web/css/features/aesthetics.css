@@ -1,0 +1,96 @@
+
+/* §34：已确认的六套完整审美、三图初始卡与玻璃说明面板。 */
+.outfit-view .aesthetic-selector{display:inline-flex;align-items:center;gap:7px;min-height:46px;padding:0 13px;border:1px solid var(--glass-edge);border-radius:var(--radius-pill);background:var(--surface-blur);box-shadow:var(--glass-button-shadow)}
+.aesthetic-selector strong{font-size:12px;font-weight:500}.aesthetic-selector>.icon{width:15px;height:15px;color:var(--accent)}.aesthetic-selector>span{font-size:11px;color:var(--text-faint)}
+.outfit-view .outfit-season{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;color:var(--text-dim);min-height:44px}.outfit-season>.icon{width:14px;height:14px}
+.outfit-profile-card{border:1px solid var(--surface);background:var(--surface);border-radius:24px;padding:19px 17px 8px}
+.aesthetic-eyebrow{font-size:10px;color:var(--text-faint);letter-spacing:.03em;margin:0}
+.outfit-profile-card h2{font-size:26px;line-height:1.5;font-weight:550;letter-spacing:var(--ls-tight);margin:4px 0 6px}
+.outfit-profile-core{font-size:12px;line-height:1.9;color:var(--text-dim);margin:0}
+/* §35：方向封面＝平铺静物；三套示例退到「认识这个审美」详情里。
+   卡片不再列配色条——见 aesthetic-ui.js 里 profileCardHtml 的注释。 */
+.outfit-profile-cover{display:block;width:100%;margin:15px 0 0;padding:0;border:0;background:var(--surface-2);border-radius:16px;overflow:hidden}
+/* 首页卡片按封面原比例走，不裁。封面内容是「上装—下装—鞋」纵向排下来的、鞋贴着底边，
+   任何比原图更宽的取景都会把鞋切掉（3:4 实测裁掉上下各 75px）。六张统一 900×1299，
+   所以这里写死这个比例：既不裁，又能在图片解码前占住高度、避免加载时跳一下。 */
+.outfit-profile-cover img{display:block;width:100%;height:auto;aspect-ratio:900/1299}
+/* 原来这一行间距由配色条的 margin 提供，条撤掉后必须补回来，否则 chips 贴住图片底边。 */
+.outfit-profile-card .chips{gap:5px;margin-top:13px}.outfit-profile-card .chip{font-size:10px;padding:3px 7px;background:var(--surface-2)}
+.outfit-profile-learn{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;min-height:46px;border-top:1px solid var(--surface-2)}
+.outfit-profile-learn>span{font-size:10px;color:var(--text-faint)}
+.outfit-profile-learn>button,.outfit-result-guide>button{display:flex;align-items:center;gap:5px;min-height:44px;font-size:11px;padding:0 4px;border:0;background:none;color:var(--accent)}
+.outfit-profile-learn .icon,.outfit-result-guide .icon{height:14px;width:14px;flex:none}
+.outfit-view.has-deck #o-intro{display:none}
+.outfit-view #o-message:empty{display:none}
+.outfit-view .outfit-generate-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:0 8px;margin:15px 0 18px}
+.outfit-view .outfit-generate-bar>.primary{grid-column:1/-1;min-height:52px}
+.outfit-options-button{display:flex;align-items:center;justify-content:flex-end;gap:5px;min-height:44px;grid-column:2;grid-row:2;padding:0 4px;font-size:10px;color:var(--text-faint);border:0;background:none}
+.outfit-options-button .icon{height:12px;width:12px}
+.outfit-generate-note{grid-column:1;grid-row:2;font-size:10px;color:var(--text-faint)}
+.outfit-view.has-deck .outfit-generate-bar>.primary{grid-column:1;grid-row:1;justify-content:flex-start;min-height:44px;padding:0 4px;border:0;background:none;box-shadow:none;color:var(--text-faint);font-size:11px;text-align:left}
+.outfit-view.has-deck .outfit-generate-bar .outfit-options-button{grid-row:1}
+.outfit-view.has-deck .outfit-generate-note,.outfit-view.has-deck #o-recent{display:none}
+.outfit-result-guide{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;margin:-3px 0 8px}
+.outfit-result-guide>span{font-size:10px;color:var(--text-faint)}
+.outfit-result-guide>button{font-size:10px;flex:none}
+.outfit-stage-label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--text-faint)}
+.outfit-like{display:grid;place-items:center;min-width:44px;min-height:44px;padding:0;border:0;background:none;color:var(--text-faint)}
+.outfit-like>.icon{width:17px;height:17px}.outfit-like[aria-pressed=true]{color:var(--accent)}.outfit-like[aria-pressed=true]>.icon{fill:var(--accent-soft)}
+.outfit-recent-card{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;min-height:76px;background:var(--surface-blur);border:1px solid var(--glass-edge);border-radius:17px;text-align:left}
+.outfit-recent-images{display:flex;gap:3px;flex:none}.outfit-recent-images>img{width:34px;height:44px;object-fit:contain;border-radius:7px;background:var(--surface)}
+.outfit-recent-card strong{display:block;font-size:12px;font-weight:500}.outfit-recent-card small{font-size:10px;color:var(--text-faint)}.outfit-recent-card>.icon{height:14px;width:14px;margin-left:auto;flex:none}
+.aesthetic-sheet-open{overflow:hidden}
+.aesthetic-sheet-open #view,.aesthetic-sheet-open #tabbar,.aesthetic-sheet-open .topbar{pointer-events:none;transition:filter .37s}
+.aesthetic-layer{position:fixed;inset:0;top:var(--aesthetic-top,0);height:var(--aesthetic-vh,100vh);z-index:95;display:flex;align-items:flex-end;justify-content:center;padding:12px;isolation:isolate}
+.aesthetic-veil{position:absolute;inset:0;background:var(--import-scrim);opacity:0;transition:opacity .37s}
+.aesthetic-panel{position:relative;display:flex;flex-direction:column;min-height:0;max-height:calc(100% - 32px);width:100%;max-width:440px;border:1px solid var(--glass-edge);border-radius:30px;background:var(--import-glass);box-shadow:var(--import-shadow);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);overflow:hidden;outline:none;opacity:.7;transform:translateY(calc(100% + 24px));transition:transform .42s cubic-bezier(.22,.75,.22,1),opacity .37s}
+.aesthetic-panel:before{content:"";position:absolute;top:0;left:18%;right:18%;height:1px;background:linear-gradient(90deg,transparent,var(--surface),transparent);pointer-events:none}
+.aesthetic-layer.is-open .aesthetic-panel{transform:none;opacity:1}.aesthetic-layer.is-open .aesthetic-veil{opacity:1}
+.aesthetic-sheet-head{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:68px;padding:10px 11px 9px 17px;flex:none}
+.aesthetic-sheet-title{display:flex;align-items:center;gap:7px;min-width:0}.aesthetic-sheet-title h2{font-size:12px;font-weight:500;color:var(--text-dim);margin:0;line-height:1.6}
+.aesthetic-sheet-title>.icon{height:16px;width:16px;color:var(--accent)}
+.aesthetic-back{min-width:44px;min-height:44px;display:grid;place-items:center;padding:0;border:0;background:none}.aesthetic-back>.icon{width:18px;height:18px}
+.aesthetic-glass{display:grid;place-items:center;width:44px;min-width:44px;height:44px;border-radius:50%;padding:0;border:1px solid var(--glass-edge);background:var(--surface-blur);box-shadow:var(--glass-button-shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.aesthetic-glass>.icon{width:18px;height:18px}
+.aesthetic-sheet-scroll{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:0 17px 18px;flex:1;min-height:0}
+.aesthetic-sheet-scroll::-webkit-scrollbar{display:none}
+.aesthetic-sheet-footer{padding:12px 17px 16px;border-top:1px solid var(--border);background:var(--surface-blur);flex:none}
+.aesthetic-sheet-footer>.primary,.aesthetic-secondary{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;min-height:52px;padding:12px 14px;border-radius:15px;font-size:12px}
+.aesthetic-sheet-footer .icon{width:18px;height:18px}
+.aesthetic-secondary{border:1px solid var(--accent-line);background:var(--surface-blur);color:var(--accent)}
+.aesthetic-sheet-intro{font-size:12px;line-height:1.9;color:var(--text-dim);margin:0 0 14px}
+.aesthetic-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.aesthetic-choice-card{position:relative;overflow:hidden;border:1px solid var(--glass-edge);border-radius:16px;background:var(--surface-blur)}
+.aesthetic-choice-card.is-selected{border-color:var(--accent-line);box-shadow:0 0 0 1px var(--accent-line)}
+.aesthetic-choice-card>button:first-child{position:relative;display:block;width:100%;min-height:44px;text-align:left;padding:8px 9px 0;border:0;background:none}
+/* 900:1299 正好是封面的原始比例，cover 等于不裁 —— 3:4 会把最下面的鞋切掉一半。
+   两列仍然等高，网格不会歪。 */
+.aesthetic-choice-card img{display:block;width:100%;height:auto;aspect-ratio:900/1299;object-fit:cover;background:var(--surface-2);border-radius:10px}
+.aesthetic-choice-card strong{display:block;font-size:12px;font-weight:500;margin-top:9px}
+.aesthetic-choice-card small{display:block;font-size:10px;line-height:1.8;color:var(--text-faint);margin-top:3px;min-height:30px}
+.aesthetic-choice-check{position:absolute;top:13px;right:13px;height:22px;width:22px;display:grid;place-items:center;border:1px solid var(--accent-line);border-radius:50%;background:var(--surface);color:var(--accent)}.aesthetic-choice-check>.icon{height:12px;width:12px}
+.aesthetic-choice-card>button:last-child{display:flex;align-items:center;justify-content:space-between;min-height:44px;width:100%;padding:0 10px;font-size:10px;color:var(--accent);border:0;background:none}.aesthetic-choice-card>button:last-child>.icon{height:14px;width:14px}
+.aesthetic-guide-name{font-size:21px;font-weight:550;line-height:1.65;letter-spacing:var(--ls-tight);margin:0 0 8px}
+.aesthetic-example-photo{display:block;position:relative;touch-action:pan-y;width:100%;height:300px;min-height:44px;min-width:44px;border-radius:17px;overflow:hidden;border:1px solid var(--glass-edge);background:var(--surface-2);padding:0}
+.aesthetic-example-photo img{display:block;width:100%;height:100%;object-fit:contain}
+.aesthetic-example-badge{position:absolute;top:11px;left:11px;font-size:10px;border-radius:var(--radius-pill);padding:4px 8px;background:var(--surface-blur);border:1px solid var(--glass-edge);color:var(--text-dim)}
+.aesthetic-example-caption{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px}
+.aesthetic-example-caption strong{font-size:12px;font-weight:500}.aesthetic-example-caption span{font-size:10px;color:var(--text-faint);white-space:nowrap}
+.aesthetic-example-controls{display:flex;align-items:center;justify-content:space-between}.aesthetic-example-controls>div{display:flex}
+.aesthetic-example-controls button{display:grid;place-items:center;min-width:44px;min-height:44px;padding:0;border:0;background:none}.aesthetic-example-controls .icon{height:15px;width:15px}
+.aesthetic-example-controls i{height:5px;width:5px;border-radius:4px;background:var(--border-strong)}.aesthetic-example-controls [aria-pressed=true] i{width:17px;background:var(--accent)}
+.aesthetic-example-link{display:flex;align-items:center;gap:5px;min-height:44px;font-size:11px;padding:0 4px;color:var(--accent);border:0;background:none}.aesthetic-example-link>.icon{height:14px;width:14px}
+.aesthetic-rule-heading{font-size:13px;font-weight:500;line-height:1.7;margin:19px 0 12px}
+.aesthetic-rules{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:19px 15px;margin:0}.aesthetic-rules>div{padding-left:9px;border-left:2px solid var(--accent-line)}
+.aesthetic-rules dt{font-size:11px;color:var(--accent);margin:0 0 4px}.aesthetic-rules dd{font-size:12px;color:var(--text-dim);line-height:1.9;margin:0}
+.aesthetic-example-note{font-size:11px;line-height:1.9;color:var(--text-faint);margin:18px 0 0}
+.aesthetic-example-large{height:min(53vh,480px);min-height:260px;width:100%;border:1px solid var(--glass-edge);border-radius:19px;background:var(--surface-2);overflow:hidden;margin-bottom:16px}.aesthetic-example-large>img{width:100%;height:100%;object-fit:contain}
+.aesthetic-example-notes{display:grid;grid-template-columns:29px minmax(0,1fr);gap:11px 13px;margin:20px 0 0;padding-top:15px;border-top:1px solid var(--border);font-size:12px;line-height:1.85}.aesthetic-example-notes dt{color:var(--text-faint)}.aesthetic-example-notes dd{margin:0;color:var(--text-dim)}
+.aesthetic-setting-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:72px;border-bottom:1px solid var(--border)}.aesthetic-setting-row strong{display:block;font-size:12px;font-weight:500}.aesthetic-setting-row p{font-size:11px;color:var(--text-faint);line-height:1.8;margin:3px 0}
+.aesthetic-counts{display:flex;background:var(--surface);border:1px solid var(--border);padding:3px;border-radius:var(--radius-pill);flex:none}.aesthetic-counts>button{min-width:48px;min-height:44px;border-radius:var(--radius-pill);font-size:11px;padding:0;border:0;background:none}.aesthetic-counts>[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}
+.aesthetic-switch{position:relative;height:44px;width:52px;min-width:52px;border:0;background:none;padding:0}.aesthetic-switch:before{content:"";position:absolute;left:2px;top:8px;width:48px;height:28px;background:var(--border-strong);border-radius:var(--radius-pill)}.aesthetic-switch:after{content:"";position:absolute;left:5px;top:11px;height:22px;width:22px;background:var(--surface);border-radius:50%;box-shadow:var(--shadow);transition:transform .2s}.aesthetic-switch[aria-checked=true]:before{background:var(--accent)}.aesthetic-switch[aria-checked=true]:after{transform:translateX(20px)}
+.aesthetic-feedback{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0 0}.aesthetic-feedback>button{flex:1;min-width:72px;min-height:46px;border:1px solid var(--border);border-radius:12px;background:var(--surface);font-size:12px;padding:0 8px}.aesthetic-feedback>[aria-pressed=true]{border-color:var(--accent-line);color:var(--accent);background:var(--accent-soft)}
+.aesthetic-sheet-error{font-size:12px;color:var(--danger);line-height:1.8;margin-top:10px}
+@media(min-width:900px){.aesthetic-layer{align-items:center}.aesthetic-panel{max-height:calc(100% - 40px)}}
+@media(max-width:360px){.outfit-profile-card{padding-inline:14px}.outfit-profile-card h2{font-size:24px}.outfit-profile-learn{gap:4px}.outfit-profile-learn>span{font-size:9px}.aesthetic-selector{max-width:165px}.outfit-top-row{gap:6px}.aesthetic-sheet-scroll{padding-inline:13px}.aesthetic-choice-grid{gap:8px}.aesthetic-example-photo{height:260px}.aesthetic-rules{gap:17px 12px}}
+@media(prefers-reduced-motion:reduce){.aesthetic-panel,.aesthetic-veil,.aesthetic-sheet-open #view,.aesthetic-sheet-open #tabbar,.aesthetic-sheet-open .topbar,.aesthetic-switch:after{transition:none}}
+

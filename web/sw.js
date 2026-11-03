@@ -41,7 +41,7 @@
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
 // Android打包文件时间固定；更新说明同时改变字节数，避免同长度ETag把新脚本误判为未变化。
-const VERSION = "v47"; // §33：只读衣物详情、红色喜欢、玻璃确认删除与本次必选搭配。
+const VERSION = "v52"; // §38：添置AI款式示意、来源隔离与历史照片兼容。
                         // v21：移除独立大图预览，保留裁剪与随表单滚动的操作。
                         // v20：图片大图预览与随表单滚动的操作按钮。
                         // v19：旧WebView兼容的JSON草稿复制。
@@ -83,15 +83,19 @@ const NET_TIMEOUT_MS = 3000;
 
 // 清单由 scripts/checks/web_assets.py 生成，激活检查复用同一清单。
 // BEGIN GENERATED ASSETS
-const ASSET_REVISION = "bbc003f99b04a6c6";
+const ASSET_REVISION = "f82e1723be92480b";
 const SHELL_ASSETS = [
   "/",
   "/bind.html",
   "/css/base/headerless.css",
   "/css/base/style.css",
   "/css/base/tokens.css",
+  "/css/features/aesthetics.css",
+  "/css/features/garment-profile.css",
   "/css/features/import.css",
   "/css/features/outfits.css",
+  "/css/features/purchase-assistant.css",
+  "/css/features/purchase-intent.css",
   "/css/features/purchase-reference.css",
   "/css/features/purchase.css",
   "/css/features/wardrobe.css",
@@ -102,6 +106,7 @@ const SHELL_ASSETS = [
   "/icons/icon-maskable-512.png",
   "/icons/logo.svg",
   "/js/components/flatlay-display.js",
+  "/js/components/garment-profile.js",
   "/js/components/horizontal-swipe.js",
   "/js/components/page-transition.js",
   "/js/core/api.js",
@@ -120,9 +125,14 @@ const SHELL_ASSETS = [
   "/js/features/import/store.js",
   "/js/features/import/text-input.js",
   "/js/features/import/view.js",
+  "/js/features/outfits/aesthetic-sheet.js",
+  "/js/features/outfits/aesthetic-ui.js",
   "/js/features/outfits/camera.js",
   "/js/features/outfits/tryon-sheet.js",
   "/js/features/outfits/view.js",
+  "/js/features/purchase/assistant-panel.js",
+  "/js/features/purchase/intent-session.js",
+  "/js/features/purchase/intent-ui.js",
   "/js/features/purchase/reference-media.js",
   "/js/features/purchase/reference-store.js",
   "/js/features/purchase/reference.js",
@@ -131,7 +141,31 @@ const SHELL_ASSETS = [
   "/js/features/wardrobe/detail.js",
   "/js/features/wardrobe/sheet.js",
   "/js/features/wardrobe/view.js",
-  "/manifest.webmanifest"
+  "/manifest.webmanifest",
+  "/reference/aesthetics/cover-heritage.webp",
+  "/reference/aesthetics/cover-natural.webp",
+  "/reference/aesthetics/cover-refined.webp",
+  "/reference/aesthetics/cover-street.webp",
+  "/reference/aesthetics/cover-technical.webp",
+  "/reference/aesthetics/cover-urban.webp",
+  "/reference/aesthetics/heritage_v2-01.webp",
+  "/reference/aesthetics/heritage_v2-02.webp",
+  "/reference/aesthetics/heritage_v2-03.webp",
+  "/reference/aesthetics/natural-01.webp",
+  "/reference/aesthetics/natural-02.webp",
+  "/reference/aesthetics/natural-03.webp",
+  "/reference/aesthetics/refined-01.webp",
+  "/reference/aesthetics/refined-02.webp",
+  "/reference/aesthetics/refined-03.webp",
+  "/reference/aesthetics/street_v2-01.webp",
+  "/reference/aesthetics/street_v2-02.webp",
+  "/reference/aesthetics/street_v2-03.webp",
+  "/reference/aesthetics/technical-01.webp",
+  "/reference/aesthetics/technical-02.webp",
+  "/reference/aesthetics/technical-03.webp",
+  "/reference/aesthetics/urban-01.webp",
+  "/reference/aesthetics/urban-02.webp",
+  "/reference/aesthetics/urban-03.webp"
 ];
 // END GENERATED ASSETS
 // 同一VERSION下的不同资源构建也使用独立桶，避免新HTML与旧模块混合。

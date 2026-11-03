@@ -52,7 +52,7 @@ def validate_settings(url, token):
 def bridge_request(settings, path, *, payload=None):
     try:
         # §19.1：连接旧IP时尽快报连接问题，保留原有的推理等待上限。
-        read_timeout = 90 if payload is not None else (20 if path.startswith(("/flatlay/jobs/", "/reference/jobs/")) else 6)
+        read_timeout = 90 if payload is not None else (20 if path.startswith(("/flatlay/jobs/", "/reference/jobs/", "/style/jobs/")) else 6)
         timeout = httpx.Timeout(read_timeout, connect=4, pool=4, write=20 if payload is not None else 6)
         with httpx.Client(timeout=timeout, trust_env=False, follow_redirects=False) as client:
             response = client.request("POST" if payload is not None else "GET", settings["url"] + path,
@@ -71,6 +71,14 @@ def bridge_request(settings, path, *, payload=None):
         504: ("bridge_timeout", "电脑识别等待超时，请稍后重试。", True),
     }
     if response.status_code != 200:
+        if path.startswith('/style/jobs') and response.status_code in (404, 503) and payload is not None:
+            raise LLMError('电脑中转尚未启用款式生图，请更新电脑中转。', code='reference_not_configured', retryable=False)
+        if path.startswith('/style/jobs/') and response.status_code == 404 and payload is None:
+            return {'model': MODEL, 'job_id': path.rsplit('/', 1)[-1], 'status': 'missing'}
+        if path.startswith('/style/jobs') and response.status_code == 503:
+            raise LLMError('电脑款式生图服务尚未就绪。', code='reference_not_configured', retryable=False)
+        if path.startswith('/reference/jobs') and response.status_code == 409:
+            raise LLMError('实物搜图已暂停，请重新分析生成AI款式示意。', code='reference_paused', retryable=False)
         if path.startswith('/reference/jobs') and response.status_code == 503:
             raise LLMError('电脑中转尚未启用实物搜图，请更新电脑中转。', code='reference_not_configured', retryable=False)
         if path.startswith('/reference/jobs/') and response.status_code == 404 and payload is None:

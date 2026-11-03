@@ -41,6 +41,90 @@ class PurchaseReferenceEnsureIn(BaseModel):
     plan_id: str = Field(min_length=1, max_length=64)
 
 
+class PurchaseAnalysisIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    request_id: UUID
+    aesthetic: str = Field(min_length=1, max_length=32)
+    ready_references: bool = False
+    preference: str = Field('', max_length=160)
+    source_draft_id: UUID | None = None
+    direction_ids: list[str] = Field(default_factory=list, max_length=3)
+
+
+class PurchasePrepareIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    request_id: UUID
+    draft_id: UUID
+    direction_ids: list[str] = Field(min_length=1, max_length=3)
+    preference: str = Field("", max_length=160)
+
+
+@router.get('/purchase/intent')
+def purchase_intent_state() -> dict:
+    from ..services import purchase_intent
+    return purchase_intent.state(_uid())
+
+
+@router.post('/purchase/intent/analyze')
+def purchase_intent_analyze(payload: PurchaseAnalysisIn) -> dict:
+    from ..services import purchase_intent
+    try:
+        if payload.ready_references:
+            from ..services import purchase_analysis
+            return purchase_analysis.start(_uid(), str(payload.request_id), payload.aesthetic, preference=payload.preference,
+                source_draft_id=str(payload.source_draft_id) if payload.source_draft_id else None, direction_ids=payload.direction_ids)
+        if payload.preference or payload.source_draft_id or payload.direction_ids:
+            raise purchase.PurchaseError('请通过配图分析调整偏好。', 422)
+        return purchase_intent.analyze(_uid(), str(payload.request_id), payload.aesthetic)
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.post('/purchase/intent/analyze/{request_id}/query')
+def purchase_analysis_query(request_id: UUID) -> dict:
+    from ..services import purchase_analysis
+    try:
+        return purchase_analysis.query(_uid(), str(request_id))
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.get('/purchase/intent/request/{request_id}')
+def purchase_intent_request(request_id: UUID) -> dict:
+    from ..services import purchase_intent
+    try:
+        return purchase_intent.request_state(_uid(), str(request_id))
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.get('/purchase/intent/analysis/{draft_id}')
+def purchase_intent_analysis(draft_id: UUID) -> dict:
+    from ..services import purchase_intent
+    try:
+        return purchase_intent.analysis(_uid(), str(draft_id))
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.post('/purchase/intent/prepare')
+def purchase_intent_prepare(payload: PurchasePrepareIn) -> dict:
+    from ..services import purchase_intent
+    try:
+        return purchase_intent.prepare(_uid(), str(payload.request_id), str(payload.draft_id), payload.direction_ids, payload.preference)
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.post('/purchase/intent/prepare/{request_id}/query')
+def purchase_intent_query(request_id: UUID) -> dict:
+    from ..services import purchase_intent
+    try:
+        return purchase_intent.query(_uid(), str(request_id))
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
 @router.post('/purchase/references/ensure')
 def purchase_reference_ensure(payload: PurchaseReferenceEnsureIn) -> dict:
     from ..services import purchase_reference

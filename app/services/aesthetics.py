@@ -6,8 +6,10 @@ from itertools import product
 from typing import Callable
 
 from .. import taxonomy
+from .aesthetic_catalog import ACTIVE_IDS, NEW_PROFILES
+from . import garment_profile, visual_aesthetics
 
-DEFAULT = "relaxed"
+DEFAULT = "natural"
 DIMENSIONS = (("color", "配色"), ("silhouette", "轮廓"), ("material", "材质"), ("pattern", "图案"), ("layering", "层次"))
 SOURCES = [
     {"title": "LifeWear：叠穿与材质层次", "url": "https://www.uniqlo.com/au/en/contents/lifewear-magazine/the-modern-layering-guide/"},
@@ -105,16 +107,22 @@ PROFILES.update({
 })
 
 
+# §34：新生成目录与旧方案分开；不改写已有ID的含义和历史快照。
+PROFILES.update(NEW_PROFILES)
+
+
 def get_profile(key: str | None = None) -> dict:
     if (key or DEFAULT) not in PROFILES:
         raise ValueError("未知的审美方案，请重新选择")
     profile = deepcopy(PROFILES[key or DEFAULT])
+    if profile["id"] in ACTIVE_IDS:
+        profile["version"] = 2
     profile["sources"] = deepcopy(SOURCES)
     return profile
 
 
 def list_profiles() -> list[dict]:
-    return [get_profile(key) for key in PROFILES]
+    return [get_profile(key) for key in ACTIVE_IDS]
 
 
 def colors_of(item: dict) -> set[str]:
@@ -162,6 +170,38 @@ _RULES = {
     "color_pop": _rules(["minimal", "street"], ["solid", "graphic"], [], [],
         "accent", "focal", "sparse", "none", (6, 2, 1, 1)),
 }
+_FIT.update({
+    "urban": {"regular": 1., "straight": 1., "tapered": .95, "slim": .85, "boxy": .7, "loose": .55, "wide_leg": .65, "flared": .6, "oversized": .4},
+    "natural": {"loose": 1., "straight": .95, "wide_leg": .9, "regular": .75, "boxy": .75, "tapered": .65, "flared": .7, "slim": .4, "oversized": .7},
+    "heritage_v2": {"straight": 1., "loose": .9, "boxy": .9, "regular": .8, "wide_leg": .8, "tapered": .65, "flared": .65, "oversized": .6, "slim": .4},
+    "street_v2": {"oversized": 1., "boxy": 1., "wide_leg": 1., "loose": .9, "straight": .7, "regular": .55, "tapered": .45, "slim": .35, "flared": .7},
+    "technical": {"regular": 1., "tapered": 1., "straight": .95, "loose": .8, "boxy": .65, "wide_leg": .6, "slim": .6, "oversized": .4, "flared": .4},
+    "refined": {"regular": 1., "straight": .9, "tapered": .95, "wide_leg": .8, "loose": .7, "slim": .7, "flared": .8, "boxy": .5, "oversized": .35},
+})
+_RULES.update({
+    "urban": _rules(["minimal", "unisex"], ["solid"],
+        ["shirt", "polo", "sweater", "pants", "blazer", "coat", "leather_shoes", "loafers"],
+        ["white", "gray", "black", "navy", "beige"], "contrast", "tonal", "sparse", "urban", (3, 4, 2, 3)),
+    "natural": _rules(["casual", "japanese", "unisex"], ["solid", "striped"],
+        ["tshirt", "shirt", "sweater", "cardigan", "casual_pants", "jeans", "sneakers", "loafers"],
+        ["beige", "khaki", "brown", "gray", "blue", "light_blue", "green", "army_green"],
+        "family", "relaxed", "optional", "natural", (3, 4, 1, 3)),
+    "heritage_v2": _rules(["vintage", "american", "casual"], ["solid", "plaid", "striped"],
+        ["shirt", "sweater", "jeans", "casual_pants", "denim_jacket", "jacket", "boots", "leather_shoes"],
+        ["beige", "khaki", "brown", "army_green", "blue", "navy", "burgundy"],
+        "heritage", "heritage", "optional", "heritage", (3, 3, 2, 4)),
+    "street_v2": _rules(["street", "american", "unisex"], ["solid", "graphic"],
+        ["hoodie", "tshirt", "sweatshirt", "jeans", "casual_pants", "jacket", "sneakers", "hat"], [],
+        "contrast", "street", "optional", "street_v2", (2, 5, 2, 4)),
+    "technical": _rules(["sporty", "minimal", "casual"], ["solid"],
+        ["sun_protection_jacket", "jacket", "vest", "sweatshirt", "casual_pants", "sweatpants", "sneakers"],
+        ["gray", "black", "navy", "blue", "light_blue", "army_green", "white"],
+        "contrast", "focal", "sparse", "technical", (2, 3, 1, 5)),
+    "refined": _rules(["minimal", "korean", "unisex"], ["solid", "striped", "dotted"],
+        ["shirt", "polo", "blouse", "sweater", "cardigan", "pants", "skirt", "dress", "blazer", "loafers", "leather_shoes"],
+        ["beige", "gray", "brown", "khaki", "white", "pink", "light_blue", "navy"],
+        "family", "focal", "sparse", "refined", (3, 3, 2, 4)),
+})
 _ACCESSORIES = {"bag", "hat", "scarf", "belt", "socks", "jewelry", "glasses"}
 
 
@@ -176,7 +216,8 @@ def item_affinity(item: dict, profile: dict) -> float:
         return .7 * fit + .15 * style + .15 * pattern
     kind = .9 if item.get("type") in rules["types"] else .5
     palette = .9 if colors_of(item) & rules["palette"] else .5
-    return .4 * fit + .15 * style + .15 * pattern + .15 * kind + .15 * palette
+    baseline = .4 * fit + .15 * style + .15 * pattern + .15 * kind + .15 * palette
+    return .75 * baseline + .25 * visual_aesthetics.affinity(item, profile) if visual_aesthetics.active(profile) else baseline
 
 
 def _recall(items: list[dict], profile: dict, pref: Callable, cap: int = 12, context: list[dict] | None = None) -> list[dict]:
@@ -214,7 +255,8 @@ def build_candidates(all_items: list[dict], profile: dict, season: str, preferen
     anchor = next((it for it in pool if it["id"] == anchor_item_id), None)
     if anchor_item_id and not anchor:
         return []
-    if anchor and anchor["slot"] in {"top", "bottom", "full", "shoes"}:
+    open_anchor = bool(anchor and visual_aesthetics.active(profile) and garment_profile.can_open_layer(anchor))
+    if anchor and anchor["slot"] in {"top", "bottom", "full", "shoes"} and not open_anchor:
         slots[anchor["slot"]] = [anchor]
         if anchor["slot"] in {"top", "bottom"}:
             slots["full"] = []
@@ -227,6 +269,14 @@ def build_candidates(all_items: list[dict], profile: dict, season: str, preferen
     bases += [list(parts) for parts in product(slots["full"], shoes)]
     # 可选层不改变基础组合数，最多两件外套候选及两件明确配饰候选参与扩展。
     outers = slots["outer"][:2]
+    if visual_aesthetics.active(profile):
+        open_layers = _recall([it for it in pool if it.get("slot") == "top" and garment_profile.can_open_layer(it)], profile, preference_score, context=pool)[:2]
+        if open_anchor and anchor not in open_layers:
+            open_layers = [anchor, *open_layers[:1]]
+        if open_anchor and anchor not in slots["top"]:
+            slots["top"].append(anchor)
+            bases += [[anchor, bottom, shoe] for bottom, shoe in product(slots["bottom"], shoes)]
+        outers = [*outers, *open_layers]
     accessories = [it for it in pool if it.get("slot") == "accessory" and it.get("type") in _ACCESSORIES]
     accessories = _recall(accessories, profile, preference_score, context=pool)[:2]
     if anchor and anchor["slot"] == "outer":
@@ -247,8 +297,11 @@ def build_candidates(all_items: list[dict], profile: dict, season: str, preferen
             key = tuple(sorted(ids))
             if len(set(ids)) != len(ids) or key in seen:
                 continue
+            roles = garment_profile.wearing_roles(items) if visual_aesthetics.active(profile) else None
+            if visual_aesthetics.active(profile) and roles is None:
+                continue
             seen.add(key)
-            result.append({"item_ids": ids, "items": items, "kind": "full" if base[0]["slot"] == "full" else "split"})
+            result.append({"item_ids": ids, "items": items, "kind": "full" if base[0]["slot"] == "full" else "split", **({"wearing_roles": roles} if roles else {})})
     return result
 
 
@@ -322,6 +375,8 @@ def _pattern_score(patterns: list[str], mode: str) -> float | None:
 def _relation(items: list[dict], mode: str) -> tuple[float | None, str]:
     if mode == "none":
         return None, ""
+    if mode in {"urban", "natural", "street_v2", "technical", "refined"}:
+        return _whole_relation(items, mode)
     if mode == "sport_mix":
         sporty = [it for it in items if it.get("type") in {"hoodie", "sweatpants", "sneakers"} or "sporty" in (it.get("style") or [])]
         basics = [it for it in items if it.get("type") in {"shirt", "pants", "blazer", "coat", "skirt", "dress", "loafers"} and it not in sporty]
@@ -337,9 +392,48 @@ def _relation(items: list[dict], mode: str) -> tuple[float | None, str]:
     raise ValueError("未配置的整套关系策略")
 
 
+def _whole_relation(items: list[dict], mode: str) -> tuple[float, str]:
+    """§34：比较衣服之间的关系；品类线索不证明触感、鞋底厚度或人体比例。"""
+    clothing = [it for it in items if it.get("slot") in {"top", "bottom", "full", "outer"}]
+    shoes = [it for it in items if it.get("slot") == "shoes"]
+    known = [it for it in clothing if it.get("fit") in taxonomy.FITS]
+    if mode == "technical":
+        active = [it for it in items if "sporty" in (it.get("style") or [])
+                  or it.get("type") in {"sun_protection_jacket", "sweatpants"}]
+        roles = {it.get("slot") for it in active if it.get("slot") in taxonomy.SLOTS}
+        non_shoe = roles - {"shoes", "accessory"}
+        score = .95 if non_shoe and len(roles) >= 2 else .65 if non_shoe else .5
+        return score, f"明确运动标签或功能品类覆盖{len(roles)}个角色；单有球鞋不足以确认机能关系，实际功能与厚度待确认。"
+    if mode == "street_v2":
+        wide = [it for it in known if it["fit"] in {"oversized", "boxy", "wide_leg", "loose"}]
+        paired = bool(wide) and any(it.get("type") in {"sneakers", "boots"} for it in shoes)
+        return (.95 if paired else .5), "已知宽大版型与球鞋/靴" + ("有跨角色衔接线索；" if paired else "的跨角色联系不足；") + "实际鞋子体量、衣长与露出顺序待确认。"
+    if mode == "natural":
+        relaxed = [it for it in known if it["fit"] in {"loose", "straight", "wide_leg", "regular"}]
+        roles = {it.get("slot") for it in relaxed}
+        connected = {"top", "bottom"} <= roles or "full" in roles
+        casual_shoe = any(it.get("type") in {"sneakers", "loafers", "sandals"} for it in shoes)
+        return (.95 if connected and casual_shoe else .7 if connected else .5), f"舒展版型覆盖{len(roles)}个衣物角色；" + ("与休闲鞋类相接。" if connected and casual_shoe else "上下轮廓与鞋服的连接仍可调整。")
+    if mode == "urban":
+        clear = [it for it in known if it["fit"] in {"regular", "straight", "tapered", "slim"}]
+        roles = {it.get("slot") for it in clear}
+        connected = {"top", "bottom"} <= roles or "full" in roles
+        leather = any(it.get("type") in {"leather_shoes", "loafers"} for it in shoes)
+        return (.95 if connected and leather else .7 if connected else .5), f"明确版型覆盖{len(roles)}个衣物角色；" + ("衣裤与皮鞋/乐福鞋有衔接线索。" if connected and leather else "还需确认衣裤和鞋子的利落程度。")
+    if mode == "refined":
+        upper = any(it.get("type") in {"shirt", "polo", "blouse", "sweater", "cardigan", "dress"} for it in clothing)
+        line = any(it.get("slot") in {"bottom", "full"} and it.get("fit") in {"regular", "straight", "tapered", "wide_leg", "flared"} for it in known)
+        shoe = any(it.get("type") in {"loafers", "leather_shoes", "sandals"} for it in shoes)
+        return (.95 if upper and line and shoe else .7 if upper and line else .5), "衬衫/针织相关品类、下装版型与鞋类" + ("有组合线索；" if upper and line and shoe else "尚可进一步衔接；") + "细腻、垂坠与光泽属于目标，实际表现待确认。"
+    raise ValueError("未配置的完整审美关系")
+
+
 def assess(outfit: dict, profile: dict) -> dict:
     """五维均有目标和事实说明；无法测得的材质表现不参与评分。"""
     items = outfit["items"]
+    if visual_aesthetics.active(profile):
+        roles = garment_profile.wearing_roles(items) or {}
+        items = [{**item, "slot": "outer"} if roles.get(item["id"]) == "upper_layer" else item for item in items]
     rules = _RULES[profile["id"]]
     clothing = [it for it in items if it.get("slot") in {"top", "bottom", "full", "outer"}]
     color = _color_score(items, profile)
@@ -377,6 +471,12 @@ def assess(outfit: dict, profile: dict) -> dict:
         "layering": (layer_score, "matched" if layer_score >= .8 else "approximate", layer_text),
     }
     weights = rules["weights"]
+    if visual_aesthetics.active(profile):
+        values = visual_aesthetics.refine(values, items, profile)
+        weights = {**weights, "material": 2}
+        if "upper_layer" in (outfit.get("wearing_roles") or {}).values():
+            score, status, text = values["layering"]
+            values["layering"] = (score, "approximate", text + " 可按一内一外尝试敞开叠穿，实际余量需试穿确认。")
     # 缺失线索保持中性；不能删掉分母后让单一层次线索变成整套高匹配。
     total = sum(weight * (values[key][0] if values[key][0] is not None else .5) for key, weight in weights.items())
     weight = sum(weights.values())
@@ -387,7 +487,8 @@ def assess(outfit: dict, profile: dict) -> dict:
 
 
 def core_ids(outfit: dict) -> set[str]:
-    return {it["id"] for it in outfit["items"] if it.get("slot") in {"top", "bottom", "full"}}
+    return {it["id"] for it in outfit["items"] if it.get("slot") in {"top", "bottom", "full"}
+        and outfit.get("wearing_roles", {}).get(it["id"]) != "upper_layer"}
 
 
 def shortlist(candidates: list[dict], count: int) -> list[dict]:

@@ -5,6 +5,7 @@ const listeners = new Set();
 const rejectedPhotos = new Map();
 const pending = state => ['queued', 'running', 'unknown'].includes(state?.status);
 export function referenceMediaChanged() { listeners.forEach(fn => fn()); }
+export function subscribeReferenceMedia(listener) { listeners.add(listener); return () => listeners.delete(listener); }
 export function referenceState(direction) { return states.get(direction?.id) || { status: 'idle', references: [] }; }
 export function referenceIndex(direction) {
   const state = referenceState(direction), key = state.job_id + ':' + (state.references || []).map(r => r.id).join(',');
@@ -23,7 +24,7 @@ export function seedReferences(snapshot = {}) {
     if (old?.job_id === state.job_id && !pending(old) && pending(state)) continue;
     if (old?.job_id === state.job_id && pending(old) && state.status === 'complete') rejectedPhotos.delete(id);
     const rows = (state.references || []).filter(row => !rejectedPhotos.get(id)?.has(row.id));
-    states.set(id, rows.length !== (state.references || []).length ? { ...state, references: rows, ...(rows.length || pending(state) ? {} : { status: 'failed', error: '商品图暂时无法读取，请重试。' }) } : state);
+    states.set(id, rows.length !== (state.references || []).length ? { ...state, references: rows, ...(rows.length || pending(state) ? {} : { status: 'failed', error: '参考图暂时无法读取，请重试。' }) } : state);
   }
 }
 export function invalidateReference(directionId, photoId) {
@@ -32,7 +33,7 @@ export function invalidateReference(directionId, photoId) {
   if (rows.length === (state.references || []).length) return;
   if (!rejectedPhotos.has(directionId)) rejectedPhotos.set(directionId, new Set());
   rejectedPhotos.get(directionId).add(photoId);
-  states.set(directionId, { ...state, references: rows, ...(rows.length || pending(state) ? {} : { status: 'failed', error: '商品图暂时无法读取，请重试。' }) });
+  states.set(directionId, { ...state, references: rows, ...(rows.length || pending(state) ? {} : { status: 'failed', error: '参考图暂时无法读取，请重试。' }) });
   listeners.forEach(fn => fn());
 }
 export function createReferenceController(onChange) {
@@ -56,7 +57,7 @@ export function createReferenceController(onChange) {
         } catch (error) {
           if (!disposed && states.get(id)?.job_id === state.job_id) {
             const absent = error.status === 404 && Date.now() - (state.issuedAt || 0) > 60000;
-            states.set(id, { ...state, status: absent ? 'failed' : state.status, error: absent ? '没有找到这次搜图记录，可以重新寻找。' : '暂时读不到找图进度，可稍后查询。' }); notify();
+            states.set(id, { ...state, status: absent ? 'failed' : state.status, error: absent ? '没有找到这次配图记录，可以重新生成。' : '暂时读不到配图进度，可稍后查询。' }); notify();
           }
         }
       }
@@ -95,7 +96,7 @@ export function createReferenceController(onChange) {
       } catch (error) {
         if (!disposed && states.get(direction.id)?.job_id === jobId) {
           const rejected = [400, 401, 403, 404, 409, 422].includes(error.status);
-          states.set(direction.id, { ...(previous || {}), job_id: jobId, issuedAt, status: rejected ? 'failed' : 'unknown', references: previous?.references || [], error: rejected ? error.message : '暂未确认这次搜图是否提交，正在查询。' }); notify();
+          states.set(direction.id, { ...(previous || {}), job_id: jobId, issuedAt, status: rejected ? 'failed' : 'unknown', references: previous?.references || [], error: rejected ? error.message : '暂未确认这次配图是否提交，正在查询。' }); notify();
         }
       } finally { sending.delete(direction.id); schedule(); }
     },

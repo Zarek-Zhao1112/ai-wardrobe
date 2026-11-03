@@ -38,7 +38,8 @@ export function bindHorizontalSwipe(host, { selector, enabled = () => true, onSw
   }
   function click(event) { if (now() < blockUntil) { event.preventDefault(); event.stopImmediatePropagation(); } }
   function drag(event) { if (event.target.closest(selector)) event.preventDefault(); }
-  function lost(event) { if (gesture?.id === event.pointerId) cancel(); }
+  // 触屏IMG会先隐式捕获；转交host时旧子节点的lost事件也会冒泡，不应取消新捕获。
+  function lost(event) { if (event.target === host && gesture?.id === event.pointerId) cancel(); }
   host.addEventListener('pointerdown', down); host.addEventListener('pointermove', move);
   host.addEventListener('pointerup', up); host.addEventListener('pointercancel', cancel);
   host.addEventListener('lostpointercapture', lost); host.addEventListener('click', click, true);

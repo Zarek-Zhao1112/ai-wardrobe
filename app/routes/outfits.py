@@ -66,7 +66,9 @@ def recommend_outfits(
 
 @router.get("/aesthetics")
 def list_aesthetics() -> dict:
-    return {"aesthetics": aesthetics.list_profiles(), "default": aesthetics.DEFAULT}
+    season = taxonomy.current_season()
+    return {"aesthetics": aesthetics.list_profiles(), "default": aesthetics.DEFAULT,
+            "season": season, "season_label": taxonomy.SEASON_LABELS[season]}
 
 
 @router.post("/feedback")

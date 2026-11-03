@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 from .. import db, taxonomy
 from ..models import ItemCreate, ItemUpdate
-from . import images
+from . import garment_profile, images
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,13 @@ def create(user_id: str, payload: ItemCreate, *, item_id: str | None = None, con
     #   （「九分袖」词面就命中长度词），所以**入库前**再过一道类型闸门。
     #   这里丢弃而不是报错：可选字段不该挡住整条录入。
     length_val = payload.length if taxonomy.supports_length(type_key) else None
+    # §35：仅正规化本命名空间，不触碰导入幂等标记或用户自定义tags。
+    stored_tags = dict(payload.tags)
+    if garment_profile.KEY in stored_tags:
+        candidate = garment_profile.for_item({**payload.model_dump(), "type": type_key, "tags": stored_tags})
+        raw_profile = stored_tags[garment_profile.KEY]
+        if not isinstance(raw_profile, dict) or raw_profile.get("version") == garment_profile.VERSION:
+            stored_tags = garment_profile.with_profile(stored_tags, candidate)
 
     # 打标状态判定：只要用户提供了任何受控属性，就视为已打标完毕（来源 = manual）。
     # 只看 type != "other" 是不够的 —— 用户填了颜色/材质/风格但漏选品类很常见，
@@ -135,7 +142,7 @@ def create(user_id: str, payload: ItemCreate, *, item_id: str | None = None, con
                 json.dumps(payload.season, ensure_ascii=False),
                 payload.formality,
                 json.dumps(payload.scene, ensure_ascii=False),
-                json.dumps(payload.tags, ensure_ascii=False),
+                json.dumps(stored_tags, ensure_ascii=False),
                 payload.name, payload.brand,
                 payload.purchase_date, payload.purchase_price,
                 1 if payload.favorite else 0, payload.notes,

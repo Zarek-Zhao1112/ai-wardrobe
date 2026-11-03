@@ -88,7 +88,7 @@ node scripts/checks/cdp_ui_check.js
 
 stop核对进程脚本、状态目录、任务记录和CLI子进程，拒绝停止身份不符或仍在工作的服务。非Windows通过原终端或系统服务管理器停止。手机继续使用设置里原地址/端口/配对码；更换代码目录不应触发重新登录或修改模型。
 
-当前识别/排序/搜图核对模型固定deepseek-v4.1-flash，平铺编辑模型hunyuan-image-alpha-edit。实时试衣已有摄像头入口，生成式试衣链路需另行接入，不能将摄像头预览表述为已实现的实时AI换装。
+当前识别/排序模型固定deepseek-v4.1-flash，平铺编辑模型hunyuan-image-alpha-edit；添置改用hunyuan-image-alpha文生图，明确标记AI款式示意，真实商品搜图POST暂时停用、旧GET保留。新/style/jobs与原来源隔离目录/签名，生成图10MB上限与实物图2MB上限须按来源同步维护。实时试衣已有摄像头入口，生成式试衣链路需另行接入，不能将摄像头预览表述为已实现的实时AI换装。
 
 ## Android构建
 

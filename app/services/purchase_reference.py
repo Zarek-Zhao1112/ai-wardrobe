@@ -19,8 +19,15 @@ from .llm.client import LLMError
 _lock = threading.RLock()
 _posting = set()
 _polling = set()
+_submission_lock = threading.Lock()
 _FIELDS = ('type', 'primary_color', 'title', 'color', 'fit', 'pattern', 'texture')
 PENDING = ('queued', 'running', 'unknown')
+STYLE_IMAGE_MODEL = 'hunyuan-image-alpha'
+
+
+def _signature(spec, origin='product_photo'):
+    value = {'direction': spec, 'image_origin': 'generated', 'image_model': STYLE_IMAGE_MODEL, 'prompt_version': 1} if origin == 'generated' else spec
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
 def _read(uid, key):
@@ -30,16 +37,26 @@ def _read(uid, key):
 
 def _write(uid, key, value): db.set_meta('purchase-ref:v1:'+uid+':'+key, json.dumps(value, ensure_ascii=False))
 def _pointer(plan_id, direction_id): return 'direction:'+plan_id+':'+direction_id
-def _public(record): return {key: record[key] for key in ('job_id', 'plan_id', 'direction_id', 'issued_at', 'status', 'references', 'error') if key in record}
+
+def _bind(uid, value):
+    # §37：任务和归属同事务登记，写完才能提交网络请求。
+    with db.conn(immediate=True) as connection:
+        for key, row in [('job:' + value['job_id'], value), (_pointer(value['plan_id'], value['direction_id']), value['job_id'])]:
+            connection.execute('INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                ('purchase-ref:v1:' + uid + ':' + key, json.dumps(row, ensure_ascii=False)))
+def _public(record): return {key: record[key] for key in ('job_id', 'plan_id', 'direction_id', 'issued_at', 'status', 'references', 'error', 'image_origin') if key in record}
 
 
-def _direction(uid, plan_id, direction_id):
+def _direction(uid, plan_id, direction_id, *, with_origin=False):
     latest = purchase._read(uid, 'latest', None)
     saved = purchase._read(uid, 'choices', {'saved': []})['saved']
-    for plan in [latest, *saved]:
+    for plan in [latest, *saved, *purchase._read(uid, 'history', [])]:
         if plan and plan.get('id') == plan_id:
             for direction in plan['directions']:
-                if direction['id'] == direction_id: return {key: direction[key] for key in _FIELDS}
+                if direction['id'] == direction_id:
+                    value = {key: direction[key] for key in _FIELDS}
+                    if with_origin: value['image_origin'] = direction.get('image_origin', 'product_photo')
+                    return value
     raise purchase.PurchaseError('这个添置方向已更新，请重新读取。', 404)
 
 
@@ -68,23 +85,30 @@ def _source_url(value):
     return value
 
 
-def _photos(payload):
+def _photos(payload, origin='product_photo'):
     rows = payload.get('references', [])
     if not isinstance(rows, list) or len(rows) > 3: raise ValueError('参考照片返回不完整')
     result = []; seen = set()
     for row in rows:
-        if not isinstance(row, dict) or not isinstance(row.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', row['sha256']) or not isinstance(row.get('data'), str) or len(row['data']) > 2_700_000:
+        limit = 10 * 1024 * 1024 if origin == 'generated' else 2_000_000
+        if not isinstance(row, dict) or not isinstance(row.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', row['sha256']) or not isinstance(row.get('data'), str) or len(row['data']) > (limit + 2) // 3 * 4:
             raise ValueError('参考照片返回不完整')
         data = base64.b64decode(row['data'], validate=True); kind = images.sniff(data)
-        if not kind or kind[0] not in ('image/jpeg', 'image/png', 'image/webp') or kind[0] != row.get('mime') or len(data) > 2_000_000 or hashlib.sha256(data).hexdigest() != row['sha256']:
+        if not kind or kind[0] not in ('image/jpeg', 'image/png', 'image/webp') or kind[0] != row.get('mime') or len(data) > limit or hashlib.sha256(data).hexdigest() != row['sha256']:
             raise ValueError('参考照片校验未通过')
-        source = _source_url(row.get('source_url'))
+        if origin == 'generated':
+            if row.get('origin') != 'generated' or row.get('image_model') != STYLE_IMAGE_MODEL or row.get('source_url'):
+                raise ValueError('款式示意来源不正确')
+            provenance = {'origin': 'generated', 'image_model': STYLE_IMAGE_MODEL}
+        else:
+            if row.get('origin') == 'generated': raise ValueError('实物任务不能接收生成图片')
+            provenance = {'source_url': _source_url(row.get('source_url'))}
         if row['sha256'] in seen: continue
         seen.add(row['sha256']); name = 'reference-'+row['sha256']+kind[1]
         target = db.IMAGES_DIR/name
         if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != row['sha256']:
             temporary = target.with_name(name+'.'+uuid4().hex+'.tmp'); temporary.write_bytes(data); os.replace(temporary, target)
-        result.append({'id': row['sha256'][:16], 'image_path': name, 'source_url': source, 'name': str(row.get('name') or '实物款式参考')[:180]})
+        result.append({'id': row['sha256'][:16], 'image_path': name, **provenance, 'name': str(row.get('name') or '款式参考')[:180]})
     return result
 
 
@@ -95,7 +119,8 @@ def _cache_usable(rows):
             name = row.get('image_path', '')
             if not re.fullmatch(r'reference-[0-9a-f]{64}\.(jpg|png|webp)', name): return False
             data = (db.IMAGES_DIR/name).read_bytes()
-            if len(data) > 2_000_000 or hashlib.sha256(data).hexdigest() != name[10:74] or not images.sniff(data): return False
+            limit = 10 * 1024 * 1024 if row.get('origin') == 'generated' else 2_000_000
+            if len(data) > limit or hashlib.sha256(data).hexdigest() != name[10:74] or not images.sniff(data): return False
         return True
     except (OSError, KeyError, TypeError): return False
 
@@ -109,7 +134,7 @@ def _apply(uid, record, response):
         if time.time() - record['issued_at'] < 60: return record
         state = 'failed'; response = {'error': '电脑未保留这次搜图任务，可以重新寻找。'}
     if state == 'complete':
-        rows = _photos(response)
+        rows = _photos(response, record.get('image_origin', 'product_photo'))
         if not rows: raise ValueError('本次参考照片暂时无法读取')
         record['references'] = rows
         _write(uid, 'cache:'+record['signature'], {'references': rows, 'created_at': time.time()})
@@ -122,11 +147,14 @@ def _submit(uid, record, spec):
     try:
         settings = load_settings()
         if not settings: raise LLMError('请先连接电脑搜图服务。', code='reference_not_configured', retryable=False)
-        response = bridge_request(settings, '/reference/jobs', payload={'job_id': record['job_id'], 'direction': spec})
+        endpoint = '/style/jobs' if record.get('image_origin') == 'generated' else '/reference/jobs'
+        # 等待提交锁时不持状态锁；模型执行在电脑排队，手机只串行登记任务。
+        with _submission_lock:
+            response = bridge_request(settings, endpoint, payload={'job_id': record['job_id'], 'direction': spec})
         with _lock: _apply(uid, record, response)
     except (LLMError, ValueError, OSError) as error:
         code = getattr(error, 'code', '')
-        known = code in ('reference_not_configured', 'bridge_login', 'bridge_pairing', 'insufficient_balance', 'bridge_busy')
+        known = code in ('reference_not_configured', 'reference_paused', 'bridge_login', 'bridge_pairing', 'insufficient_balance', 'bridge_busy')
         with _lock:
             record.update(status='failed' if known else 'unknown', error=(str(error).replace('电脑识别', '电脑搜图') if isinstance(error, LLMError) else '暂未确认搜图结果，请查询这次任务。')[:120])
             _write(uid, 'job:'+record['job_id'], record)
@@ -135,23 +163,74 @@ def _submit(uid, record, spec):
 
 
 def start(uid, plan_id, direction_id, job_id, *, retry=False):
+    value = _direction(uid, plan_id, direction_id, with_origin=True)
+    origin = value.pop('image_origin')
+    return _start(uid, plan_id, direction_id, job_id, value, retry=retry, image_origin=origin)
+
+
+def start_prepared(uid, request_id, direction_id):
+    from . import purchase_intent
+    record = purchase_intent.preparation_record(uid, request_id)
+    direction = next((d for d in record['directions'] if d['id'] == direction_id), None)
+    if record['status'] != 'running' or not direction or direction_id not in record['jobs']:
+        raise purchase.PurchaseError('这次准备未授权该方向。', 409)
+    return _start(uid, record['plan_id'], direction_id, record['jobs'][direction_id],
+        {key: direction[key] for key in _FIELDS}, image_origin=record.get('image_origin', 'product_photo'))
+
+
+def start_analysis(uid, request_id, direction_id):
+    """§37：仅从已登记分析快照解析候选，不接受前端提交搜索规格。"""
+    from . import purchase_analysis
+    record = purchase_analysis.record(uid, request_id)
+    direction = next((d for d in record['directions'] if d['id'] == direction_id), None)
+    if record['status'] != 'running' or not direction or direction_id not in record['jobs']:
+        raise purchase.PurchaseError('这次分析未授权该方向。', 409)
+    return _start(uid, record['plan_id'], direction_id, record['jobs'][direction_id],
+        {key: direction[key] for key in _FIELDS}, image_origin=record.get('image_origin', 'product_photo'))
+
+
+def copy_ready(uid, source_plan, source, target_plan, target, job_id):
+    """§37：选择后只复制已核验引用，缓存缺失绝不回退到付费搜图。"""
+    with _lock:
+        original = snapshots(uid, [{'id': source_plan, 'directions': [source]}]).get(source['id'])
+        full = _read(uid, 'job:' + original['job_id']) if original else None
+        fields = {key: source[key] for key in _FIELDS}
+        origin = source.get('image_origin', 'product_photo')
+        signature = _signature(fields, origin)
+        if fields != {key: target[key] for key in _FIELDS} or not original or not full or full.get('signature') != signature or full.get('plan_id') != source_plan or full.get('direction_id') != source['id'] or original['status'] != 'complete' or not _cache_usable(original.get('references')):
+            raise purchase.PurchaseError('这组款式图片已不可用，请重新分析；已有建议仍保留。', 409)
+        if origin != target.get('image_origin', 'product_photo') or origin != full.get('image_origin', 'product_photo') or any(row.get('origin', 'product_photo') != origin for row in original['references']):
+            raise purchase.PurchaseError('款式图片来源与方向不一致，请重新分析。', 409)
+        existing = _read(uid, 'job:' + job_id)
+        if existing:
+            if existing['signature'] != signature or existing['plan_id'] != target_plan or existing['direction_id'] != target['id']:
+                raise purchase.PurchaseError('这次款式选择的引用不一致。', 409)
+            return _public(existing)
+        value = {'job_id': job_id, 'plan_id': target_plan, 'direction_id': target['id'], 'signature': signature,
+            'issued_at': time.time(), 'status': 'complete', 'references': original['references'], 'error': '', 'image_origin': origin}
+        _bind(uid, value)
+        return _public(value)
+
+
+def _start(uid, plan_id, direction_id, job_id, spec, *, retry=False, image_origin='product_photo'):
     try: job_id = str(UUID(job_id))
     except (ValueError, TypeError, AttributeError): raise purchase.PurchaseError('搜图请求编号不正确。', 422)
     with _lock:
-        spec = _direction(uid, plan_id, direction_id)
-        signature = hashlib.sha256(json.dumps(spec, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        signature = _signature(spec, image_origin)
         existing = _read(uid, 'job:'+job_id)
         if existing:
             if existing['signature'] != signature or existing['direction_id'] != direction_id or existing['plan_id'] != plan_id: raise purchase.PurchaseError('同一次搜图不能更换方向。', 409)
             return _public(existing)
         previous_id = _read(uid, _pointer(plan_id, direction_id))
         previous = _read(uid, 'job:'+previous_id) if previous_id else None
+        if previous and previous.get('image_origin', 'product_photo') != image_origin:
+            raise purchase.PurchaseError('旧任务来源与本次款式不同，请重新分析。', 409)
         if previous and (previous['status'] in PENDING or previous['status'] == 'complete' and not retry): return _public(previous)
         cached = _read(uid, 'cache:'+signature) if not retry else None
         cached_rows = (cached or {}).get('references', [])
-        cache_ok = _cache_usable(cached_rows)
-        record = {'job_id': job_id, 'plan_id': plan_id, 'direction_id': direction_id, 'signature': signature, 'issued_at': time.time(), 'status': 'complete' if cache_ok else 'queued', 'references': cached_rows if cache_ok else (previous or {}).get('references', []), 'error': ''}
-        _write(uid, 'job:'+job_id, record); _write(uid, _pointer(plan_id, direction_id), job_id)
+        cache_ok = _cache_usable(cached_rows) and all(row.get('origin', 'product_photo') == image_origin for row in cached_rows)
+        record = {'job_id': job_id, 'plan_id': plan_id, 'direction_id': direction_id, 'signature': signature, 'issued_at': time.time(), 'status': 'complete' if cache_ok else 'queued', 'references': cached_rows if cache_ok else (previous or {}).get('references', []), 'error': '', 'image_origin': image_origin}
+        _bind(uid, record)
         if not cache_ok:
             _posting.add((uid, job_id)); threading.Thread(target=_submit, args=(uid, dict(record), spec), daemon=True).start()
         return _public(record)
@@ -196,7 +275,8 @@ def status(uid, job_id):
     try:
         settings = load_settings()
         if not settings: raise LLMError('电脑搜图尚未连接。', code='reference_not_configured')
-        response = bridge_request(settings, '/reference/jobs/'+job_id)
+        endpoint = '/style/jobs/' if record.get('image_origin') == 'generated' else '/reference/jobs/'
+        response = bridge_request(settings, endpoint+job_id)
         with _lock: record = _apply(uid, record, response)
     except (LLMError, ValueError, OSError) as error:
         # 查询失败继续保留原任务号与已有图，不因断网新建收费任务。

@@ -293,3 +293,75 @@ def test_desktop_wire_carries_this_request_reference_schema(owner,monkeypatch):
     monkeypatch.setattr('app.services.llm.desktop.bridge_request',bridge_request)
     state=generate(owner,DesktopClient({'url':'http://127.0.0.1:9999','token':'synthetic-only'}))
     assert len(seen)==1 and state['result']['directions'][0]['complete']
+
+
+def test_prompt_explains_new_item_role_and_real_wardrobe_slots(owner):
+    fake=Fake();generate(owner,fake)
+    messages,options=fake.calls[0]
+    context=json.loads(messages[-1]['content'])
+    assert all(row['slot']==purchase.taxonomy.slot_of(row['type']) for row in context['wardrobe'])
+    assert context['type_roles']['cardigan']=='top'
+    assert context['type_roles']['casual_pants']=='bottom'
+    assert context['combination_rules']['new_item_occupies_role'] is True
+    assert context['combination_rules']['full_excludes']==['top','bottom','full']
+    assert '不同品类配饰' in messages[0]['content']
+    assert '新裤子' in options['schema']['$defs']['Direction']['properties']['owned']['description']
+
+
+def test_different_accessories_can_pair_with_new_bag(owner):
+    items.create(owner,ItemCreate(type='hat',primary_color='black'),item_id=owner+'hat')
+    def bag(p,r):
+        p['directions'][0].update(type='bag',primary_color='beige',title='米白色小包',owned=[x['id'] for x in r])
+        return p
+    direction=generate(owner,Fake(bag))['result']['directions'][0]
+    assert len(direction['owned'])==4 and direction['complete']
+
+
+@pytest.mark.parametrize('new_kind,owned_kinds,conflicts',[
+    ('casual_pants',['jeans','tshirt'],['bottom']),
+    ('shirt',['tshirt','sneakers'],['top']),
+    ('cardigan',['tshirt','sneakers'],['top']),
+    ('loafers',['tshirt','sneakers'],['shoes']),
+    ('jacket',['coat','jeans'],['outer']),
+    ('dress',['tshirt','sneakers'],['full+top']),
+    ('tshirt',['dress','sneakers'],['full+top']),
+    ('dress',['jeans','sneakers'],['full+bottom']),
+    ('dress',['jumpsuit','sneakers'],['full']),
+    ('bag',['bag','tshirt'],['accessory:bag']),
+    ('casual_pants',['bag','bag'],['accessory:bag']),
+])
+def test_real_role_conflicts_rejected_once_with_safe_diagnostics(owner,new_kind,owned_kinds,conflicts):
+    for i,kind in enumerate(owned_kinds):
+        items.create(owner,ItemCreate(type=kind,primary_color='red',name='私密衣物名不应出现在错误里'),item_id=owner+'role'+str(i))
+    def conflict(p,r):
+        chosen=[x['id'] for x in r if x.get('name')=='私密衣物名不应出现在错误里']
+        p['directions'][0].update(type=new_kind,primary_color='purple',owned=chosen)
+        return p
+    fake=Fake(conflict);token=str(uuid4())
+    with pytest.raises(purchase.PurchaseError) as caught:
+        generate(owner,fake,token=token)
+    assert caught.value.code=='invalid_combination_roles'
+    state=generate(owner,fake,token=token)
+    assert state['request']['diagnostics']=={'direction':1,'new_role':purchase.taxonomy.slot_of(new_kind),'conflicts':conflicts,'reference_count':len(owned_kinds)}
+    assert len(fake.calls)==1 and state['result'] is None
+    assert '私密衣物名' not in json.dumps(state['request'],ensure_ascii=False)
+    assert all(row['id'] not in json.dumps(state['request']) for row in purchase.inventory(owner))
+
+
+def test_role_conflict_does_not_partially_publish_or_launch_photo_search(owner,monkeypatch):
+    old=generate(owner)['result'];launched=[]
+    monkeypatch.setattr('app.services.purchase_reference.launch_for_plan',lambda *args:launched.append(args))
+    def partly_invalid(p,r):
+        bad=deepcopy(p['directions'][0]);bad.update(type='shirt',primary_color='white')
+        p['directions'].append(bad);return p
+    fake=Fake(partly_invalid)
+    with pytest.raises(purchase.PurchaseError):generate(owner,fake)
+    assert purchase.get_state(owner)['result']==old and not launched and len(fake.calls)==1
+
+
+def test_real_outer_layer_with_top_and_shoes_remains_valid(owner):
+    items.create(owner,ItemCreate(type='blazer',primary_color='gray'),item_id=owner+'blazer')
+    def layered(p,r):
+        p['directions'][0]['owned']=[x['id'] for x in r if x['type'] in ('tshirt','blazer','sneakers')]
+        return p
+    assert generate(owner,Fake(layered))['result']['directions'][0]['complete']

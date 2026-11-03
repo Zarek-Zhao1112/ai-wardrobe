@@ -14,6 +14,7 @@ from typing import Any, Optional
 from .. import db
 from . import aesthetics, preference, wardrobe
 from .outfit_constraints import AnchorUnavailable, validate_anchor as _check_anchor
+from . import garment_profile
 from .llm.client import LLMClient, LLMError, get_client
 from .llm.prompts import AliasMap
 
@@ -189,7 +190,8 @@ def _catalog(outfit_ids: list[str], outfits_by_id: dict[str, dict], aliases: Ali
     for oid in outfit_ids:
         outfit = outfits_by_id[oid]
         codes = [aliases.alias_of(i) or "?" for i in outfit["item_ids"]]
-        lines.append(f"{oid}: " + " + ".join(codes))
+        roles = {aliases.alias_of(i): role for i, role in outfit.get("wearing_roles", {}).items()}
+        lines.append(f"{oid}: " + " + ".join(codes) + ("；穿法=" + json.dumps(roles, ensure_ascii=False) if roles else ""))
     return "\n".join(lines)
 
 
@@ -234,6 +236,7 @@ def _llm_rank(
 理由使用颜色和品类名称，不出现O1或A1等内部代号。
 不能由材质成分断言光泽、挺阔、垂坠、柔软、保暖，不能从裤长断言上衣长度、腰线、显高显瘦或三七比例。
 缺信息时承认未知；不要声称看过照片或实际试穿。
+visual_profile是原图或商品文字的线索，certainty=approximate只可描述为近似尝试。upper_layer表示已核对开合结构和相对宽松度的敞开上层，不改变单品品类；实际尺寸、厚薄和叠穿效果仍未知。
 输出JSON：{{"ranked":[{{"outfit":"O1","reason":"..."}}]}}"""
     data = client.chat_json(
         [
@@ -388,7 +391,7 @@ def recommend(
         return {"season": actual_season, "season_label": wardrobe.taxonomy.SEASON_LABELS.get(actual_season, actual_season),
             "candidates": 0, "outfits": [], "degraded": False, "aesthetic": profile,
             "anchor_item_id": anchor_item_id,
-            "note": ("暂时找不到包含这件衣服的完整搭配。可以调整季节或补充相关衣物。" if anchor_item_id else
+            "note": ("暂时找不到包含这件衣服的完整搭配。可以补充适合当前季节的相关衣物。" if anchor_item_id else
                 "当前季节没有可搭出的组合。需要上装、下装和鞋，或连身衣和鞋；也可以检查季节标注。")}
 
     # 同一方案既参与召回，也评价整套关系；旧颜色/正式度多样性硬修复不用于此链路。
@@ -406,7 +409,8 @@ def recommend(
     aliases.build(list(model_items.values()))
     # JSON行避免名称、备注和分隔符混淆；只传受控字段，场合与正式度均不进入模型。
     item_lines = "\n".join(json.dumps({"code": aliases.alias_of(item["id"]),
-        **{key: item.get(key) for key in ("type", "slot", "primary_color", "colors", "material", "fit", "pattern", "length", "style")}},
+        **{key: item.get(key) for key in ("type", "slot", "primary_color", "colors", "material", "fit", "pattern", "length", "style")},
+        "visual_profile": garment_profile.context(item)},
         ensure_ascii=False) for item in model_items.values())
     degraded, note, ranked = False, None, []
     if use_llm:
@@ -454,8 +458,27 @@ def recommend(
                                      (anchor_item_id, user_id)).fetchone()
             _check_anchor([to_out(row)] if row else [], anchor_item_id, actual_season)
         for outfit, reason in final:
+            # 模型返回前可能换图或改品类；写锁内复核参与评分的真实属性。
+            if profile["version"] >= 2:
+                from .items import to_out
+                current = [connection.execute("SELECT * FROM clothing_items WHERE id=? AND user_id=?",
+                    (identifier, user_id)).fetchone() for identifier in outfit["item_ids"]]
+                fresh = [to_out(row) for row in current if row]
+                keys = ("type", "primary_color", "colors", "material", "fit", "pattern", "length", "style", "season", "image_hash")
+                old = {item["id"]: item for item in outfit["items"]}
+                if (len(fresh) != len(current) or any(item.get("is_archived") or
+                        any(item.get(key) != old[item["id"]].get(key) for key in keys) or
+                        garment_profile.context(item) != garment_profile.context(old[item["id"]]) for item in fresh)):
+                    continue
+                roles = garment_profile.wearing_roles(fresh)
+                if roles is None:
+                    continue
+                outfit["wearing_roles"] = roles
+                items_by_id.update({item["id"]: item for item in fresh})
             confidence = round(max(0.0, min(1.0, float(outfit.get("_relevance", 0.0)))), 4)
             snapshot = {**profile, "assessment": {key: value for key, value in outfit["_assessment"].items() if key != "score"}}
+            if outfit.get("wearing_roles"):
+                snapshot["wearing_roles"] = outfit["wearing_roles"]
             if anchor_item_id:
                 snapshot["anchor_item_id"] = anchor_item_id
             row = _persist(
@@ -463,6 +486,9 @@ def recommend(
                 confidence=confidence, source=source, now=now, aesthetic=snapshot, connection=connection,
             )
             saved.append(_to_out(row, items_by_id))
+
+    if not saved and final:
+        note = "衣橱信息已更新，本次旧组合未保存，请重新搭配。"
 
     return {
         "season": actual_season,

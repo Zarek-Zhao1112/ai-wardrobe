@@ -18,4 +18,4 @@ def test_import_queue_paid_boundaries():
     result = subprocess.run([executable, str(script)], capture_output=True, text=True, encoding='utf-8', timeout=20)
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
-    assert report['passed'] == 12 and report['failed'] == 0
+    assert report['passed'] == 14 and report['failed'] == 0

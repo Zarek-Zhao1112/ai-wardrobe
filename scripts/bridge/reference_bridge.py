@@ -88,7 +88,13 @@ def spec_of(value):
 
 def query_of(spec):
     from app import taxonomy
-    return ' '.join([spec['title'], taxonomy.COLORS[spec['primary_color']], spec['fit'][:45], '纯色' if '纯色' in spec['pattern'] else '', '官方商城 白底 商品图 -定制 -批发 -团体服'])[:220]
+    aliases = {'brown': ('灰褐色', '灰褐'), 'beige': ('米白色',), 'gray': ('浅灰色', '炭灰色'), 'navy': ('藏蓝色',)}
+    color = next((c for c in aliases.get(spec['primary_color'], ()) if c in spec['color'] or c in spec['title']), taxonomy.COLORS[spec['primary_color']])
+    if not color.endswith('色'):
+        color += '色'
+    details = [word for word in ('宽松', '直筒', '阔腿', '高腰', '短款') if word in spec['fit']][:2]
+    return ' '.join([color, taxonomy.CLOTHING_TYPES[spec['type']][0], *details,
+        '纯色' if '纯色' in spec['pattern'] else '', '品牌 官网 购买 -定制 -批发 -团体服'])[:220]
 
 
 def parse_search(events, query):
@@ -114,12 +120,13 @@ def parse_search(events, query):
             if isinstance(raw, dict) and raw.get('type') == 'web_search_tool_result' and raw.get('query') == query and raw.get('searchType') == 'text2text': result = raw
     if result is None: raise ValueError('没有收到真实搜索来源，未采用模型编写的网址')
     rows = []
-    for row in (result.get('results') or [])[:5]:
+    for row in (result.get('results') or [])[:15]:
         if not isinstance(row, dict): continue
+        if re.search(r'定制|批发|厂家|团体服|工装配套|招商|加盟', str(row.get('title', ''))): continue
         try: url = public_url(row.get('url'))
         except (ValueError, TypeError): continue
         if url not in [r['url'] for r in rows]: rows.append({'url': url, 'title': str(row.get('title', ''))[:180]})
-    return rows
+    return rows[:5]
 
 
 def run_search(executable, entry, directory, query, environment):
@@ -147,8 +154,8 @@ def run_search(executable, entry, directory, query, environment):
     return parse_search(events, query)
 
 
-def find_references(executable, entry, directory, spec, environment, chat, *, search=run_search, fetch=fetch_public):
-    query = query_of(spec); pages = search(executable, entry, directory, query, environment)
+def find_references(executable, entry, directory, spec, environment, chat, *, search=run_search, fetch=fetch_public, query=None):
+    query = query or query_of(spec); pages = search(executable, entry, directory, query, environment)
     write_json(directory/'sources.json', pages)
     candidates = []; seen = set(); groups = []
     for page in pages[:5]:
@@ -195,16 +202,40 @@ def find_references(executable, entry, directory, spec, environment, chat, *, se
     return result
 
 
+def find_reference_rounds(executable, entry, directory, spec, environment, chat, *, search=run_search, fetch=fetch_public):
+    """§36：明确空结果才补搜；每轮独立guard，未知/异常不重放。"""
+    from app import taxonomy
+    colors = {'brown':'taupe brown','beige':'ecru beige','gray':'grey','black':'black','white':'white','navy':'navy','light_blue':'light blue'}
+    types = {'shirt':'shirt','casual_pants':'trousers','jeans':'jeans','cardigan':'cardigan','jacket':'jacket','sneakers':'sneakers','loafers':'loafers'}
+    queries = [query_of(spec), ' '.join([colors.get(spec['primary_color'], taxonomy.COLORS[spec['primary_color']]),
+        types.get(spec['type'], taxonomy.CLOTHING_TYPES[spec['type']][0]), 'clothing shop product -wholesale -custom'])]
+    for index, query in enumerate(queries):
+        round_dir = directory / f'round-{index + 1}'
+        round_dir.mkdir()
+        rows = find_references(executable, entry, round_dir, spec, environment, chat,
+            search=search, fetch=fetch, query=query)
+        if not rows:
+            continue
+        result = []
+        for number, row in enumerate(rows, start=1):
+            filename = f'candidate-{number}' + Path(row['file']).suffix
+            (directory / filename).write_bytes((round_dir / row['file']).read_bytes())
+            result.append({**row, 'file': filename})
+        return result
+    return []
+
+
 def http_error():
     import http.client
     return http.client.HTTPException
 
 
 class ReferenceJobs:
-    def __init__(self, directory, executable, entry, busy, environment, chat, *, runner=find_references):
+    def __init__(self, directory, executable, entry, busy, environment, chat, *, runner=find_references, signature_tag=''):
         self.directory = Path(directory); self.directory.mkdir(parents=True, exist_ok=True)
         self.executable = executable; self.entry = entry; self.busy = busy; self.environment = environment; self.chat = chat; self.runner = runner
-        self.lock = threading.Lock(); self.active = set(); self.slot = threading.BoundedSemaphore(1)
+        self.lock = threading.RLock(); self.active = set(); self.slot = threading.BoundedSemaphore(1)
+        self.signature_tag = signature_tag
 
     def _path(self, job_id):
         try: identifier = str(UUID(job_id))
@@ -216,7 +247,8 @@ class ReferenceJobs:
         target = self._path(payload['job_id'])
         try: spec = spec_of(payload['direction'])
         except (ValueError, TypeError): raise HTTPException(422, '选购方向格式不正确')
-        signature = hashlib.sha256(json.dumps(spec, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        signature_value = {'direction': spec, 'mode': self.signature_tag} if self.signature_tag else spec
+        signature = hashlib.sha256(json.dumps(signature_value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         with self.lock:
             if (target/'job.json').is_file():
                 old = json.loads((target/'job.json').read_text(encoding='utf-8'))
@@ -237,9 +269,12 @@ class ReferenceJobs:
             with self.busy: return self.chat(*args)
         with self.slot:
             try:
-                record.update(status='running', phase='searching'); write_json(target/'job.json', record)
-                options = {'search': search} if self.runner is find_references else {}
-                refs = self.runner(self.executable, self.entry, target, spec, self.environment, chat, **options)
+                with self.lock:
+                    record.update(status='running', phase='searching'); write_json(target/'job.json', record)
+                if self.runner is find_references:
+                    refs = find_reference_rounds(self.executable, self.entry, target, spec, self.environment, chat, search=search)
+                else:
+                    refs = self.runner(self.executable, self.entry, target, spec, self.environment, chat)
                 record.update(status='complete' if refs else 'empty', phase='finished', references=refs, error='')
             except Exception:
                 # 不把网页内容、CLI原始输出或凭据写入日志/手机。
@@ -253,10 +288,11 @@ class ReferenceJobs:
     def status(self, job_id):
         target = self._path(job_id)
         with_path = target/'job.json'
-        if not with_path.is_file(): raise HTTPException(404, '未找到这次搜索任务')
-        record = json.loads(with_path.read_text(encoding='utf-8'))
-        if record['status'] in ('queued', 'running') and target.name not in self.active:
-            record.update(status='interrupted', error='上次搜图已中断，未自动重新搜索。')
+        with self.lock:
+            if not with_path.is_file(): raise HTTPException(404, '未找到这次搜索任务')
+            record = json.loads(with_path.read_text(encoding='utf-8'))
+            if record['status'] in ('queued', 'running') and target.name not in self.active:
+                record.update(status='interrupted', error='上次搜图已中断，未自动重新搜索。')
         result = {k: v for k, v in record.items() if k != 'signature'}
         result['references'] = []
         for ref in record.get('references', []):
@@ -264,8 +300,9 @@ class ReferenceJobs:
             try:
                 if not re.fullmatch(r'candidate-[1-6]\.(?:png|jpg|webp)', name): raise ValueError('参考文件名无效')
                 data = (target/name).read_bytes()
-                if len(data) > 2_000_000 or hashlib.sha256(data).hexdigest() != ref['sha256']: raise ValueError('参考文件损坏')
+                limit = 10 * 1024 * 1024 if ref.get('origin') == 'generated' else 2_000_000
+                if len(data) > limit or hashlib.sha256(data).hexdigest() != ref['sha256']: raise ValueError('参考文件损坏')
             except (ValueError, OSError):
                 result.update(status='failed', references=[], error='本次参考照片已不可用，可以重新寻找。'); break
-            result['references'].append({k: ref[k] for k in ('id', 'name', 'source_url', 'mime', 'sha256') } | {'data': base64.b64encode(data).decode()})
+            result['references'].append({k: ref[k] for k in ('id', 'name', 'source_url', 'origin', 'image_model', 'mime', 'sha256') if k in ref} | {'data': base64.b64encode(data).decode()})
         return result

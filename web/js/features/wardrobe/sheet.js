@@ -170,6 +170,7 @@ export async function closeItemSheet() {
     const imageSrc = flying ? entry.fly.src : hero?.currentSrc || hero?.src;
     const filters = entry.background.map(({ node }) => getComputedStyle(node).filter);
     cancel(entry); entry.phase = "closing";
+    document.removeEventListener("focusin", entry.onFocus); document.removeEventListener("keydown", entry.onKey);
     entry.content.dataset.closing = "true"; entry.panel.style.pointerEvents = "none";
     if (hero) hero.style.visibility = "hidden";
     const duration = reduced.matches ? 1 : 330;

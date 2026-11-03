@@ -3,10 +3,14 @@ import { api } from "../../core/api.js";
 import { esc, icon, fmtDateTime, itemChipsHtml, toast, serviceSettingsHtml } from "../../core/ui.js";
 import { openTryonSheet } from "./tryon-sheet.js";
 import { bindHorizontalSwipe } from "../../components/horizontal-swipe.js";
+import { createAestheticSheet } from "./aesthetic-sheet.js";
+import { examplesFor, profileCardHtml, methodDetails } from "./aesthetic-ui.js";
 export const label = "搭配";
 const FB_TEXT = { like: "喜欢这套", dislike: "不喜欢", swap: "先不选" };
 const STATUS_TEXT = { proposed: "待反馈", accepted: "已采纳", rejected: "未采纳", swapped: "暂未选择" };
-const ASSESS_TEXT = { matched: "有依据", approximate: "近似尝试", unknown: "信息不足" };
+let rememberedView = null;
+// 同一搭配的反馈跨mount串行，旧请求结束前不能由新页面重复提交。
+const feedbackPending = new Map();
 // 切页再回来时复用尚未结束的请求，避免同一次生成重复调用。
 let inFlight = null;
 let inFlightRequested = null;
@@ -14,39 +18,25 @@ let activeOutfit = null;
 // 删除标记跨页面保留，阻止离页前的请求/详情背景快照把已删衣服画回来。
 const removedItems = new Set();
 document.addEventListener("wardrobe:item-removed", event => { if (event.detail?.id) removedItems.add(event.detail.id); });
-export function unmount(root) { if (activeOutfit?.root === root) { activeOutfit.dispose(); activeOutfit = null; } }
-
-function methodDetails(profile, assessment = null) {
-  if (!profile) return '<p class="faint">旧版搭配，未记录审美方案。</p>';
-  return `<details class="aesthetic-details"><summary>${assessment ? "查看搭配依据" : "查看完整审美方案"}</summary>
-    <p>${esc(profile.core)}</p><dl>${(profile.dimensions || []).map(dimension => {
-      const actual = assessment?.dimensions?.find(row => row.key === dimension.key);
-      return `<div><dt>${esc(dimension.label)}${actual ? `<span class="chip">${esc(ASSESS_TEXT[actual.status] || "待确认")}</span>` : ""}</dt>
-        <dd>${esc(dimension.goal)}${actual ? `<p>${esc(actual.evidence)}</p>` : ""}</dd></div>`;
-    }).join("")}</dl><p class="faint">${esc(profile.flexible)}</p>
-    ${assessment ? `<p class="faint">${esc(assessment.note)}</p>` : ""}
-    <div class="aesthetic-sources">${(profile.sources || []).filter(source => /^https:\/\//.test(source.url || "")).map(source => `<a href="${esc(source.url)}" target="_blank" rel="noopener noreferrer">${esc(source.title)}</a>`).join("")}</div></details>`;
-}
+export function unmount(root) { if (activeOutfit?.root === root) { rememberedView = root.captureState?.() || rememberedView; activeOutfit.dispose(); activeOutfit = null; } }
 
 export async function mount(root, ctx, arg = "", restore = null) {
   if (activeOutfit) unmount(activeOutfit.root);
   const anchorId = arg || "";
+  if (!restore && rememberedView?.anchorId === anchorId) restore = rememberedView;
   if (restore?.anchorId !== anchorId) restore = null;
-  let disposed = false, gesture = null, motion = null;
-  const taxonomy = ctx.taxonomy || {}, seasons = taxonomy.vocabularies?.season || {};
+  let disposed = false, gesture = null, motion = null, sheet = null;
+  const taxonomy = ctx.taxonomy || {};
   root.innerHTML = `<section class="outfit-view">${anchorId ? `<div class="outfit-anchor" data-anchor-id="${esc(anchorId)}"><button type="button" class="outfit-anchor-back" data-anchor-back aria-label="返回这件衣服">${icon("back")}</button><div data-anchor-piece><span class="faint">正在读取必选衣物…</span></div></div>` : ""}<div class="outfit-top-row">
-    <div class="outfit-method-slot"><div data-aesthetic-loading class="muted">正在读取审美方案…</div>
-      <details id="o-chooser" class="aesthetic-chooser" hidden><summary><strong id="o-current"></strong><span id="o-choice-count"></span></summary>
-        <div id="o-aesthetics" class="aesthetic-picker" role="group" aria-label="审美方案"></div></details></div>
-    <label class="outfit-season"><span class="sr-only">季节</span><select id="o-season"><option value="">当前季节</option>${Object.entries(seasons).map(([key, name]) => `<option value="${esc(key)}">${esc(name)}</option>`).join("")}</select></label>
+    <div class="outfit-method-slot"><div data-aesthetic-loading class="muted">正在读取审美方案…</div><button id="o-chooser" type="button" data-open-aesthetics class="aesthetic-selector" hidden>${icon("spark")}<strong id="o-current"></strong><span aria-hidden="true">⌄</span></button></div>
+    <div id="o-season" class="outfit-season" aria-label="当前季节"></div>
     <div class="page-settings status">${serviceSettingsHtml(ctx.health)}</div></div><div data-outfit-content hidden>
-      <p id="o-method-summary" class="outfit-method-summary"></p><div id="o-method" hidden></div>
-      <div id="o-message" role="status" aria-live="polite"></div>
-      <div id="o-result"><div class="outfit-empty">${icon('wardrobe')}<h2>用已有的衣服，<br>搭出新的感觉。</h2><p>选一种审美，再从衣橱里组一套。<br>配色、轮廓与质感一起考虑。</p></div></div>
-      <div class="outfit-generate-bar"><button id="o-go" type="button" class="primary">${icon('spark')}从衣橱生成搭配</button><details class="outfit-options"><summary>更多选项</summary><div class="outfit-option-fields"><label class="field"><span>套数</span><select id="o-limit"><option value="3">3 套</option><option value="5">5 套</option></select></label><label class="control-toggle"><input type="checkbox" id="o-llm" checked> AI 比较与说明</label></div></details></div>
-      <details class="outfit-history-panel"><summary>最近生成</summary><div id="o-history"><p class="muted">加载中…</p></div></details></div></section>`;
+      <div id="o-intro"></div><p id="o-method-summary" class="outfit-method-summary" hidden></p>
+      <div id="o-message" role="status" aria-live="polite"></div><div id="o-result"></div>
+      <div class="outfit-generate-bar"><button id="o-go" type="button" class="primary">${icon("spark")}从衣橱生成搭配</button><button type="button" id="o-options" class="outfit-options-button">3 套 · 更多选项${icon("chevron")}</button><span class="outfit-generate-note">用已有衣服，按当前季节搭配</span></div>
+      <div id="o-recent"></div><details class="outfit-history-panel"><summary>最近搭配</summary><div id="o-history"><p class="muted">加载中…</p></div></details></div></section>`;
   const container = root.querySelector(".outfit-view"), alive = () => !disposed && container.isConnected;
-  activeOutfit = { root, dispose() { disposed = true; gesture?.dispose(); motion?.cancel(); } };
+  activeOutfit = { root, dispose() { disposed = true; gesture?.dispose(); motion?.cancel(); sheet?.dispose(); document.removeEventListener("visibilitychange", refreshSeason); document.removeEventListener("outfits:feedback", feedbackChanged); } };
   if (anchorId) {
     container.querySelector("[data-anchor-back]").onclick = () => {
       if (history.state?.outfitAnchorFrom === "#item/" + anchorId) history.back();
@@ -83,26 +73,41 @@ export async function mount(root, ctx, arg = "", restore = null) {
   container.querySelector("[data-outfit-content]").hidden = false;
   const state = { aesthetic: catalog.default || profiles[0].id, season: "", limit: 3, useLlm: true,
     ...(restore?.state || {}), anchorId };
+  state.season = ""; // 当前季节由服务端确定，旧快照的季节选择不再沿用。
   if (!profiles.some(profile => profile.id === state.aesthetic)) state.aesthetic = catalog.default || profiles[0].id;
   const resultEl = container.querySelector("#o-result"), messageEl = container.querySelector("#o-message");
   const historyEl = container.querySelector("#o-history"), goBtn = container.querySelector("#o-go");
   const includesAnchor = outfit => !anchorId || (outfit.item_ids?.includes(anchorId) && outfit.items?.some(item => item.id === anchorId));
   const usableOutfit = outfit => includesAnchor(outfit) && outfit.item_ids?.length && outfit.item_ids.every(id => !removedItems.has(id) && outfit.items?.some(item => item.id === id));
-  let busy = false, historySeq = 0, deck = (restore?.deck || []).filter(usableOutfit), deckIndex = 0, restoreInitialHistory = !anchorId && !restore;
+  let busy = false, historySeq = 0, historyRows = [], deck = (restore?.deck || []).filter(usableOutfit), deckIndex = 0;
   deckIndex = Math.min(Math.max(0, restore?.deckIndex || 0), Math.max(0, deck.length - 1));
   root.captureState = () => ({ anchorId, state: { ...state }, deck, deckIndex,
-    historyOpen: container.querySelector(".outfit-history-panel").open,
-    detailsOpen: Boolean(resultEl.querySelector(".outfit-deck-details:not([hidden])")) });
-  container.querySelector("#o-season").value = state.season;
-  container.querySelector("#o-limit").value = String(state.limit);
-  container.querySelector("#o-llm").checked = state.useLlm;
-  const goLabel = () => icon(deck.length ? "replay" : "spark") + (deck.length ? "按这个审美，重新搭配" : anchorId ? `用这件生成 ${state.limit} 套搭配` : "从衣橱生成搭配");
+    historyOpen: container.querySelector(".outfit-history-panel").open });
+  function showSeason(data) {
+    if (!alive()) return;
+    const label = data.season_label || "当前季节";
+    container.querySelector("#o-season").innerHTML = `${icon("leaf")}<span>${esc(label)}</span>`;
+  }
+  showSeason(catalog);
+  function refreshSeason() {
+    if (!document.hidden && alive()) void api.aesthetics().then(showSeason).catch(() => {});
+  }
+  document.addEventListener("visibilitychange", refreshSeason);
+  const goLabel = () => {
+    const name = profiles.find(profile => profile.id === state.aesthetic)?.name || "当前审美";
+    return icon(deck.length ? "replay" : "spark") + (deck.length ? (deck[deckIndex]?.aesthetic?.id !== state.aesthetic ? `用${name}重新搭配` : "按这个审美，重新搭配") : anchorId ? `用这件生成 ${state.limit} 套搭配` : "从衣橱生成搭配");
+  };
   goBtn.innerHTML = goLabel();
-  if (anchorId) resultEl.innerHTML = `<div class="outfit-empty outfit-anchor-empty">${icon("outfits")}<h2>围绕这件，<br>搭出新的感觉。</h2><p>选择一种审美，<br>每套都会带上这件衣服。</p></div>`;
-  const feedbackPending = new Set();
+  sheet = createAestheticSheet({ root, profiles, getSettings: () => ({ ...state }),
+    onSettings: patch => { if (!alive()) return; Object.assign(state, patch); selectMethod(); },
+    onSelect: id => { if (alive()) { state.aesthetic = id; selectMethod(); } },
+    onGenerate: () => { if (alive()) void generate(); },
+    onFeedback: (outfit, kind) => submitFeedback(outfit, kind),
+    isFeedbackPending: id => feedbackPending.has(id) });
+  document.addEventListener("outfits:feedback", feedbackChanged);
   root.addEventListener("item:removed", event => {
     if (!alive()) return;
-    const removed = event.detail?.id;
+    const removed = event.detail?.id; sheet?.itemRemoved?.(removed);
     if (anchorId === removed) { location.replace("#wardrobe"); return; }
     deck = deck.filter(outfit => !outfit.item_ids?.includes(removed));
     deckIndex = Math.min(deckIndex, Math.max(0, deck.length - 1));
@@ -110,29 +115,34 @@ export async function mount(root, ctx, arg = "", restore = null) {
     else { container.classList.remove('has-deck'); resultEl.innerHTML = '<div class="outfit-empty"><p>衣橱已更新，可以重新搭配。</p></div>'; goBtn.innerHTML = goLabel(); }
     void loadHistory();
   });
+  function methodNotice() {
+    const note = container.querySelector("#o-method-summary"), result = deck[deckIndex];
+    const changed = result && result.aesthetic?.id !== state.aesthetic;
+    note.hidden = !changed;
+    note.textContent = changed ? `上方已选「${profiles.find(p => p.id === state.aesthetic)?.name || "当前审美"}」，重新搭配后会应用。` : "";
+  }
   function selectMethod() {
     const selected = profiles.find(profile => profile.id === state.aesthetic);
     container.querySelector("#o-current").textContent = selected?.name || "选择审美";
-    container.querySelector("#o-choice-count").textContent = "⌄";
-    container.querySelector("#o-method-summary").textContent = selected?.summary || "";
-    container.querySelector("#o-aesthetics").innerHTML = profiles.map(profile => `<button type="button" class="aesthetic-choice" data-aesthetic="${esc(profile.id)}" aria-pressed="${state.aesthetic === profile.id}"><strong>${esc(profile.name)}</strong><span>${esc(profile.summary)}</span></button>`).join("");
-    container.querySelector("#o-method").innerHTML = methodDetails(selected);
+    container.querySelector("#o-intro").innerHTML = selected ? profileCardHtml(selected) : "";
+    container.querySelector("#o-options").innerHTML = `${deck.length ? "" : state.limit + " 套 · "}更多选项${icon("chevron")}`;
+    methodNotice();
+    if (!busy && !inFlight) goBtn.innerHTML = goLabel();
   }
   selectMethod();
-  container.querySelector("#o-aesthetics").onclick = event => {
-    const button = event.target.closest("[data-aesthetic]");
-    if (!button) return;
-    state.aesthetic = button.dataset.aesthetic; selectMethod();
-    container.querySelector("#o-chooser").open = false;
-    container.querySelector("#o-chooser > summary").focus();
+  container.querySelector("#o-chooser").onclick = event => sheet.openSelector(event.currentTarget);
+  container.querySelector("#o-options").onclick = event => sheet.openOptions(event.currentTarget);
+  container.querySelector("#o-intro").onclick = event => {
+    const guide = event.target.closest("[data-aesthetic-guide]"), example = event.target.closest("[data-aesthetic-example]");
+    const profile = profiles.find(row => row.id === state.aesthetic);
+    if (guide) sheet.openGuide(profile, guide);
+    if (example) sheet.openExample(profile, Number(example.dataset.aestheticExample), example);
   };
-  container.querySelector("#o-season").onchange = event => { state.season = event.target.value; };
-  container.querySelector("#o-limit").onchange = event => { state.limit = Number(event.target.value); if (!busy && !inFlight) goBtn.innerHTML = goLabel(); };
-  container.querySelector("#o-llm").onchange = event => { state.useLlm = event.target.checked; };
 
   function outfitCardHtml(outfit, index) {
     const profile = outfit.aesthetic;
     const items = outfit.items || [];
+    const liked = (outfit._feedback || ({ accepted: "like", rejected: "dislike", swapped: "swap" }[outfit.status])) === "like";
     const slotOf = item => item.slot || taxonomy.types?.[item.type]?.slot || 'accessory';
     // 衣物分列、鞋饰另起一行；图片与点击区域都不互相叠压。
     const columns = [items.filter(item => ['top', 'outer'].includes(slotOf(item))), items.filter(item => ['bottom', 'full'].includes(slotOf(item)))].filter(column => column.length);
@@ -144,22 +154,21 @@ export async function mount(root, ctx, arg = "", restore = null) {
     const palette = { black: '#292929', white: '#eee', gray: '#c9c9c5', navy: '#293247', blue: '#8cabc8', light_blue: '#c5d9eb', khaki: '#baa078', beige: '#dfd6c4', brown: '#82634f', burgundy: '#702e3c', green: '#8b9f83', army_green: '#7e8863', red: '#ae4949', yellow: '#dbc371', pink: '#dba8b7', purple: '#a18db8', orange: '#c58c5d', silver: '#aeb8c1', gold: '#bfac71' };
     const colors = [...new Set(items.map(item => item.primary_color).filter(color => palette[color]))].slice(0, 4);
     const labels = colors.map(color => typeof taxonomy.vocabularies?.color?.[color] === 'string' ? taxonomy.vocabularies.color[color] : ({ black: '黑', white: '白', gray: '灰', navy: '藏蓝', blue: '蓝', light_blue: '浅蓝', khaki: '卡其', beige: '米色', brown: '棕', burgundy: '酒红' }[color] || '')) .filter(Boolean);
-    return `<article class="outfit" data-id="${esc(outfit.id)}"><div class="outfit-stage"><div class="outfit-stage-art" aria-label="这套搭配中的单品，可左右滑动换套"><span class="outfit-stage-count"><span>${index + 1} / ${deck.length} · ${esc(profile?.name || '来自你的衣橱')}</span>${deck.length > 1 ? '<small aria-hidden="true">↔ 左右滑动换套</small>' : ''}</span>
+    return `<div class="outfit-result-guide"><span>${esc(profile?.name || "历史搭配")} · ${deck.length} 套搭配</span>${profile ? `<button type="button" data-outfit-guide>${icon("photo")}${examplesFor(profile).length ? "回看审美样图" : "查看审美方案"}</button>` : ""}</div><article class="outfit" data-id="${esc(outfit.id)}"><div class="outfit-stage"><div class="outfit-stage-art" aria-label="这套搭配中的单品，可左右滑动换套"><span class="outfit-stage-count"><span>${index + 1} / ${deck.length} · ${esc(profile?.name || '来自你的衣橱')}</span>${deck.length > 1 ? '<small aria-hidden="true">↔ 左右滑动换套</small>' : ''}</span>
       ${columns.length ? `<div class="outfit-stage-main ${columns.length === 1 ? 'is-single' : ''}">${columns.map(column => `<div class="outfit-stage-column">${piecesHtml(column)}</div>`).join('')}</div>` : ''}
-      ${extras.length ? `<div class="outfit-stage-extras">${piecesHtml(extras)}</div>` : ''}</div><div class="outfit-stage-copy"><h2>${esc(labels.slice(0, 2).join('与') || profile?.name || '这套搭配')}${labels.length ? '，' + esc(profile?.name || '自然搭配') + '。' : ''}</h2>
+      ${extras.length ? `<div class="outfit-stage-extras">${piecesHtml(extras)}</div>` : ''}</div><div class="outfit-stage-copy"><div class="outfit-stage-label"><span>${esc(profile?.name || "历史搭配")} · ${items.length} 件衣物</span><button type="button" class="outfit-like" data-fb="like" data-outfit-favorite aria-label="${liked ? "已喜欢这套" : "喜欢这套"}" title="${liked ? "已喜欢这套" : "喜欢这套"}" aria-pressed="${liked}" ${feedbackPending.has(outfit.id) ? "disabled" : ""}>${icon("bookmark")}</button></div><h2>${esc(labels.slice(0, 2).join('与') || profile?.name || '这套搭配')}${labels.length ? '，' + esc(profile?.name || '自然搭配') + '。' : ''}</h2>
       ${outfit.reason ? `<p class="outfit-reason">${esc(outfit.reason)}</p>` : `<p class="outfit-reason faint">按${esc(profile?.name || "本地规则")}选衣，具体依据见下方。</p>`}
       <div class="outfit-color-row">${colors.map(color => `<i style="background:${palette[color]}"></i>`).join('')}<span>${esc(labels.join(' × '))}</span></div></div></div>
       <div class="outfit-deck-actions"><button type="button" class="primary" data-tryon>${icon('camera')}实时试衣</button><button type="button" class="outfit-detail-toggle" data-outfit-details aria-expanded="false" aria-label="查看搭配依据与反馈">${icon('info')}</button></div>
       <div class="outfit-pagination"><div class="outfit-dots" role="group" aria-label="选择搭配">${deck.map((_, position) => `<button type="button" data-outfit-index="${position}" aria-pressed="${position === index}" aria-label="查看第${position + 1}套搭配"><i></i></button>`).join('')}</div><button type="button" data-outfit-next class="outfit-next" ${deck.length < 2 ? 'disabled' : ''}>换一套看看${icon('right')}</button></div>
-      <div class="outfit-deck-details" hidden><div class="chips">${itemChipsHtml(outfit.items, taxonomy)}</div>
-      ${methodDetails(profile, profile?.assessment)}
-      <div class="form-actions">${Object.entries(FB_TEXT).map(([key, text]) => { const chosen = (outfit._feedback || ({ accepted: 'like', rejected: 'dislike', swapped: 'swap' }[outfit.status])) === key; return `<button type="button" data-fb="${key}" class="${chosen ? 'chosen' : ''}" aria-pressed="${chosen}" ${feedbackPending.has(outfit.id) ? 'disabled' : ''}>${esc(text)}</button>`; }).join("")}</div></div></article>`;
+      </article>`;
   }
   function renderDeck(focus = false) {
     gesture?.cancel(); motion?.cancel(); motion = null;
     container.classList.toggle('has-deck', !!deck.length);
     if (!deck.length) return;
-    if (!busy) goBtn.innerHTML = icon("replay") + "按这个审美，重新搭配";
+    if (!busy) goBtn.innerHTML = goLabel();
+    methodNotice();
     resultEl.innerHTML = outfitCardHtml(deck[deckIndex], deckIndex);
     if (focus) resultEl.querySelector(`[data-outfit-index="${deckIndex}"]`)?.focus({ preventScroll: true });
   }
@@ -182,7 +191,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
   function renderResult(response, requested) {
     if (requested.anchorId !== anchorId) return;
     if ((response.outfits || []).some(outfit => !includesAnchor(outfit))) throw new Error("返回的搭配未包含必选衣物，请重新生成");
-    restoreInitialHistory = false;
+    showSeason(response);
     const outfits = (response.outfits || []).filter(usableOutfit);
     const name = response.aesthetic?.name || profiles.find(profile => profile.id === requested.aesthetic)?.name || "审美方案";
     if (!outfits.length) { deck = []; deckIndex = 0; container.classList.remove('has-deck'); resultEl.innerHTML = `<div class="alert">${esc(response.note || "暂未找到可用搭配")} <a href="#add">去录衣服 →</a></div>`; return; }
@@ -219,33 +228,65 @@ export async function mount(root, ctx, arg = "", restore = null) {
     const next = event.target.closest('[data-outfit-next]'), position = event.target.closest('[data-outfit-index]');
     if (next || position) { chooseOutfit(position ? Number(position.dataset.outfitIndex) : deckIndex + 1, true); return; }
     const detail = event.target.closest('[data-outfit-details]');
-    if (detail) { const body = detail.closest('.outfit').querySelector('.outfit-deck-details'); body.hidden = !body.hidden; detail.setAttribute('aria-expanded', String(!body.hidden)); return; }
+    if (detail) { sheet.openBasis(deck[deckIndex], detail); return; }
+    const guide = event.target.closest('[data-outfit-guide]');
+    if (guide) { sheet.openGuide(deck[deckIndex]?.aesthetic, guide); return; }
     const trial = event.target.closest('[data-tryon]');
     if (trial) { const trialDeck = deck; openTryonSheet({ root, anchor: trial, outfits: trialDeck, index: deckIndex, onSelect: index => { if (alive() && deck === trialDeck) { deckIndex = index; renderDeck(); } } }); return; }
     const button = event.target.closest("[data-fb]"), card = button?.closest(".outfit");
-    if (!card || button.disabled || feedbackPending.has(card.dataset.id)) return;
-    feedbackPending.add(card.dataset.id);
-    const buttons = [...card.querySelectorAll("[data-fb]")]; buttons.forEach(node => { node.disabled = true; });
-    try {
-      const response = await api.feedback({ outfit_id: card.dataset.id, feedback_type: button.dataset.fb });
-      const recorded = deck.find(outfit => outfit.id === card.dataset.id); if (recorded) recorded._feedback = button.dataset.fb;
-      if (!alive()) return;
-      const currentCard = [...resultEl.querySelectorAll('.outfit')].find(node => node.dataset.id === card.dataset.id);
-      currentCard?.querySelectorAll('[data-fb]').forEach(node => { const chosen = node.dataset.fb === button.dataset.fb; node.classList.toggle('chosen', chosen); node.setAttribute('aria-pressed', String(chosen)); });
-      toast(response.duplicate ? "这条反馈已经记过了" : `已记下「${FB_TEXT[button.dataset.fb]}」`, "ok");
-      buttons.forEach(node => { node.classList.toggle("chosen", node === button); node.setAttribute("aria-pressed", String(node === button)); });
-      await loadHistory();
-    } catch (error) { if (alive()) toast("反馈未成功：" + error.message, "error"); }
-    finally { feedbackPending.delete(card.dataset.id); buttons.forEach(node => { node.disabled = false; }); if (alive()) [...resultEl.querySelectorAll('.outfit')].find(node => node.dataset.id === card.dataset.id)?.querySelectorAll('[data-fb]').forEach(node => { node.disabled = false; }); }
+    const outfit = card && deck.find(row => row.id === card.dataset.id);
+    if (outfit && !button.disabled) {
+      try { await submitFeedback(outfit, button.dataset.fb); }
+      catch (error) { if (alive()) toast("反馈未成功：" + error.message, "error"); }
+    }
   };
+  function feedbackChanged(event) {
+    if (!alive()) return;
+    const { id, kind } = event.detail;
+    if (kind) {
+      for (const outfit of [...deck, ...historyRows]) if (outfit.id === id) outfit._feedback = kind;
+      void loadHistory();
+    }
+    const card = [...resultEl.querySelectorAll(".outfit")].find(row => row.dataset.id === id);
+    card?.querySelectorAll("[data-fb]").forEach(node => {
+      node.disabled = feedbackPending.has(id);
+      if (!kind) return;
+      const chosen = node.dataset.fb === kind; node.classList.toggle("chosen", chosen); node.setAttribute("aria-pressed", String(chosen));
+      if (node.hasAttribute("data-outfit-favorite")) { node.setAttribute("aria-label", kind === "like" ? "已喜欢这套" : "喜欢这套"); node.title = node.getAttribute("aria-label"); }
+    });
+  }
+  async function submitFeedback(outfit, kind) {
+    if (!outfit) return;
+    if (feedbackPending.has(outfit.id)) return feedbackPending.get(outfit.id);
+    const notify = type => document.dispatchEvent(new CustomEvent("outfits:feedback", { detail: { id: outfit.id, kind: type } }));
+    const pending = api.feedback({ outfit_id: outfit.id, feedback_type: kind }).then(response => {
+      const actual = ({ accepted: "like", rejected: "dislike", swapped: "swap" }[response.outfit_status]) || kind;
+      outfit._feedback = actual; notify(actual);
+      if (alive()) { toast(response.duplicate ? "已更新当前选择，偏好记录未重复累加" : `已记下「${FB_TEXT[actual]}」`, "ok"); }
+      return response;
+    }).finally(() => {
+      if (feedbackPending.get(outfit.id) === pending) { feedbackPending.delete(outfit.id); notify(); }
+    });
+    feedbackPending.set(outfit.id, pending); notify();
+    return pending;
+  }
+  function restoreHistory(event) {
+    const button = event.target.closest("[data-restore-outfit]"); if (!button) return;
+    const outfit = historyRows.find(row => row.id === button.dataset.restoreOutfit);
+    if (!outfit || !usableOutfit(outfit)) return;
+    deck = [outfit]; deckIndex = 0; renderDeck(true);
+    resultEl.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+  historyEl.onclick = restoreHistory; container.querySelector("#o-recent").onclick = restoreHistory;
   async function loadHistory() {
     const seq = ++historySeq;
     try {
       const data = await api.listOutfits(20);
       if (!alive() || seq !== historySeq) return;
-      const rows = (data.outfits || []).filter(usableOutfit);
-      if (restoreInitialHistory) { restoreInitialHistory = false; if (!deck.length && rows.some(row => row.items?.length)) { deck = rows.filter(row => row.items?.length).slice(0, 5); deckIndex = 0; renderDeck(); } }
-      historyEl.innerHTML = rows.length ? `<ul class="hist">${rows.map(outfit => `<li class="aesthetic-history"><div class="hist-row"><span class="faint">${esc(fmtDateTime(outfit.created_at))}</span><span>${esc(outfit.aesthetic?.name || "旧版搭配")}${outfit.aesthetic ? ` · v${esc(outfit.aesthetic.version)}` : ""}</span><span class="chip">${esc(STATUS_TEXT[outfit.status] || outfit.status || "")}</span></div><div class="chips">${itemChipsHtml(outfit.items, taxonomy)}</div>${methodDetails(outfit.aesthetic, outfit.aesthetic?.assessment)}</li>`).join("")}</ul>` : '<p class="faint">还没有生成过搭配。</p>';
+      const rows = (data.outfits || []).filter(usableOutfit); historyRows = rows;
+      const recent = rows[0];
+      container.querySelector("#o-recent").innerHTML = recent ? `<button type="button" class="outfit-recent-card" data-restore-outfit="${esc(recent.id)}"><span class="outfit-recent-images">${(recent.items || []).slice(0, 3).map(item => { const url = api.presentationUrl(item); return url ? `<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(item.name || item.type_label)}">` : ""; }).join("")}</span><span><strong>${esc(recent.aesthetic?.name || "历史搭配")}</strong><small>${recent.items?.length || 0} 件衣物 · 回看这套</small></span>${icon("right")}</button>` : "";
+      historyEl.innerHTML = rows.length ? `<ul class="hist">${rows.map(outfit => `<li class="aesthetic-history"><div class="hist-row"><span class="faint">${esc(fmtDateTime(outfit.created_at))}</span><span>${esc(outfit.aesthetic?.name || "旧版搭配")}${outfit.aesthetic ? ` · v${esc(outfit.aesthetic.version)}` : ""}</span><span class="chip">${esc(STATUS_TEXT[outfit.status] || outfit.status || "")}</span></div><button type="button" class="outfit-history-open" data-restore-outfit="${esc(outfit.id)}">回看这套搭配${icon("right")}</button><div class="chips">${itemChipsHtml(outfit.items, taxonomy)}</div>${methodDetails(outfit.aesthetic, outfit.aesthetic?.assessment)}</li>`).join("")}</ul>` : '<p class="faint">还没有生成过搭配。</p>';
     } catch (error) {
       if (alive() && seq === historySeq) historyEl.innerHTML = `<p class="alert error">最近生成读取失败：${esc(error.message)}</p><button type="button" data-history-retry>重新读取</button>`;
       historyEl.querySelector("[data-history-retry]")?.addEventListener("click", loadHistory);
@@ -253,7 +294,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
   }
   if (deck.length) {
     renderDeck();
-    if (restore?.detailsOpen) { resultEl.querySelector(".outfit-deck-details").hidden = false; resultEl.querySelector("[data-outfit-details]").setAttribute("aria-expanded", "true"); }
+
   }
   if (restore?.historyOpen) container.querySelector(".outfit-history-panel").open = true;
   if (inFlight) {

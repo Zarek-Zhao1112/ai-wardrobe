@@ -115,6 +115,14 @@ export class ImportQueue {
         item.fields[name]=copy(value);item.ai[name]={before:copy(cleared[name]??null),after:copy(value)};
       }
     }
+    // §35：只替换AI拥有的命名空间，其他草稿元数据保持；新识别缺失时清理旧档案。
+    const profile=response.tags.tags?.visual_profile;
+    const tags={...(item.fields.tags||{})};delete tags.visual_profile;
+    if(profile&&profile.version===1&&profile.item_type===item.fields.type&&/^sha256:[a-f0-9]{32}$/.test(profile.image_hash||'')){
+      tags.visual_profile=copy(profile);item.fields.image_hash=profile.image_hash;
+    }
+    if(Object.keys(tags).length)item.fields.tags=tags;else delete item.fields.tags;
+    if(response.tags.type===item.fields.type&&response.tags.slot)item.fields.slot=response.tags.slot;
     for(const name of new Set([...Object.keys(before),...Object.keys(item.fields)]))if(!same(before[name],item.fields[name]))names.push(name);
     item.recognized=true;item.status='ready';item.error=null;item.conflicts={...(response.conflicts||{})};
     if(item.fields.type)delete item.conflicts.type;
@@ -140,6 +148,7 @@ export class ImportQueue {
         if(!item.recovered&&!item.rect&&response.crop&&response.crop.w*response.crop.h<=.75){
           const output=await cropFile(photo.original,response.crop);if(!valid())return;
           photo.file=output.file;photo.display=null;item.flatlay=null;item.rect=output.rect;item.revision++;revision=item.revision;
+          if(item.fields.tags){item.fields.tags={...item.fields.tags};delete item.fields.tags.visual_profile;}
           if(!await this.save({put:[photo]})){this.pause('storage','照片进度尚未保存，自动准备已暂停。',item);return;}
           if(!canStart())return;
           this.notify(item,photo);

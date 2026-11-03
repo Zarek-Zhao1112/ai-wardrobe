@@ -86,7 +86,7 @@ def owned_process(row: dict, config: dict) -> bool:
 
 
 def ensure_idle(state: Path) -> None:
-    for path in [*state.glob("references/*/job.json"), *state.glob("flatlay/*/state.json")]:
+    for path in [*state.glob("references/*/job.json"), *state.glob("styles/*/job.json"), *state.glob("flatlay/*/state.json")]:
         record = json.loads(path.read_text(encoding="utf-8"))
         if record.get("status", record.get("state")) in {"queued", "running"}:
             raise ValueError("还有识别/生图/搜图任务在运行，请结束后再停止中转")

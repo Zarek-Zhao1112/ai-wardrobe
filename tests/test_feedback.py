@@ -145,6 +145,17 @@ class TestSubmit:
         with pytest.raises(ValueError, match="feedback_type"):
             feedback.submit(uid, feedback_type="meh", item_ids=["whatever"])
 
+    def test_returning_to_like_updates_status_without_repeating_evidence(self, uid):
+        item_id = _make_item(uid, primary_color="purple")
+        outfit_id = _make_outfit(uid, [item_id])
+        feedback.submit(uid, feedback_type="like", outfit_id=outfit_id)
+        feedback.submit(uid, feedback_type="dislike", outfit_id=outfit_id)
+        before = _pref_rows(uid, "color", "purple")[0]["evidence_count"]
+        result = feedback.submit(uid, feedback_type="like", outfit_id=outfit_id)
+        assert result["duplicate"] and result["recorded"] == 0
+        assert result["outfit_status"] == _outfit_status(outfit_id) == "accepted"
+        assert _pref_rows(uid, "color", "purple")[0]["evidence_count"] == before
+
     def test_feedback_without_real_items_is_rejected(self, uid):
         with pytest.raises(ValueError, match="没有关联到任何真实单品"):
             feedback.submit(uid, feedback_type="like", item_ids=["it_根本不存在"])

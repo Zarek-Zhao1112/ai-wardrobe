@@ -153,9 +153,8 @@ def submit(
     返回：
         `{"feedback": {...}, "updated_tags": [...], "recorded": N, "duplicate": bool}`
 
-    幂等性：**同一「搭配 + 反馈类型」重复提交会被识别为重复**，直接返回既有结果、
-    不重复累加证据（防网络重试污染）。但用户改主意（先 `like` 后 `dislike`）
-    是不同类型，会正常生效。
+    幂等性：同一「搭配 + 反馈类型」不重复累加证据（防网络重试污染）。
+    当前选择仍更新，支持 like→dislike→like；返回原反馈记录和本次搭配状态。
     """
     if feedback_type not in POLARITY:
         raise ValueError(f"未知的 feedback_type：{feedback_type}（只接受 {sorted(POLARITY)}）")
@@ -178,11 +177,15 @@ def submit(
                 (user_id, outfit_id, feedback_type),
             ).fetchone()
             if dup:
+                # §34：再次改主意可以更新当前选择，但不重复累加已记录的偏好证据。
+                c.execute("UPDATE outfits SET status=? WHERE id=? AND user_id=?",
+                          (STATUS_AFTER[feedback_type], outfit_id, user_id))
                 return {
                     "feedback": dict(dup),
                     "updated_tags": [],
                     "recorded": 0,
                     "duplicate": True,
+                    "outfit_status": STATUS_AFTER[feedback_type],
                 }
 
         fid = db.new_id("fb")
@@ -227,5 +230,6 @@ def submit(
         ),
         "recorded": len(updated),
         "duplicate": False,
+        "outfit_status": STATUS_AFTER[feedback_type] if outfit_id else None,
         "context_key": context,
     }

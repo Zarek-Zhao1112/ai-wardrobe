@@ -41,7 +41,8 @@ def generated(assets: list[str]) -> str:
     for url in assets:
         path = WEB / ("index.html" if url == "/" else url.lstrip("/"))
         content = path.read_bytes()
-        if path.suffix != ".png":
+        # 仅文本统一换行；WebP等二进制资源必须按实际字节计算摘要。
+        if path.suffix.lower() in {".html", ".js", ".css", ".json", ".svg", ".webmanifest", ".txt"}:
             content = content.replace(b"\r\n", b"\n")
         digest.update(url.encode() + b"\0" + hashlib.sha256(content).digest())
     revision = digest.hexdigest()[:16]

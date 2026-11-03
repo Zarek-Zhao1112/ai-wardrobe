@@ -90,7 +90,9 @@ class ProductParser(HTMLParser):
         if tag == 'script' and (a.get('type') or '').lower() == 'application/ld+json': self.script = ''
         if tag == 'title': self.in_title = True
         if tag == 'img' and len(self.photos) < 100:
-            self.photos.append({'url': a.get('data-src') or a.get('src'), 'alt': a.get('alt') or '', 'class': a.get('class') or ''})
+            srcset = a.get('data-srcset') or a.get('srcset') or ''
+            variants = [part.strip().split()[0] for part in srcset.split(',') if part.strip() and not part.lstrip().startswith('data:')]
+            self.photos.append({'url': a.get('data-original') or a.get('data-src') or (variants[-1] if variants else None) or a.get('src'), 'alt': a.get('alt') or '', 'class': a.get('class') or ''})
     def handle_data(self, data):
         if self.script is not None: self.script += data
         if self.in_title: self.title += data
@@ -125,7 +127,7 @@ def product_images(html, url):
             if target not in [row['image_url'] for row in result]: result.append({'image_url': target, 'source_url': url, 'name': re.sub(r'\s+', ' ', str(name))[:180]})
     for product in products[:3]: add(product.get('image'), product.get('name') or p.title)
     # 没有商品结构化数据时，只接受明确的商品页元数据。
-    product_path = bool(re.search(r'/(?:products?|items?|shopping)/', urlsplit(url).path, re.I))
+    product_path = bool(re.search(r'/(?:products?|items?|shopping|pdp|mall/detail|productpage)(?:/|\.)', urlsplit(url).path, re.I))
     if not result and (p.meta.get('og:type', '').lower() in ('product', 'og:product') or product_path):
         add(p.meta.get('og:image'), p.meta.get('og:title') or p.title)
     if product_path:

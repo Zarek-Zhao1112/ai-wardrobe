@@ -29,6 +29,7 @@ export function icon(name) {
     history: '<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2"/>',
     right: '<path d="m10 6 6 6-6 6"/>',
     chevron: '<path d="m7 10 5 5 5-5"/>',
+    leaf: '<path d="M20 3C11 2 4 6 4 12a6 6 0 0 0 6 6c6 0 10-6 10-15ZM4 21 15 9"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/>',
     outfits: '<path d="m9 4-5 3-2 5 5 2v7h10v-7l5-2-2-5-5-3a3 3 0 0 1-6 0Z"/><path d="m15 3 1-2 1 2 2 1-2 1-1 2-1-2-2-1Z"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',

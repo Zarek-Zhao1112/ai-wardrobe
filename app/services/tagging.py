@@ -31,7 +31,7 @@ from typing import Any, Optional
 
 from .. import config, db, taxonomy
 from ..models import ItemUpdate
-from . import brands, images, items
+from . import brands, garment_profile, images, items
 from .llm.client import LLMClient, LLMError, get_client, model_ready
 
 # ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ MULTI_VOCAB: dict[str, str] = {
 #: 词表在 `services/brands.py`），但仍然是受控字段 —— 归一失败的品牌不会落库。
 TAG_FIELDS: tuple[str, ...] = (
     "type", "brand", "slot", "primary_color", "colors",
-    "pattern", "material", "fit", "length", "style", "season", "formality", "scene",
+    "pattern", "material", "fit", "length", "style", "season", "formality", "scene", "tags",
 )
 
 #: 需要以 JSON 数组形式入库的字段（与 `services/items.py` 的口径一致）
@@ -470,6 +470,7 @@ TAG_SCHEMA: dict[str, Any] = {
     },
     "required": ["type"],
 }
+TAG_SCHEMA["properties"]["visual_profile"] = garment_profile.schema()
 
 SYSTEM_PROMPT = """你是服装属性识别器。看图片（可能是衣服的照片，也可能是电商订单 /
 商品详情截图），输出这件衣服的属性。
@@ -493,6 +494,9 @@ __OPTIONS__
 - `length` **只对长裤类有意义**（牛仔 / 西裤 / 休闲 / 运动 / 打底裤），按裤脚位置判断；
   短裤、裙子、上衣一律不填
 - `confidence` 给 0~1 的整数级把握度（0.9 表示很确定）
+- `visual_profile.attributes` 补充可观察的搭配线索。每项为 {"value":受控值,"source":"image"或"product_text","certainty":"clear"或"approximate"}，拿不准整项省略，不写unknown。__PROFILE_OPTIONS__
+- source=image只表示原始目标照片可见，product_text只表示对应商品标题/参数明确提供；生成的平铺图不作为识别事实来源。照片中的明暗、饱和、体量和表面外观为近似线索，不能证明成分、厚薄、垂坠、触感、功能或实际上身尺寸。body_length只在对应商品文字明确写短款/常规/长款时填，不能由照片比例、裤长或人物身材猜上衣长度。
+- wearing_options的value是数组，single=单穿、inner=可尝试作内搭、open_layer=可尝试敞开叠穿；这是条件性建议。open_layer仅对衬衫/开衫/马甲且可见纽扣/拉链/敞开门襟并有体量线索时填，不能让任意上装变成外套。上层与内搭是否穿得下仍待实际尺寸确认。不要填写路径、图片指纹、用户ID、解释段落或任意tags。
 - 如果图片是**电商截图**（订单页 / 商品详情页），再加一个 `crop`，指向**商品主图**
   在整张图里的位置：`{"x": 左, "y": 上, "w": 宽, "h": 高}`，四个值都是 **0~1 的比例**
   （相对整张图，左上角是 (0,0)，右下角是 (1,1)）。
@@ -502,11 +506,11 @@ __OPTIONS__
 """
 
 
-def _image_data_url(image: str | Path) -> str:
+def _image_data_url(image: str | Path, data: bytes | None = None) -> str:
     """本地图片 → data URL。模型接不了本地路径，必须转成 base64 内联。"""
     path = Path(image)
     mime = mimetypes.guess_type(path.name)[0] or "image/jpeg"
-    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    encoded = base64.b64encode(path.read_bytes() if data is None else data).decode("ascii")
     return f"data:{mime};base64,{encoded}"
 
 
@@ -531,7 +535,7 @@ def parse_reference_crop(value: str | None) -> dict | None:
     return dict(zip(("x", "y", "w", "h"), values))
 
 
-def build_messages(image: str | Path, hint: Optional[str] = None, *, reference_image: str | Path | None = None, reference_crop: dict | None = None) -> list[dict[str, Any]]:
+def build_messages(image: str | Path, hint: Optional[str] = None, *, reference_image: str | Path | None = None, reference_crop: dict | None = None, image_bytes: bytes | None = None) -> list[dict[str, Any]]:
     """组装打标请求。`hint` 是用户顺手补的一句话（"这是冬天的外套"），
     它对识别帮助很大 —— 所以留着这个口子，而不是让调用方去拼 prompt。"""
     user_text = "识别这件衣服的属性。"
@@ -543,7 +547,7 @@ def build_messages(image: str | Path, hint: Optional[str] = None, *, reference_i
             user_text += "目标在图2中的选区：" + json.dumps(reference_crop, ensure_ascii=False)
     content = [
         {"type": "text", "text": user_text},
-        {"type": "image_url", "image_url": {"url": _image_data_url(image)}},
+        {"type": "image_url", "image_url": {"url": _image_data_url(image, image_bytes)}},
     ]
     if reference_image is not None:
         content += [
@@ -556,7 +560,7 @@ def build_messages(image: str | Path, hint: Optional[str] = None, *, reference_i
         # `KeyError: '"x"'`，连一次请求都发不出去。
         # 占位符故意取成 `__OPTIONS__` 这种不会出现在自然语言里的形状，
         # 将来往 prompt 里加任何 JSON 都不用再转义 `{{` `}}`。
-        {"role": "system", "content": SYSTEM_PROMPT.replace("__OPTIONS__", _vocab_lines())},
+        {"role": "system", "content": SYSTEM_PROMPT.replace("__OPTIONS__", _vocab_lines()).replace("__PROFILE_OPTIONS__", json.dumps(garment_profile.VOCAB, ensure_ascii=False))},
         {
             "role": "user",
             "content": content,
@@ -591,13 +595,19 @@ def tag_image(
     这里不吞异常，因为"打标失败"和"打标出了个空结果"必须能区分开。
     """
     cli = client or get_client(vision=True)
-    messages = build_messages(image, hint=hint, reference_image=reference_image, reference_crop=reference_crop)
+    source_bytes = Path(image).read_bytes()
+    messages = build_messages(image, hint=hint, reference_image=reference_image, reference_crop=reference_crop, image_bytes=source_bytes)
     raw = cli.chat_json(messages, schema=TAG_SCHEMA, temperature=0.0)
     if not isinstance(raw, dict):
         raw = {}
     clean, failed = normalize_tags(raw)
     conflicts = {}
+    feature_blocked = set()
     for key, value in (raw.get("conflicts") or {}).items() if isinstance(raw.get("conflicts"), dict) else ():
+        feature_key = key.removeprefix("visual_profile.").removeprefix("attributes.") if isinstance(key, str) else None
+        if feature_key in garment_profile.VOCAB and isinstance(value, str) and value.strip():
+            feature_blocked.add(feature_key)
+            conflicts["visual_profile." + feature_key] = value.strip()[:160]
         if key in TAG_FIELDS and isinstance(value, str) and value.strip():
             conflicts[key] = value.strip()[:160]
     # §17：空白或无法归一的品类留给用户选择，不能默认补成夹克/配饰。
@@ -610,8 +620,16 @@ def tag_image(
         blocked.update(("slot", "length"))
     for key in blocked:
         clean.pop(key, None)
+    if blocked & {"primary_color", "colors"}:
+        feature_blocked.update(("tone", "chroma"))
+    profile = garment_profile.normalize(raw.get("visual_profile"), clean.get("type"),
+        image_hash=images.content_hash(source_bytes), blocked=feature_blocked, basic=clean)
+    if profile and "tags" not in blocked:
+        clean["tags"] = {garment_profile.KEY: profile}
     return {
         "tags": clean,
+        "profile_attempted": True,
+        "profile_image_hash": images.content_hash(source_bytes),
         # 归一出错时原值会带进响应体，所以也要过一遍 NaN 净化（见 `_json_safe`）
         "unresolved": _json_safe(failed),
         "conflicts": conflicts,
@@ -627,6 +645,7 @@ def apply_tags(
     result: dict,
     *,
     tagged_by: str = "ai",
+    profile_fill_only: bool = False,
 ) -> Optional[dict]:
     """把打标结果写回单品。归一失败的字段**不会**被写入。
 
@@ -645,6 +664,8 @@ def apply_tags(
     if not tags:
         return None
 
+    incoming_tags = tags.pop("tags", None)
+
     now = db.now_iso()
     sets: list[str] = []
     args: list[Any] = []
@@ -656,17 +677,29 @@ def apply_tags(
             sets.append(f"{field}=?")
             args.append(value)
 
-    sets += ["ai_confidence=?", "tagging_status=?", "tagged_by=?", "tagged_at=?", "updated_at=?"]
-    args += [
-        result.get("ai_confidence"),
-        "tagged",
-        tagged_by,
-        now,
-        now,
-    ]
-    args += [item_id, user_id]
-
-    with db.conn() as c:
+    with db.conn(immediate=True) as c:
+        current = c.execute("SELECT * FROM clothing_items WHERE id=? AND user_id=?", (item_id, user_id)).fetchone()
+        if current is None:
+            return None
+        current = items.to_out(current)
+        if result.get("profile_image_hash") and current.get("image_hash") and result["profile_image_hash"] != current["image_hash"]:
+            return None
+        candidate = incoming_tags.get(garment_profile.KEY) if isinstance(incoming_tags, dict) else None
+        existing = garment_profile.for_item(current)
+        if profile_fill_only and existing and isinstance(candidate, dict) and isinstance(candidate.get("attributes"), dict):
+            candidate = {**candidate, "attributes": {**candidate["attributes"], **existing["attributes"]}}
+        effective = {**current, **tags, "tags": {garment_profile.KEY: candidate}}
+        profile = garment_profile.for_item(effective)
+        stored = current["tags"].get(garment_profile.KEY)
+        future = isinstance(stored, dict) and stored.get("version") != garment_profile.VERSION
+        if not future and (profile or result.get("profile_attempted") and not profile_fill_only):
+            merged = garment_profile.with_profile(current["tags"], profile)
+            if merged != current["tags"]:
+                sets.append("tags=?"); args.append(json.dumps(merged, ensure_ascii=False))
+        if not sets:
+            return None
+        sets += ["ai_confidence=?", "tagging_status=?", "tagged_by=?", "tagged_at=?", "updated_at=?"]
+        args += [result.get("ai_confidence"), "tagged", tagged_by, now, now, item_id, user_id]
         c.execute(
             f"UPDATE clothing_items SET {', '.join(sets)} WHERE id=? AND user_id=?",
             args,
@@ -721,6 +754,18 @@ def _only_blank(tags: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
     """
     out: dict[str, Any] = {}
     for field, value in tags.items():
+        if field == "tags":
+            candidate = value.get(garment_profile.KEY) if isinstance(value, dict) else None
+            stored = (item.get("tags") or {}).get(garment_profile.KEY)
+            if isinstance(stored, dict) and stored.get("version") != garment_profile.VERSION:
+                continue
+            incoming = garment_profile.for_item({**item, "type": tags.get("type", item.get("type")), "tags": {garment_profile.KEY: candidate}})
+            existing = garment_profile.for_item(item)
+            if incoming:
+                incoming["attributes"] = {key: entry for key, entry in incoming["attributes"].items() if key not in (existing or {}).get("attributes", {})}
+                if incoming["attributes"]:
+                    out[field] = {garment_profile.KEY: incoming}
+            continue
         current = item.get(field)
         # ★ `'other'` / `''` 一律视作"**还没填**"，对**所有**字段生效，
         #   不只 `type`。这些是词表里的"其他"占位值（`taxonomy.PATTERNS` 有
@@ -894,7 +939,7 @@ def tag_and_apply(
     source = "ai" if overwrite or item.get("tagged_by") != "manual" else "manual"
 
     try:
-        row = apply_tags(user_id, item_id, {**result, "tags": tags}, tagged_by=source)
+        row = apply_tags(user_id, item_id, {**result, "tags": tags}, tagged_by=source, profile_fill_only=not overwrite)
         if row:
             _try_auto_name(user_id, item_id)
         fresh = items.get(item_id, user_id) if row else None

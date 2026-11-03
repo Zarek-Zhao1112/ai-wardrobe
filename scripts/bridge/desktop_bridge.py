@@ -21,6 +21,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.bridge.flatlay_bridge import FlatlayJobs, IMAGE_MODEL
 from scripts.bridge.reference_bridge import ReferenceJobs
+from scripts.bridge.style_image_bridge import StyleJobs, IMAGE_MODEL as STYLE_IMAGE_MODEL
 
 from fastapi import FastAPI, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
@@ -29,7 +30,7 @@ MODEL = "deepseek-v4.1-flash"
 MAX_BODY = 60 * 1024 * 1024
 MAX_IMAGE = 20 * 1024 * 1024
 UPLOAD_TIMEOUT = 10
-BUILD = hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('desktop_bridge.py', 'flatlay_bridge.py', 'flatlay_guard.cjs', 'reference_bridge.py', 'reference_net.py', 'reference_guard.cjs'))).hexdigest()
+BUILD = hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('desktop_bridge.py', 'flatlay_bridge.py', 'flatlay_guard.cjs', 'reference_bridge.py', 'reference_net.py', 'reference_guard.cjs', 'style_image_bridge.py', 'style_image_guard.cjs'))).hexdigest()
 
 
 def convert_messages(messages):
@@ -150,21 +151,25 @@ def execute_cli(executable: Path, system: str, content: list, *, json_output: bo
     return text
 
 
-def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=None, flatlay_dir=None, image_runner=None, reference_dir=None, reference_runner=None):
+def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=None, flatlay_dir=None, image_runner=None, reference_dir=None, reference_runner=None, style_runner=None, search_enabled=False):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     busy = threading.BoundedSemaphore(1)
     admission = threading.Lock()
+    queue_admission = threading.Lock()
     draining = False
     flatlay = None
     if cli_entry and flatlay_dir:
         options = {"runner": image_runner} if image_runner else {}
         flatlay = FlatlayJobs(flatlay_dir, executable, cli_entry, busy, cli_environment, **options)
     references = None
+    styles = None
     if cli_entry and reference_dir:
         options = {"runner": reference_runner} if reference_runner else {}
         def reference_chat(system, content):
             return runner(executable, system, content, json_output=True, cli_entry=cli_entry)
         references = ReferenceJobs(reference_dir, executable, cli_entry, busy, cli_environment, reference_chat, **options)
+        style_options = {'runner': style_runner} if style_runner else {}
+        styles = StyleJobs(Path(reference_dir).parent/'styles', executable, cli_entry, busy, cli_environment, **style_options)
 
     @app.middleware("http")
     async def authenticate(request: Request, call_next):
@@ -173,14 +178,15 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
         if request.headers.get("origin") or not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + token):
             return JSONResponse({"detail": "配对校验失败"}, status_code=403)
         if request.method == "POST" and request.url.path not in {"/admin/drain", "/admin/resume"}:
-            if not admission.acquire(blocking=False):
+            gate = queue_admission if request.url.path == '/style/jobs' else admission
+            if not gate.acquire(blocking=False):
                 return JSONResponse({"detail": "电脑正在处理其他请求，请稍后再试"}, status_code=429)
             try:
                 if draining:
                     return JSONResponse({"detail": "电脑中转维护中，请稍后重试"}, status_code=503)
                 response = await call_next(request)
             finally:
-                admission.release()
+                gate.release()
         else:
             response = await call_next(request)
         response.headers["Cache-Control"] = "no-store"
@@ -191,6 +197,9 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
         nonlocal draining
         if not admission.acquire(blocking=False):
             raise HTTPException(409, "电脑仍在接收或处理请求")
+        if not queue_admission.acquire(blocking=False):
+            admission.release()
+            raise HTTPException(409, '电脑仍在登记款式生成任务')
         try:
             if not draining:
                 if not busy.acquire(blocking=False):
@@ -198,6 +207,7 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
                 draining = True
             return {"draining": True}
         finally:
+            queue_admission.release()
             admission.release()
 
     @app.post("/admin/resume")
@@ -205,12 +215,16 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
         nonlocal draining
         if not admission.acquire(blocking=False):
             raise HTTPException(409, "电脑仍在处理请求")
+        if not queue_admission.acquire(blocking=False):
+            admission.release()
+            raise HTTPException(409, '电脑仍在登记款式生成任务')
         try:
             if draining:
                 draining = False
                 busy.release()
             return {"draining": False}
         finally:
+            queue_admission.release()
             admission.release()
 
     @app.get("/health")
@@ -218,10 +232,12 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
         if not executable.is_file():
             raise HTTPException(503, "找不到个人CLI")
         return {"status": "maintenance" if draining else "ready", "model": MODEL, "protocol": 1, "build": BUILD,
-                "image_edit": bool(flatlay), "image_model": IMAGE_MODEL if flatlay else None, "reference_search": bool(references)}
+                "image_edit": bool(flatlay), "image_model": IMAGE_MODEL if flatlay else None, "reference_search": bool(references) and search_enabled,
+                "style_generation": bool(styles), "style_image_model": STYLE_IMAGE_MODEL if styles else None}
 
     @app.post("/reference/jobs")
     async def create_reference(request: Request):
+        if not search_enabled: raise HTTPException(409, '实物搜图已暂停，请重新分析生成AI款式示意。')
         if not references: raise HTTPException(503, "电脑中转尚未启用实物搜图")
         if request.headers.get("content-type", "").split(";")[0] != "application/json": raise HTTPException(415, "需要JSON请求")
         body = bytearray()
@@ -239,6 +255,26 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
     def get_reference(job_id: str):
         if not references: raise HTTPException(503, "电脑中转尚未启用实物搜图")
         return {"model": MODEL, **references.status(job_id)}
+
+    @app.post('/style/jobs')
+    async def create_style(request: Request):
+        if not styles: raise HTTPException(503,'电脑中转尚未启用款式生图')
+        if request.headers.get('content-type','').split(';')[0]!='application/json':raise HTTPException(415,'需要JSON请求')
+        body=bytearray()
+        try:
+            async with asyncio.timeout(UPLOAD_TIMEOUT):
+                async for chunk in request.stream():
+                    body.extend(chunk)
+                    if len(body)>5000:raise HTTPException(413,'款式方向内容过长')
+        except TimeoutError:raise HTTPException(504,'款式请求上传超时')
+        try:payload=json.loads(body)
+        except (ValueError,UnicodeError):raise HTTPException(400,'款式任务格式不正确')
+        return {'model':MODEL,**await run_in_threadpool(styles.start,payload)}
+
+    @app.get('/style/jobs/{job_id}')
+    def get_style(job_id:str):
+        if not styles:raise HTTPException(503,'电脑中转尚未启用款式生图')
+        return {'model':MODEL,**styles.status(job_id)}
 
     @app.post("/flatlay/jobs")
     async def create_flatlay(request: Request):

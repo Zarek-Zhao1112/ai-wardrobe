@@ -196,6 +196,13 @@ export const api = {
   gaps: (season) => request("GET", "/wardrobe/gaps", { params: { season } }),
   purchaseState: () => request("GET", "/wardrobe/purchase", { timeoutMs: 10000 }),
   purchaseGenerate: (payload) => request("POST", "/wardrobe/purchase", { json: payload, timeoutMs: 110000 }),
+  purchaseIntentState: () => request("GET", "/wardrobe/purchase/intent", { timeoutMs: 15000 }),
+  purchaseIntentRequest: id => request("GET", "/wardrobe/purchase/intent/request/" + encodeURIComponent(id), { timeoutMs: 12000 }),
+  purchaseAnalyze: payload => request("POST", "/wardrobe/purchase/intent/analyze", { json: payload, timeoutMs: 110000 }),
+  purchaseAnalysis: id => request("GET", "/wardrobe/purchase/intent/analysis/" + encodeURIComponent(id), { timeoutMs: 15000 }),
+  purchaseAnalysisQuery: id => request("POST", "/wardrobe/purchase/intent/analyze/" + encodeURIComponent(id) + "/query", { timeoutMs: 75000 }),
+  purchasePrepare: payload => request("POST", "/wardrobe/purchase/intent/prepare", { json: payload, timeoutMs: 20000 }),
+  purchasePreparationQuery: id => request("POST", "/wardrobe/purchase/intent/prepare/" + encodeURIComponent(id) + "/query", { timeoutMs: 75000 }),
   purchaseChoice: (payload) => request("PUT", "/wardrobe/purchase/choice", { json: payload, timeoutMs: 10000 }),
   combinations: (params) => request("GET", "/wardrobe/combinations", { params }),
 

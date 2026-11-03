@@ -39,7 +39,7 @@ def seed(uid):
 
 def test_profiles_are_complete_and_copies():
     profiles = aesthetics.list_profiles()
-    assert {row["id"] for row in profiles} == {"relaxed", "clean", "tonal", "heritage", "sport_mix", "street", "soft", "color_pop"}
+    assert {row["id"] for row in profiles} == {"urban", "natural", "heritage_v2", "street_v2", "technical", "refined"}
     for row in profiles:
         assert {dimension["key"] for dimension in row["dimensions"]} == {"color", "silhouette", "material", "pattern", "layering"}
         assert row["core"] and row["flexible"] and row["sources"]
@@ -264,7 +264,7 @@ def test_internal_aliases_not_exposed_in_reason(fake_llm, reason):
 def test_catalog_api_invalid_method_and_detail_keeps_snapshot():
     with TestClient(app) as c:
         catalog = c.get("/outfits/aesthetics").json()
-        assert len(catalog["aesthetics"]) == 8
+        assert len(catalog["aesthetics"]) == 6
         assert c.post("/outfits/recommend?aesthetic=unknown&use_llm=false").status_code == 400
         uid = db.get_default_user_id(); seed(uid)
         generated = c.post("/outfits/recommend?aesthetic=clean&use_llm=false&limit=1").json()["outfits"][0]

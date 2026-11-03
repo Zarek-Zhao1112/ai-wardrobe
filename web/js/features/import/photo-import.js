@@ -3,7 +3,8 @@ import { api } from "../../core/api.js";
 import { flatlayBusy, sourceHash } from "./flatlay.js";
 import { controls as assistantControls } from "./assistant.js";
 import { setFlatlayImage } from "../../components/flatlay-display.js";
-import { fillForm, formHtml, readForm } from "../../core/fields.js";
+import { fillForm, readForm } from "../../core/fields.js";
+import { garmentName, garmentProfileHtml } from "../../components/garment-profile.js";
 import { ImportQueue, batchProgress } from "./queue.js";
 import { esc, toast, icon } from "../../core/ui.js";
 import { loadDraft, loadPhoto, saveDraft, flushDraft, newToken, storageAvailable, copyData as clone } from "./store.js";
@@ -18,10 +19,10 @@ function recognitionError(error) {
   const text = error?.message || error?.text || "";
   const code = error?.code || error?.payload?.detail?.code || (/HTTP\s*402\b/i.test(text) ? "insufficient_balance" : "");
   const bridgeMessages = { bridge_offline: "连不上电脑，请检查电脑地址是否已变化、中转是否启动，以及手机与电脑是否同网。", bridge_login: "电脑个人CLI登录已失效，请在电脑重新登录。", bridge_pairing: "配对码不匹配，请打开「电脑识别设置」重新连接。", bridge_busy: "电脑正在处理其他识别，请稍后重试。", bridge_timeout: "电脑识别等待超时，请稍后重试。", bridge_config: "电脑连接配置需要重新设置。", bridge_unavailable: "电脑中转本次调用失败，请检查电脑个人CLI状态后重试。" };
-  if (bridgeMessages[code]) return { kind: "recognition", code, text: `${bridgeMessages[code]}照片和已有属性已保留，也可以手动填写。` };
+  if (bridgeMessages[code]) return { kind: "recognition", code, text: `${bridgeMessages[code]}照片和已有属性已保留，可以重试或跳过这件。` };
   if (code === "insufficient_balance") return { kind: "recognition", code, text: "AI识别服务余额或额度不足。照片和填写内容已保留，补充额度后点击「重新识别」。" };
   const messages = { request_timeout: "识别请求等待超时，请稍后重试。", request_network: "暂时连不上识别服务，请检查网络后重试。", model_timeout: "AI识别服务响应超时，请稍后重试。", model_network: "暂时连不上AI识别服务，请检查网络后重试。", model_auth: "AI识别服务鉴权失败，请检查模型配置。", model_rate_limit: "AI识别请求过于频繁，请稍后重试。", model_unavailable: "AI识别服务暂不可用，请稍后重试。" };
-  return { kind: "recognition", code, text: `${messages[code] || (error?.status === 0 ? "识别请求未能连通或超时，请检查网络后重试。" : "这次AI识别未成功，请稍后重试。")}照片和已有属性已保留，也可以手动填写。` };
+  return { kind: "recognition", code, text: `${messages[code] || (error?.status === 0 ? "识别请求未能连通或超时，请检查网络后重试。" : "这次AI识别未成功，请稍后重试。")}照片和已有属性已保留，可以重试或跳过这件。` };
 }
 export function disposeImport() { active?.dispose(); }
 export const importSaving = root => active?.root === root && (active.saving||active.switching);
@@ -251,7 +252,7 @@ class ImportFlow {
   capture(event) {
     const form = this.root.querySelector("#add-form");
     if (!form || !this.item || form.dataset.item!==this.item.id || this.saving || this.item.pending) return;
-    this.item.fields = readForm(form);
+    if(form.dataset.readonly!=="true")this.item.fields = {...this.item.fields,...readForm(form,this.item.fields)};
     if (event?.target?.name) {
       const name = event.target.name;
       this.item.edited ||= {}; this.item.edited[name] = true;
@@ -332,9 +333,9 @@ class ImportFlow {
     if (!panel) return;
     const state = this.item.flatlay || {}, generating = flatlayBusy(state), locked = this.saving || Boolean(this.item.pending);
     const preparing=this.queue.busy(this.item),phase=this.queue.job?.id===this.item.id?this.item.assistant?.stage:null;
-    const focused = panel.contains(document.activeElement) ? document.activeElement.dataset.flatlay : null;
+    const focusInside = panel.contains(document.activeElement), focused = focusInside ? document.activeElement.dataset.flatlay : null;
     panel.innerHTML = assistantControls(this.item, { busy: phase==="recognizing"?"recognizing":this.busy, locked, chaining: preparing, queued:!phase&&this.queue.pending(this.item), configured: Boolean(this.ctx.health?.flatlay_configured), vision: Boolean(this.ctx.health?.vision_ready), hasImage: Boolean(this.photo?.display) });
-    panel.querySelector("#add-recognize")?.addEventListener("click", () => void this.process({ generationOnly: state.state === "failed" }));
+    panel.querySelector("#add-recognize")?.addEventListener("click", () => void this.process(this.item.assistant?.stage==="needs_type"?{reidentify:true}:{ generationOnly: state.state === "failed" }));
     panel.querySelectorAll("[data-flatlay]").forEach(button => button.onclick = () => {
       const action = button.dataset.flatlay;
       if (action === "settings") { document.querySelector("[data-desktop-settings]")?.click(); return; }
@@ -348,15 +349,17 @@ class ImportFlow {
     const picture = this.root.querySelector("[data-import-photo]"), image = picture?.querySelector("img");
     if (image) {
       const displayView = Boolean(this.displayUrl);
-      const src = displayView ? this.displayUrl : this.photoUrl;
-      void setFlatlayImage(image, src, displayView).then(result => {
+      const src = displayView ? this.displayUrl : null;
+      image.hidden=!displayView;
+      picture.querySelector(".import-photo-placeholder").hidden=displayView;
+      if(displayView)void setFlatlayImage(image, src, true).then(result => {
         if (!this.live || this.item.flatlay !== state || !displayView || image.dataset.flatlaySource !== src) return;
         const note = panel.querySelector("[data-flatlay-layout-note]");
         if (note) { note.hidden = result.status !== "unsafe"; note.textContent = "请对照实物确认生成图中的衣物细节。"; }
       });
     }
     const hint = picture?.querySelector(".import-photo-hint");
-    if (hint) hint.textContent = this.displayUrl ? "衣物平铺图" : "待处理照片";
+    if (hint) {hint.hidden=!this.displayUrl;hint.textContent="衣物平铺图";}
     const working = preparing || generating || Boolean(this.busy);
     const save = this.root.querySelector("#add-submit"); if (save) save.disabled = working || this.switching || (!this.item.pending && !this.displayReady());
     const skip = this.root.querySelector("[data-skip]"); if (skip) skip.disabled = working || this.switching || locked;
@@ -369,9 +372,32 @@ class ImportFlow {
     const overlay = picture?.querySelector(".import-loading");
     if (overlay) { overlay.hidden = !working; overlay.textContent = this.busy === "loading" ? "正在读取照片…" : phase === "recognizing" ? "正在识别这件衣服…" : "正在生成平铺图…"; }
     this.updateBatch();
+    this.updateProfile();
     const confirmation=this.root.querySelector('[data-import-confirmation]');
     if(confirmation){const reasons=Object.values(this.item.conflicts||{}).filter(v=>typeof v==='string'&&v.trim());confirmation.hidden=!reasons.length;confirmation.textContent=reasons.length?`以下属性需确认：${reasons.join('；')}`:'';}
-    if (focused) panel.querySelector(`[data-flatlay="${focused}"]`)?.focus({ preventScroll: true });
+    if(focusInside){const target=(focused&&panel.querySelector(`[data-flatlay="${focused}"]`))||panel.querySelector("#add-recognize:not(:disabled)");panel.tabIndex=-1;(target||panel).focus({preventScroll:true});}
+  }
+  updateProfile(){
+    if(!this.live||!this.item)return;
+    const container=this.root.querySelector('[data-garment-info]'),form=this.root.querySelector('#add-form');
+    if(!container||form?.dataset.item!==this.item.id)return;
+    const signature=JSON.stringify(this.item.fields);
+    if(this.profileRoot===container&&this.profileSignature===signature)return;
+    const more=container.querySelector('[data-garment-more]'),opened=more?.open??Boolean(this.item.more);
+    const focus=container.contains(document.activeElement)?document.activeElement.closest('summary')?'summary':document.activeElement.dataset.reidentify!==undefined?'[data-reidentify]':null:null;
+    const scroller=this.root.closest('.wardrobe-import-scroll'),top=scroller?.scrollTop;
+    container.innerHTML=`<h2 class="import-garment-name">${esc(garmentName(this.item.fields,this.ctx.taxonomy))}</h2><p class="import-garment-type">${esc(this.ctx.taxonomy?.types?.[this.item.fields.type]?.label||'品类暂未确认')}</p>${garmentProfileHtml(this.item.fields,this.ctx.taxonomy,{open:opened})}`;
+    this.profileRoot=container;this.profileSignature=signature;
+    const details=container.querySelector('[data-garment-more]'),recheck=details.querySelector('[data-import-recheck]');
+    recheck.innerHTML='<button type="button" class="ghost ai" data-reidentify>重新识别属性</button><button type="button" class="ghost" data-regenerate>重新生成平铺图</button>';
+    recheck.hidden=!this.photo?.display;
+    recheck.querySelector('[data-reidentify]').onclick=()=>void this.process({reidentify:true});
+    recheck.querySelector('[data-regenerate]').onclick=()=>void this.process({generationOnly:true,restart:true});
+    recheck.querySelectorAll('button').forEach(button=>button.disabled=Boolean(this.saving||this.item.pending||this.queue.busy(this.item)||this.busy));
+    const item=this.item;
+    details.addEventListener('toggle',()=>{if(this.item!==item||!details.isConnected)return;item.more=details.open;void this.persist();});
+    if(top!==undefined)scroller.scrollTop=top;
+    if(focus)container.querySelector(focus)?.focus({preventScroll:true});
   }
   async save() {
     if (this.busy || this.switching || this.queue.busy(this.item) || !this.photo || this.saving || flatlayBusy(this.item?.flatlay)) return;
@@ -508,10 +534,10 @@ class ImportFlow {
       <div class="alert" data-recognition-error role="status" hidden></div>
       ${error && error.kind !== "recognition" ? `<div class="alert ${error.kind === "save" ? "error" : ""}" role="status">${esc(error.text)}${error.itemId ? ` <a href="#item/${encodeURIComponent(error.itemId)}">查看已有单品</a>` : ""}${error.kind === "image" ? '<button type="button" data-reload>重试读取图片</button>' : ""}</div>` : ""}
       <div class="alert" data-import-confirmation role="status" ${conflict.length ? "" : "hidden"}>以下属性需确认：${conflict.map(esc).join("；")}</div>
-      <form id="add-form" data-item="${esc(item.id)}" class="panel import-form" novalidate>
-        <div class="import-photo" data-import-photo>${this.photoUrl ? `<img src="${esc(this.photoUrl)}" alt="当前待录入的衣物">` : '<span class="faint">正在读取照片…</span>'}<span class="import-loading" role="status" hidden></span><span class="import-photo-hint">待处理照片</span></div>
+      <form id="add-form" data-item="${esc(item.id)}" data-readonly="true" class="panel import-form" novalidate>
+        <div class="import-photo" data-import-photo><img alt="当前衣物的白底平铺图" hidden><div class="import-photo-placeholder">${icon("wardrobe")}<span>平铺图尚未就绪</span></div><span class="import-loading" role="status" hidden></span><span class="import-photo-hint" hidden>衣物平铺图</span></div>
         <section class="import-assistant" data-flatlay-controls></section>
-        ${formHtml(this.ctx.taxonomy, { compact: true })}
+        <div data-garment-info></div>
         <div class="import-actions"><button type="button" class="ghost" data-skip ${this.saving || item.pending ? "disabled" : ""}>跳过这件</button><button type="submit" class="primary" id="add-submit" ${busy || !this.photo ? "disabled" : ""}>${this.saving ? "保存中…" : error?.kind === "save" ? last ? "重试并结束" : "重试并下一件" : last ? "保存并结束" : "保存并下一件"}</button></div>
       </form>
       ${this.lastSkip ? '<div class="import-undo" role="status"><span>已跳过上一件</span><button type="button" class="ghost" data-undo>撤销</button></div>' : ""}
@@ -520,11 +546,7 @@ class ImportFlow {
     const form = this.root.querySelector("#add-form");
     fillForm(form, item.fields);
     if (locked||this.busy==="loading") form.querySelectorAll("input,select,textarea").forEach(node => node.disabled = true);
-    const details = form.querySelector(".more-fields"); details.open = Boolean(item.more);
-    details.insertAdjacentHTML("beforeend", '<div data-import-recheck hidden><button type="button" class="ghost ai" data-reidentify>重新识别属性</button><button type="button" class="ghost" data-regenerate>重新生成平铺图（另计积分）</button></div>');
-    details.querySelector("[data-reidentify]").onclick = () => void this.process({ reidentify: true });
-    details.querySelector("[data-regenerate]").onclick = () => void this.process({ generationOnly: true, restart: true });
-    details.addEventListener("toggle", () => { item.more = details.open; void this.persist(); });
+    this.updateProfile();
     form.addEventListener("input", event => this.capture(event)); form.addEventListener("change", event => this.capture(event));
     form.addEventListener("submit", event => { event.preventDefault(); void this.save(); });
     this.root.querySelector("[data-batch-resume]").onclick=()=>void this.queue.resume();

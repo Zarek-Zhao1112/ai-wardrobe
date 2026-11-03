@@ -1,6 +1,7 @@
 // §24：详情只读，喜欢、用这件搭配与确认删除均保留原位置。
 import { api } from "../../core/api.js";
 import { esc, icon, labelOf, toast, renderError } from "../../core/ui.js";
+import { garmentProfileHtml } from "../../components/garment-profile.js";
 
 export const label = "单品", hidden = true;
 export function refreshService() {}
@@ -18,15 +19,11 @@ export async function mount(root, ctx, id, restore = null) {
   const known = raw => raw && !["unknown", "未知", "未识别"].includes(raw);
   const value = (key, raw) => Array.isArray(raw) ? raw.filter(known).map(v => labelOf(vocab[key], v)).filter(Boolean).join("、") : known(raw) ? labelOf(vocab[key], raw) : "";
   const color = value("color", item.primary_color);
-  const rows = pairs => pairs.filter(([, val]) => val && String(val).trim()).map(([label, val]) => `<div><span>${esc(label)}</span><span>${esc(val)}</span></div>`).join("");
-  const summary = rows([["品类", item.type === "unknown" ? "" : item.type_label], ["颜色", color], ["品牌", known(item.brand) ? item.brand : ""]]);
-  const more = rows([["材质", value("material", item.material)], ["版型", value("fit", item.fit)], ["图案", value("pattern", item.pattern)], ["长度", value("length", item.length)], ["风格", value("style", item.style)], ["季节", value("season", item.season)]]);
   const url = api.presentationUrl(item);
   root.innerHTML = `<div class="detail-media">${url ? `<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(item.name || item.type_label || "衣物")}">` : '<span class="ph">暂无衣物平铺图</span>'}</div>
     <div class="item-title-row"><h1>${esc(item.name || item.type_label || "未命名")}</h1><button type="button" class="item-heart" data-favorite>${icon("heart")}</button></div>
     <p class="item-subtitle">${esc([item.type_label, color].filter(Boolean).join(" · "))}</p>
-    ${summary ? `<div class="item-summary">${summary}</div>` : ""}
-    ${more ? `<details class="item-more"><summary>更多属性</summary><div class="item-summary">${more}</div></details>` : ""}
+    ${garmentProfileHtml(item,ctx.taxonomy,{mode:"detail",open:Boolean(restore?.more)})}
     <div class="item-readonly-actions"><button type="button" class="primary item-use-outfit" data-use-outfit>${icon("outfits")}用这件搭配</button><button type="button" class="item-delete-button" data-delete>删除这件衣服</button></div>`;
   const scroll = root.closest(".item-glass-scroll"), heart = root.querySelector("[data-favorite]");
   const changed = () => root.dispatchEvent(new Event("item:updated", { bubbles: true }));

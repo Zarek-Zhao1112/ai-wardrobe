@@ -113,6 +113,35 @@ def test_pc_job_once_restart_and_corruption(tmp_path):
  assert jobs.status(key)['status']=='interrupted'
  assert len(calls)==1
 
+
+def test_pc_status_waits_for_record_publish_without_repeating_search(tmp_path,monkeypatch):
+ writing=threading.Event();publish=threading.Event();reader_started=threading.Event();reader_finished=threading.Event()
+ original_write=pc.write_json;original_read=Path.read_text;calls=[];results=[];errors=[]
+ def write(path,value):
+  if value['status']=='running':
+   writing.set();assert publish.wait(3)
+   try:original_write(path,value)
+   finally:writing.clear()
+  else:original_write(path,value)
+ def read(path,*args,**kwargs):
+  if path.name=='job.json' and writing.is_set():raise PermissionError('simulated Windows sharing violation')
+  return original_read(path,*args,**kwargs)
+ def runner(*args):calls.append(1);return []
+ monkeypatch.setattr(pc,'write_json',write);monkeypatch.setattr(Path,'read_text',read)
+ jobs=pc.ReferenceJobs(tmp_path,Path('fake'),Path('fake'),threading.BoundedSemaphore(1),lambda:{},lambda *a:'{}',runner=runner)
+ key=str(uuid4());jobs.start({'job_id':key,'direction':SPEC});assert writing.wait(2)
+ def query():
+  reader_started.set()
+  try:results.append(jobs.status(key))
+  except Exception as error:errors.append(error)
+  finally:reader_finished.set()
+ reader=threading.Thread(target=query);reader.start();assert reader_started.wait(2)
+ try:assert not reader_finished.wait(.05)
+ finally:publish.set();reader.join(3)
+ assert reader_finished.is_set() and not errors and len(results)==1
+ wait_until(lambda:key not in jobs.active)
+ assert jobs.status(key)['status']=='empty' and len(calls)==1
+
 @pytest.fixture
 def owner(tmp_path,monkeypatch):
  uid=db.new_id('u');plan={'id':'plan-'+uid,'directions':[{'id':'direction-'+uid,**SPEC,'owned':[]}],'fingerprint':'fake'}
