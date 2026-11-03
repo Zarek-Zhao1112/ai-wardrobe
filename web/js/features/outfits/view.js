@@ -51,8 +51,19 @@ export async function mount(root, ctx, arg = "", restore = null) {
   const dotsEl = container.querySelector("[data-aesthetic-dots]");
   const seasonEl = container.querySelector("[data-season]");
   const countEl = container.querySelector("[data-season-count]");
+  // ★ CSS 里**不能**用 100dvh 算这个高度：部分 Android WebView 把 `100dvh` 解析成 0px，
+  //   calc 出负数后 height 退回 auto，「一屏一张」直接失效（实测小米 12S Ultra 多出 89px 滚动）。
+  //   这里把实测视口高度写成变量，供 outfits-deck.css 的 calc 使用。
+  const syncViewport = () => {
+    container.style.setProperty("--outfit-vh", (window.visualViewport?.height || window.innerHeight) + "px");
+  };
+  syncViewport();
+  window.addEventListener("resize", syncViewport);
+  window.visualViewport?.addEventListener("resize", syncViewport);
   activeOutfit = { root, dispose() {
     disposed = true;
+    window.removeEventListener("resize", syncViewport);
+    window.visualViewport?.removeEventListener("resize", syncViewport);
     sheet?.dispose();
     document.removeEventListener("visibilitychange", refreshSeason);
     document.removeEventListener("outfits:feedback", feedbackChanged);

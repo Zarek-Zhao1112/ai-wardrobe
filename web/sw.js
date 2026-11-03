@@ -83,7 +83,7 @@ const NET_TIMEOUT_MS = 3000;
 
 // 清单由 scripts/checks/web_assets.py 生成，激活检查复用同一清单。
 // BEGIN GENERATED ASSETS
-const ASSET_REVISION = "0c8fa58b32da099d";
+const ASSET_REVISION = "09c9c7895bcc6c2c";
 const SHELL_ASSETS = [
   "/",
   "/bind.html",

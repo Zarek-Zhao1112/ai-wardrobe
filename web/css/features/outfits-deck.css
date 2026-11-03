@@ -16,12 +16,14 @@
 /* ---------- 第一层：审美卡 ---------- */
 .outfit-view { display: flex; flex-direction: column; min-height: 0; }
 @media (max-width: 640px) {
-  /* 100vh 先写、100dvh 后写：老 WebView 不认 dvh 时退回前者，不会退化成 auto。 */
+  /* ⚠️ 别用 100dvh：小米 12S Ultra / Android 15 的 WebView 把 `100dvh` 算成 **0px**，
+   *    calc 变成负数 → height 属于「computed-value 期无效」→ 直接退回 `auto`，
+   *    整条声明等于没写，页面多出一整屏滚动（实测多 89px，底部按钮被 tabbar 压住）。
+   *    改用 JS 量出来的 --outfit-vh（visualViewport.height），见 view.js 的 syncViewport。
+   *    变量没设时退回 100vh —— APK 里 WebView 已避开状态栏，两者相等。 */
   .outfit-view {
     padding-bottom: 0;
-    height: calc(100vh - var(--topbar-h-sm) - env(safe-area-inset-top, 0px) - var(--sp-4)
-      - var(--tabbar-h) - var(--tabbar-gap) - var(--sp-4) - env(safe-area-inset-bottom, 0px));
-    height: calc(100dvh - var(--topbar-h-sm) - env(safe-area-inset-top, 0px) - var(--sp-4)
+    height: calc(var(--outfit-vh, 100vh) - var(--topbar-h-sm) - env(safe-area-inset-top, 0px) - var(--sp-4)
       - var(--tabbar-h) - var(--tabbar-gap) - var(--sp-4) - env(safe-area-inset-bottom, 0px));
   }
 }
