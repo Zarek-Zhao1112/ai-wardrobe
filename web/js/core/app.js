@@ -41,6 +41,9 @@ watchFlatlayImages();
 const navEl = document.getElementById("nav");
 const tabbarEl = document.getElementById("tabbar");
 const statusEl = document.getElementById("status");
+/** §39：手机顶栏那行页面名。桌面不显示（CSS 里 `.topbar-title{display:none}`），
+ *  但照样写入 —— 只为让"当前页"这件事只有一个来源：renderNav()。 */
+const titleEl = document.getElementById("page-title");
 let renderSequence = 0, pressedTab = null, pendingTurn = null, queuedTab = null;
 
 function clearTurns() { pressedTab = null; pendingTurn = null; queuedTab = null; cancelReveal(); }
@@ -128,12 +131,14 @@ function renderNav(currentId) {
     .join("");
   navEl.innerHTML = html;
   if (tabbarEl) tabbarEl.innerHTML = html;
+  // §39：顶栏标题跟着导航走。隐藏页（详情、录入）传进来的是它的 parent，
+  // 所以浮层盖住顶栏时，底下那行仍然是「衣橱」，不会写着「单品」。
+  const current = VIEWS.find((v) => v.id === currentId);
+  if (titleEl && current) titleEl.textContent = current.label;
 }
 
 function renderStatus() {
-  const html = serviceSettingsHtml(ctx.health);
-  statusEl.innerHTML = html;
-  document.querySelectorAll(".page-settings").forEach(node => node.innerHTML = html);
+  statusEl.innerHTML = serviceSettingsHtml(ctx.health);
 }
 
 // 状态浮层不接管页面焦点；Escape 和点外部都可以收起。
@@ -261,8 +266,11 @@ function renderBackendDown() {
   const onServerDevice = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
   // WebView 的 UA 必带 `; wv)`（壳没有 setUserAgentString，UA 是唯一
   // 不依赖壳改动的稳定信号）。电脑 Chrome 的 UA 里没有 `wv`，不会误命中。
-  const inWebView = /;\s*wv\)/.test(navigator.userAgent);
+  const   inWebView = /;\s*wv\)/.test(navigator.userAgent);
   document.title = "后端未启动 · AI 穿搭助手";
+  // §39：顶栏此时已经存在（它不依赖后端），给一行诚实的标题，
+  // 否则手机上会是一条空顶栏 + 一枚齿轮，看起来像没加载完。
+  if (titleEl) titleEl.textContent = "未连接";
   rootEl.innerHTML = `
     <div class="view-head"><h1>${inWebView ? "内置服务没响应" : "后端还没启动"}</h1></div>
     <div class="alert">${
@@ -327,6 +335,11 @@ async function boot() {
     // 这里 err.message 是「连不上后端服务，确认它还在运行」——比 renderStatus()
     // 那句笼统的"后端未就绪"有用得多，所以下面**不能再调 renderStatus()** 把它盖掉
     //（W4 的 Bug 猎手抓到：具体线索被覆盖成没信息量的一句话，排障时少一条信息）。
+    //
+    // §39：但手机端的齿轮就在这个 #status 里，一点不画就是个空圆钮。
+    // 所以先把菜单按"没有 health"画出来，再只把桌面那句换成具体原因 ——
+    // 手机看不到那行字，正文里有更完整的指引（renderBackendDown）。
+    renderStatus();
     statusEl.innerHTML = `<span class="dot off"></span>${esc(err.message)}`;
   }
 

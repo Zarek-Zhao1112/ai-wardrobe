@@ -51,7 +51,7 @@ export function openBridgeSettings(ctx, onSaved, returnFocus = null, restoreEntr
     }
     layer.remove(); document.removeEventListener("keydown", key); window.removeEventListener("popstate", pop);
     const visible = node => node !== document.body && node !== document.documentElement && node?.isConnected && node.getClientRects().length && getComputedStyle(node).visibility !== "hidden";
-    const target = visible(origin) ? origin : [...document.querySelectorAll(".page-settings summary,#status summary")].find(visible);
+    const target = visible(origin) ? origin : [...document.querySelectorAll("#status summary")].find(visible);
     target?.focus({ preventScroll: true });
   };
   const pop = () => {

@@ -532,8 +532,14 @@ ul.hist { margin: 0; padding: 0; list-style: none; }
 html.page-turning { overflow: hidden; }
 
 @media (max-width: 640px) {
-  /* 顶栏收纳：只留品牌 + 状态，导航挪到底部 */
-  .topbar { height: var(--topbar-h-sm); padding: 0 var(--sp-4); gap: var(--sp-3); }
+  /* 顶栏收纳：只留页面名 + 状态/设置，导航挪到底部。
+     §39：48px 是**内容高度**，状态栏安全区单独加在 height/padding-top 上
+     （sticky 吸顶后滚动内容从它底下过，所以它必须自己盖住安全区）。 */
+  .topbar {
+    height: calc(var(--topbar-h-sm) + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) var(--sp-4) 0;
+    gap: var(--sp-3);
+  }
   .brand  { font-size: var(--fs-sm); white-space: nowrap; color: var(--text-dim); }
   .nav    { display: none; }
   .status {
@@ -775,7 +781,7 @@ body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
 .bridge-sheet input { display: block; width: 100%; min-height: 48px; margin-top: var(--sp-2); }
 .bridge-sheet [data-result] { overflow-wrap: anywhere; }
 @media (max-width: 640px) {
-  .import-head { top: var(--topbar-h-sm); }
+  .import-head { top: calc(var(--topbar-h-sm) + env(safe-area-inset-top, 0px)); }
   .import-photo, .import-photo img { height: 200px; max-height: 200px; }
   .import-actions button { border-radius: var(--radius); }
   .import-form > .form-grid { gap: var(--sp-3); }

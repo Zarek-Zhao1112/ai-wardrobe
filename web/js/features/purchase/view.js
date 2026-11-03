@@ -1,6 +1,6 @@
 /** §37：首页保持稳定，真实分析、选方向与结果均在B玻璃助手内。 */
 import {api} from '../../core/api.js';
-import {esc,icon,serviceSettingsHtml,toast} from '../../core/ui.js';
+import {esc,icon,toast} from '../../core/ui.js';
 import {createAestheticSheet} from '../outfits/aesthetic-sheet.js';
 import {coverImage} from '../outfits/aesthetic-ui.js';
 import {createAssistantPanel} from './assistant-panel.js';
@@ -50,7 +50,7 @@ export async function mount(root,ctx){
  function renderHome(){
   const focus=root.contains(document.activeElement),data=session.data;
   const content=ready?initialHtml({data,profile:profile(),analyzing:session.analyzing,preparation:data?.preparation,photosReady:readyPreparation()}):'<p class="faint">正在读取添置建议…</p><button type="button" class="quiet blue" data-purchase-query>重新读取</button>';
-  const html=`<section class="purchase-view purchase-intent" data-purchase-page="home"><div class="purchase-heading page-actions"><span></span><div class="intent-heading-right"><button type="button" class="purchase-saved-button saved-link" data-purchase-saved>${icon('bookmark')}已记下 ${savedIds().size}</button><div class="page-settings status">${serviceSettingsHtml(ctx.health)}</div></div></div><div class="purchase-content">${session.message?`<p class="global-notice" role="status">${esc(session.message)}</p>`:''}${content}</div></section>`;
+  const html=`<section class="purchase-view purchase-intent" data-purchase-page="home"><div class="purchase-heading page-actions"><div class="intent-heading-right"><button type="button" class="purchase-saved-button saved-link" data-purchase-saved>${icon('bookmark')}已记下 ${savedIds().size}</button></div></div><div class="purchase-content">${session.message?`<p class="global-notice" role="status">${esc(session.message)}</p>`:''}${content}</div></section>`;
   if(homeHtml!==html){root.innerHTML=html;homeHtml=html;if(focus)root.querySelector('[data-purchase-analyze],[data-purchase-query]')?.focus({preventScroll:true})}
  }
  function paint({animate=false,position}={}){

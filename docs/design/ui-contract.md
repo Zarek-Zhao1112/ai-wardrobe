@@ -377,3 +377,17 @@ node scripts/checks/cdp_ui_check.js            # 三视口 + 4 页溢出 + 触�
 ## §33 只读衣物详情与本次必选
 
 以card-detail-design.md §33覆盖旧编辑/常穿/记录穿着规则。保留玻璃展开/回收，红色喜欢、只读已知属性、同宽蓝色搭配按钮与浅红删除按钮。删除确认独立一层，取消/系统返回只消费确认；喜欢/取消不重建详情或跳滚动。搭配入口带本次必选衣物，不自动生成；后台从召回到模型排序、本地补齐和保存都保证该件在每套中。返回恢复筛选与详情展开/滚动，删除失效结果不被迟到响应恢复。保持schema4、既有模型/账号/图片及录入确认流程。
+
+## §39 手机端恢复 48px 标题栏（2026-11-03 用户确认）
+
+§26 把手机顶栏整条藏掉、三页各自在首行放操作和 44px 圆形设置钮。用户用过一周后确认换回「标题栏」（原型 `docs/design/topbar-preview.html` 的 A 案；B「工具条」因顶栏只剩一行淡灰小字、撑不住一条空条，C「顶部导航」因要删掉刚调好的底栏转场，均否决）：顶栏 48px 吸顶、左页面名、右设置齿轮，底部 tabbar 保留 —— 导航只留一处，不与底栏重复。页内**不**恢复 §26 删掉的大标题：那行 15px 标签是导航条上的位置指示，不是 h1。
+
+- 安全区：顶栏自己吃 `env(safe-area-inset-top)`（高度与 padding-top 同时加），`.view` 顶部留白从 `max(16px, safe-area)` 改回固定 16。净代价 = 常驻 48px，约手机视口 5.7%，首屏少露半张卡片。
+- 设置只剩一个节点：三页各渲染一份 `.page-settings` 的做法取消，全库只有 index.html 的 `#status`。桌面是「AI 已就绪 + 齿轮」，手机只留 44px 圆钮（`.status .dot`、`.status-label` 隐藏）。`renderStatus()` 里 `querySelectorAll('.page-settings')` 的批量填充随之删除；`desktop-settings.js` 的返回焦点回退改成只找 `#status summary`。原来靠"每页各画一份、再批量灌同一段 html"维持的三份副本，现在结构上不可能不一致。
+- 标题来源只有一处：`renderNav()` 写入 `#page-title`。隐藏页（详情、录入）传进来的是 parent，所以浮层盖住顶栏时底下仍写着「衣橱」；后端不可用时写「未连接」，不留一条空顶栏。
+- 三页首行的补偿：衣橱件数挪进分类条右端（`.wardrobe-categories`，分类条 flex:1 横滑、件数不跟着滚走）；添置首行只剩「已记下 N」并靠右；搭配的审美选择器与季节吃满整行（原来要给设置钮让 44px）。
+- 顶端高度要一起改的三处：`.purchase-view`、`.purchase-view.purchase-intent`、`.purchase-view.has-result` 的 `calc(100vh - …)` 全部补上 `--topbar-h-sm + 安全区`。顶栏是 sticky，**仍占文档流**，不减就会多出一屏滚动。录入手表单内部的 `.import-head` sticky 起点同步。
+- 顶栏下沿用 `box-shadow: 0 1px 0 var(--border)` 而不是 border（border 进盒模型会把 48 变 47），并且做成**常驻**发丝线、不做"滚动后出现"：添置页的滚动发生在 `.purchase-content` 内部，判据要同时覆盖 window 与内滚容器，为 1px 引一套滚动监听不划算。
+- 文件改名：`css/base/headerless.css` → `css/base/page-chrome.css`（名字里的 headerless 正是 §26 的做法，留着会误导）。SW 清单由 `web_assets.py --write` 重生成，网络优先策略下不需要 +1 VERSION。
+
+验收：390 下三页顶栏高 48、标题与齿轮两端对齐、横向溢出 0、可点元素 ≥44×44；五个全屏浮层仍整块盖住顶栏；768/1440 与改前一致（桌面端不加页面名）；手机实机选择器与滚动照旧。

@@ -1,6 +1,6 @@
 /** §20：完整审美方案→真实衣橱组套；生成时保留上一批结果。 */
 import { api } from "../../core/api.js";
-import { esc, icon, fmtDateTime, itemChipsHtml, toast, serviceSettingsHtml } from "../../core/ui.js";
+import { esc, icon, fmtDateTime, itemChipsHtml, toast } from "../../core/ui.js";
 import { openTryonSheet } from "./tryon-sheet.js";
 import { bindHorizontalSwipe } from "../../components/horizontal-swipe.js";
 import { createAestheticSheet } from "./aesthetic-sheet.js";
@@ -29,8 +29,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
   const taxonomy = ctx.taxonomy || {};
   root.innerHTML = `<section class="outfit-view">${anchorId ? `<div class="outfit-anchor" data-anchor-id="${esc(anchorId)}"><button type="button" class="outfit-anchor-back" data-anchor-back aria-label="返回这件衣服">${icon("back")}</button><div data-anchor-piece><span class="faint">正在读取必选衣物…</span></div></div>` : ""}<div class="outfit-top-row">
     <div class="outfit-method-slot"><div data-aesthetic-loading class="muted">正在读取审美方案…</div><button id="o-chooser" type="button" data-open-aesthetics class="aesthetic-selector" hidden>${icon("spark")}<strong id="o-current"></strong><span aria-hidden="true">⌄</span></button></div>
-    <div id="o-season" class="outfit-season" aria-label="当前季节"></div>
-    <div class="page-settings status">${serviceSettingsHtml(ctx.health)}</div></div><div data-outfit-content hidden>
+    <div id="o-season" class="outfit-season" aria-label="当前季节"></div></div><div data-outfit-content hidden>
       <div id="o-intro"></div><p id="o-method-summary" class="outfit-method-summary" hidden></p>
       <div id="o-message" role="status" aria-live="polite"></div><div id="o-result"></div>
       <div class="outfit-generate-bar"><button id="o-go" type="button" class="primary">${icon("spark")}从衣橱生成搭配</button><button type="button" id="o-options" class="outfit-options-button">3 套 · 更多选项${icon("chevron")}</button><span class="outfit-generate-note">用已有衣服，按当前季节搭配</span></div>

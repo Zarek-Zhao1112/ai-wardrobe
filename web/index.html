@@ -24,7 +24,7 @@
   <link rel="stylesheet" href="/css/features/purchase.css">
   <link rel="stylesheet" href="/css/features/purchase-intent.css">
   <link rel="stylesheet" href="/css/features/purchase-assistant.css">
-  <link rel="stylesheet" href="/css/base/headerless.css">
+  <link rel="stylesheet" href="/css/base/page-chrome.css">
   <link rel="stylesheet" href="/css/features/import.css">
   <link rel="stylesheet" href="/css/features/outfits.css">
   <link rel="stylesheet" href="/css/features/aesthetics.css">
@@ -33,6 +33,12 @@
 </head>
 <body>
   <header class="topbar">
+    <!-- §39（2026-11-03）：手机端顶栏回来 —— 左「当前页名」，右「设置齿轮」。
+         三页原来各自渲染一份 `.page-settings`，现在全库只剩 `#status` 这一个节点：
+         桌面显示「AI 已就绪 + 齿轮」，手机只留齿轮（样式见 css/base/page-chrome.css）。
+         标题由 app.js 的 renderNav() 按当前页写入，**不是**回到 §26 删掉的大标题 —— 
+         页内仍然没有 h1，这里是 48px 导航条上的一行 15px 标签。 -->
+    <div id="page-title" class="topbar-title"></div>
     <nav id="nav" class="nav" aria-label="主导航"></nav>
     <div id="status" class="status"></div>
   </header>

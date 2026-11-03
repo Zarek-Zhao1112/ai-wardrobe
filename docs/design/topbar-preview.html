@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>顶部栏方案预览 · AI 穿搭助手</title>
+<style>
+:root{
+  --bg:#f5f5f7; --surface:#fff; --surface-2:#f2f2f5;
+  --border:#e0e0e0; --border-strong:#c9c9ce;
+  --text:#1d1d1f; --text-dim:#5c5c61; --text-faint:#6b6b70;
+  --accent:#0066cc; --accent-soft:#e8f2fd; --accent-line:#b3d4f5; --accent-wash:#f6fafe;
+  --radius:12px; --radius-lg:16px; --radius-pill:999px;
+  --shadow-glass:0 8px 32px rgba(29,29,31,.12), inset 0 1px 0 rgba(255,255,255,.9);
+  --shadow-card:0 1px 2px rgba(0,0,0,.04);
+  --fs-hero:32px; --fs-h1:24px; --fs-h2:20px; --fs-body-lg:17px;
+  --fs-body:15px; --fs-sm:13px; --fs-xs:12px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:#eceef2; color:var(--text);
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  padding:18px 20px 40px;
+}
+.icon{width:22px;height:22px;flex:0 0 auto}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- 控制条 ---------- */
+.ctl{
+  max-width:1180px;margin:0 auto 18px;padding:12px 16px;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);
+  display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;
+  position:sticky;top:12px;z-index:50;box-shadow:var(--shadow-card);
+}
+.ctl h1{margin:0;font-size:15px;font-weight:600;letter-spacing:-.01em;white-space:nowrap}
+.ctl .hint{font-size:12px;color:var(--text-faint)}
+.seg{display:flex;gap:2px;padding:3px;background:var(--surface-2);border-radius:var(--radius-pill)}
+.seg button{
+  appearance:none;border:0;background:transparent;font:inherit;font-size:13px;
+  padding:7px 13px;border-radius:var(--radius-pill);color:var(--text-dim);cursor:pointer;white-space:nowrap;
+}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--surface);color:var(--text);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.seg.divide{position:relative;margin-left:2px}
+.chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-dim);cursor:pointer;margin-left:auto}
+.chk input{accent-color:var(--accent);width:15px;height:15px}
+
+/* ---------- 舞台 ---------- */
+.stage{max-width:1180px;margin:0 auto;display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+figure{margin:0}
+figcaption{margin-top:10px;font-size:12px;color:var(--text-faint);line-height:1.5;max-width:390px}
+figcaption b{color:var(--text-dim);font-weight:500}
+
+/* ---------- 手机 ---------- */
+.phone{
+  width:410px;height:864px;position:relative;
+  border-radius:44px;padding:10px;background:#1d1d1f;
+  box-shadow:0 18px 50px rgba(20,25,40,.18);
+}
+.screen{
+  width:100%;height:100%;position:relative;overflow:hidden;
+  border-radius:34px;background:var(--bg);
+  display:flex;flex-direction:column;
+}
+.sb{
+  height:30px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+  padding:0 22px;font-size:12px;font-weight:500;color:var(--text);
+}
+.sb .dots{display:flex;gap:4px;align-items:center}
+.sb .dots i{width:3px;height:9px;background:var(--text);border-radius:1px;display:block;opacity:.7}
+.sb .dots i:nth-child(2){height:6px}
+.sb .dots i:nth-child(3){height:12px;opacity:.35}
+
+.tb{
+  flex:0 0 auto;height:44px;display:flex;align-items:center;gap:10px;
+  padding:0 16px;background:var(--bg);position:relative;z-index:5;
+}
+.tb::after{content:"";position:absolute;left:16px;right:16px;bottom:0;height:1px;background:#e8e8ed;opacity:0;transition:opacity .15s}
+.screen.scrolled .tb::after{opacity:1}
+.pgt{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.met{font-size:12px;color:var(--text-faint)}
+.setbtn{
+  appearance:none;margin-left:auto;width:32px;height:32px;min-width:32px;padding:0;
+  border:1px solid var(--border);border-radius:50%;background:var(--surface);
+  color:var(--text-dim);display:flex;align-items:center;justify-content:center;cursor:pointer;
+}
+.setbtn .icon{width:17px;height:17px}
+.navp{display:flex;gap:2px;min-width:0}
+.navtab{
+  display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:var(--radius-pill);
+  font-size:13px;color:var(--text-dim);text-decoration:none;white-space:nowrap;
+}
+.navtab .icon{width:17px;height:17px}
+.navtab.on{background:var(--accent-soft);color:var(--accent);font-weight:500}
+
+.body{flex:1;min-height:0;overflow-y:auto;padding:10px 16px 0;scrollbar-width:none}
+.body::-webkit-scrollbar{display:none}
+.pad{padding-bottom:104px}
+.pad.short{padding-bottom:20px}
+
+/* 衣橱 */
+.srow{display:flex;gap:8px;align-items:center;margin:6px 0 10px}
+.search{
+  flex:1;display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;
+  background:var(--surface-2);border-radius:var(--radius-pill);color:var(--text-faint);font-size:13px;
+}
+.search .icon{width:16px;height:16px}
+.fbtn{
+  appearance:none;height:38px;padding:0 13px;border:1px solid var(--border);background:var(--surface);
+  border-radius:var(--radius-pill);font:inherit;font-size:13px;color:var(--text-dim);
+  display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+}
+.fbtn .icon{width:15px;height:15px}
+.chiprow{display:flex;align-items:center;gap:6px;margin:0 0 12px}
+.chips{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{
+  flex:0 0 auto;padding:6px 12px;border-radius:var(--radius-pill);background:var(--surface);
+  border:1px solid var(--border);font-size:13px;color:var(--text-dim);white-space:nowrap;
+}
+.chip.on{background:var(--text);border-color:var(--text);color:#fff}
+.count{flex:0 0 auto;font-size:11px;color:var(--text-faint);white-space:nowrap}
+
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.card{background:var(--surface);border:1px solid #ececf1;border-radius:14px;overflow:hidden}
+.card .ph{aspect-ratio:3/4;background:var(--surface-2);overflow:hidden}
+.card .ph img{width:100%;height:100%;object-fit:cover;display:block}
+.card .cap{padding:8px 10px 10px}
+.card .cap strong{display:block;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .cap span{font-size:11px;color:var(--text-faint)}
+
+/* 添置 */
+.collage{
+  position:relative;height:200px;margin:10px 0 16px;border-radius:18px;overflow:hidden;background:var(--surface-2);
+}
+.collage img{position:absolute;object-fit:cover;border-radius:10px}
+.collage .c1{width:44%;height:62%;left:7%;top:18%;transform:rotate(-3deg)}
+.collage .c2{width:42%;height:68%;left:38%;top:14%;transform:rotate(1.5deg);z-index:2}
+.collage .c3{width:28%;height:48%;right:9%;top:27%;transform:rotate(5deg)}
+.gaps-h{font-size:22px;font-weight:600;letter-spacing:-.02em;line-height:1.25;margin:0 0 6px}
+.gaps-p{font-size:13px;color:var(--text-dim);margin:0 0 16px}
+.saved-row{display:flex;align-items:center;justify-content:flex-end;gap:6px;min-height:22px;margin:2px 0 0}
+.saved{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-faint)}
+.saved .icon{width:13px;height:13px}
+.cta{
+  width:100%;height:48px;border:0;border-radius:var(--radius-pill);background:var(--accent);color:#fff;
+  font:inherit;font-size:15px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;
+}
+.cta .icon{width:18px;height:18px}
+.cta-note{text-align:center;font-size:11px;color:var(--text-faint);margin:8px 0 0}
+
+/* 搭配 */
+.chooser{
+  width:100%;display:flex;align-items:center;gap:9px;padding:12px 14px;margin:6px 0 10px;
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;font:inherit;cursor:pointer;text-align:left;
+}
+.chooser .icon{width:18px;height:18px;color:var(--accent)}
+.chooser strong{font-size:15px;font-weight:500;flex:1;min-width:0}
+.chooser .caret{color:var(--text-faint);font-size:13px}
+.season{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--text-faint);margin:0 0 16px}
+.season b{font-weight:500;color:var(--text-dim)}
+.outfit-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 12px}
+.outfit-photos div{aspect-ratio:3/4;border-radius:10px;overflow:hidden;background:var(--surface-2)}
+.outfit-photos img{width:100%;height:100%;object-fit:cover;display:block}
+.outfit-note{font-size:13px;color:var(--text-dim);margin:0 0 16px}
+.sec-h{font-size:13px;font-weight:500;margin:18px 0 8px}
+
+/* 底部 tabbar */
+.tabbar{
+  position:absolute;left:16px;right:16px;bottom:22px;height:64px;z-index:20;
+  display:flex;gap:2px;padding:4px;
+  background:rgba(255,255,255,.82);backdrop-filter:saturate(150%) blur(24px);
+  -webkit-backdrop-filter:saturate(150%) blur(24px);
+  border:1px solid rgba(255,255,255,.9);border-radius:var(--radius-pill);
+  box-shadow:var(--shadow-glass);
+}
+.tabbar .t{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
+  font-size:11px;color:var(--text);text-decoration:none;border-radius:var(--radius-pill);
+}
+.tabbar .t .icon{width:22px;height:22px}
+.tabbar .t.on{background:var(--accent-soft);color:var(--accent);font-weight:500}
+
+/* ---------- 桌面 ---------- */
+.desk-frame{
+  width:100%;max-width:691px;height:432px;overflow:hidden;border-radius:12px;
+  border:1px solid var(--border-strong);background:#fff;position:relative;
+}
+.desk{
+  width:1440px;height:900px;transform:scale(.48);transform-origin:top left;
+  background:var(--bg);display:flex;flex-direction:column;
+}
+.dt{
+  flex:0 0 auto;height:52px;display:flex;align-items:center;gap:24px;padding:0 24px;background:var(--bg);
+  border-bottom:1px solid transparent;
+}
+.dt .pg{font-size:15px;font-weight:600;letter-spacing:-.01em;min-width:0}
+.dt .pg.hide{display:none}
+.dt .nav{display:flex;gap:4px}
+.dt .nav a{
+  display:inline-flex;align-items:center;gap:8px;padding:8px 12px;min-height:44px;
+  border-radius:var(--radius-pill);color:var(--text-dim);text-decoration:none;font-size:15px;
+}
+.dt .nav a.on{background:var(--accent-soft);color:var(--accent);font-weight:500}
+.dt .st{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-faint)}
+.dt .st .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.dt .setb{width:36px;height:36px;border:1px solid var(--border);border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;color:var(--text-dim)}
+.dt .setb .icon{width:18px;height:18px}
+.dv{flex:1;min-height:0;overflow:hidden;max-width:1100px;width:100%;margin:0 auto;padding:32px 24px}
+.dv .grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.dv .card .cap strong{font-size:15px}
+.dv .card .cap span{font-size:13px}
+.dv .srow{max-width:520px}
+.dv .collage{height:300px;max-width:640px}
+.dv .outfit-photos div{aspect-ratio:4/5}
+.dv h2.page{font-size:32px;font-weight:600;letter-spacing:-.02em;margin:0 0 24px}
+.dv h2.page.hide{display:none}
+
+.legend{margin-top:18px;font-size:12px;color:var(--text-faint);line-height:1.7;max-width:1100px}
+.legend code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:#e6e8ec;padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<div class="ctl">
+  <h1>顶部栏方案</h1>
+  <div class="seg" id="planSeg">
+    <button data-plan="A" class="on">A 标题栏</button>
+    <button data-plan="B">B 工具条</button>
+    <button data-plan="C">C 顶部导航</button>
+  </div>
+  <div class="seg" id="pageSeg">
+    <button data-page="wardrobe" class="on">衣橱</button>
+    <button data-page="gaps">添置</button>
+    <button data-page="outfits">搭配</button>
+  </div>
+  <label class="chk"><input type="checkbox" id="deskTitle" checked> 桌面加页面名</label>
+</div>
+
+<div class="stage">
+  <figure>
+    <div class="phone">
+      <div class="screen" id="screen"></div>
+    </div>
+    <figcaption id="phoneCap"></figcaption>
+  </figure>
+
+  <figure>
+    <div class="desk-frame"><div class="desk" id="desk"></div></div>
+    <figcaption id="deskCap"></figcaption>
+  </figure>
+</div>
+
+<p class="legend">
+  手机屏按 390 × 844 真渲染，可直接在里面滚动；桌面按 1440 × 900 渲染后缩到 48%。
+  图片用的是仓库里真实的审美封面 <code>web/reference/aesthetics/cover-*.webp</code>。
+</p>
+
+<script>
+const IC = {
+  wardrobe:'<path d="m9 4-4 2-2 5 4 2v8h10v-8l4-2-2-5-4-2a3 3 0 0 1-6 0Z"/>',
+  gaps:'<path d="M5 7h14l1 13H4zM8 8V6a4 4 0 0 1 8 0v2"/>',
+  outfits:'<path d="m9 4-5 3-2 5 5 2v7h10v-7l5-2-2-5-5-3a3 3 0 0 1-6 0Z"/><path d="m15 3 1-2 1 2 2 1-2 1-1 2-1-2-2-1Z"/>',
+  settings:'<circle cx="12" cy="12" r="3"/><path d="m9 3-1 3-3 1-2 3 2 2-1 3 2 3 3-1 2 3h3l1-3 3-1 2-3-2-2 1-3-2-3-3 1-2-3Z"/>',
+  search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+  filter:'<path d="M4 6h6m4 0h6M4 12h2m4 0h10M4 18h10m4 0h2"/><circle cx="12" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/>',
+  bookmark:'<path d="M6 4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17l-6-4-6 4z"/>',
+  spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5zM20 2v4M18 4h4"/>'
+};
+const ic = (n) => '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (IC[n]||'') + '</svg>';
+
+const IMG = '../../web/reference/aesthetics/';
+const ITEMS = [
+  {n:'黑色直筒西裤', t:'下装 · 通勤', img:'cover-urban.webp'},
+  {n:'灰绿针织开衫', t:'上装 · 自然', img:'cover-natural.webp'},
+  {n:'深棕皮质乐福鞋', t:'鞋 · 复古', img:'cover-heritage.webp'},
+  {n:'米白廓形衬衫', t:'上装 · 极简', img:'cover-refined.webp'},
+  {n:'军绿工装直筒裤', t:'下装 · 机能', img:'cover-technical.webp'},
+  {n:'黑色短款夹克', t:'外套 · 街头', img:'cover-street.webp'}
+];
+
+const PAGE = {
+  wardrobe: {name:'衣橱', metric:'26 件'},
+  gaps:     {name:'添置', metric:'已记下 3'},
+  outfits:  {name:'搭配', metric:'春 · 18°C'}
+};
+
+let plan = 'A', page = 'wardrobe', deskTitle = true;
+
+const q = new URLSearchParams(location.search);
+if (['A','B','C'].includes(q.get('plan'))) plan = q.get('plan');
+if (['wardrobe','gaps','outfits'].includes(q.get('page'))) page = q.get('page');
+if (q.get('desk') === '0') deskTitle = false;
+document.querySelectorAll('#planSeg button').forEach(b => b.classList.toggle('on', b.dataset.plan === plan));
+document.querySelectorAll('#pageSeg button').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+document.getElementById('deskTitle').checked = deskTitle;
+
+function topbar(){
+  if (plan === 'C') {
+    const tabs = ['wardrobe','gaps','outfits'].map(k =>
+      '<a class="navtab' + (k===page?' on':'') + '">' + ic(k) + PAGE[k].name + '</a>').join('');
+    return '<div class="tb"><div class="navp">' + tabs + '</div><button class="setbtn">' + ic('settings') + '</button></div>';
+  }
+  const label = plan === 'A' ? PAGE[page].name : PAGE[page].metric;
+  return '<div class="tb"><div class="' + (plan==='A'?'pgt':'met') + '">' + label + '</div>' +
+         '<button class="setbtn">' + ic('settings') + '</button></div>';
+}
+
+function card(it){
+  return '<div class="card"><div class="ph"><img src="' + IMG + it.img + '" alt=""></div>' +
+         '<div class="cap"><strong>' + it.n + '</strong><span>' + it.t + '</span></div></div>';
+}
+
+function wardrobeBody(){
+  const chips = ['全部','上装','下装','外套','鞋'].map((c,i) =>
+    '<span class="chip' + (i===0?' on':'') + '">' + c + '</span>').join('');
+  const count = plan === 'B' ? '' : '<span class="count">26 件</span>';
+  return '<div class="srow"><div class="search">' + ic('search') + '搜索衣服</div>' +
+    '<button class="fbtn">' + ic('filter') + '筛选</button></div>' +
+    '<div class="chiprow"><div class="chips">' + chips + '</div>' + count + '</div>' +
+    '<div class="grid">' + ITEMS.map(card).join('') + '</div>';
+}
+
+function gapsBody(){
+  const saved = plan === 'B' ? '' : '<div class="saved-row"><span class="saved">' + ic('bookmark') + '已记下 3</span></div>';
+  return saved +
+    '<div class="collage">' +
+      '<img class="c1" src="' + IMG + 'cover-natural.webp" alt="">' +
+      '<img class="c2" src="' + IMG + 'cover-urban.webp" alt="">' +
+      '<img class="c3" src="' + IMG + 'cover-heritage.webp" alt="">' +
+    '</div>' +
+    '<h2 class="gaps-h">这套里，缺一件薄外套</h2>' +
+    '<p class="gaps-p">按你现在的衣橱和都市极简的方向，外层是唯一没有备份的位置。</p>' +
+    '<button class="cta">' + ic('spark') + '按这个审美分析</button>' +
+    '<p class="cta-note">用已有衣服和这个方向，给出具体款式</p>';
+}
+
+function outfitsBody(){
+  const season = plan === 'B' ? '' :
+    '<div class="season"><b>春</b>· 18°C 多云 · 适合薄外套</div>';
+  return '<button class="chooser">' + ic('spark') + '<strong>都市极简</strong><span class="caret">⌄</span></button>' +
+    season +
+    '<div class="outfit-photos">' +
+      '<div><img src="' + IMG + 'cover-urban.webp" alt=""></div>' +
+      '<div><img src="' + IMG + 'cover-refined.webp" alt=""></div>' +
+      '<div><img src="' + IMG + 'cover-heritage.webp" alt=""></div>' +
+    '</div>' +
+    '<p class="outfit-note">米白衬衫配黑色直筒裤，外层压一件深棕短夹克 —— 三件都是你已有的。</p>' +
+    '<button class="cta">' + ic('spark') + '从衣橱生成搭配</button>' +
+    '<p class="cta-note">用已有衣服，按当前季节搭配</p>' +
+    '<div class="sec-h">最近搭配</div>' +
+    '<div class="outfit-photos">' +
+      '<div><img src="' + IMG + 'cover-street.webp" alt=""></div>' +
+      '<div><img src="' + IMG + 'cover-technical.webp" alt=""></div>' +
+      '<div><img src="' + IMG + 'cover-natural.webp" alt=""></div>' +
+    '</div>';
+}
+
+function tabbar(){
+  return '<div class="tabbar">' + ['wardrobe','gaps','outfits'].map(k =>
+    '<a class="t' + (k===page?' on':'') + '">' + ic(k) + '<span>' + PAGE[k].name + '</span></a>').join('') + '</div>';
+}
+
+function renderPhone(){
+  const body = page === 'wardrobe' ? wardrobeBody() : page === 'gaps' ? gapsBody() : outfitsBody();
+  const pad = plan === 'C' ? ' pad short' : ' pad';
+  document.getElementById('screen').innerHTML =
+    '<div class="sb"><span>9:41</span><span class="dots"><i></i><i></i><i></i></span></div>' +
+    topbar() +
+    '<div class="body' + pad + '">' + body + '</div>' +
+    (plan === 'C' ? '' : tabbar());
+
+  const cap = {
+    A: '<b>A · 标题栏</b>　顶栏 44px 只放页面名和设置，底部导航保留。代价：常驻多占 44px，首屏少露小半行卡片。',
+    B: '<b>B · 工具条</b>　各页首行操作搬进顶栏（衣橱件数 / 添置已记下 / 搭配季节），滚动时一直可见。不额外占高度。',
+    C: '<b>C · 顶部导航</b>　导航上移成三枚胶囊，底部 tabbar 删除，内容多出 84px。代价：底部点击转场要重做。'
+  }[plan];
+  document.getElementById('phoneCap').innerHTML = cap;
+}
+
+function renderDesk(){
+  const tabs = ['wardrobe','gaps','outfits'].map(k =>
+    '<a class="' + (k===page?'on':'') + '">' + ic(k) + PAGE[k].name + '</a>').join('');
+  let body;
+  if (page === 'wardrobe') {
+    body = '<div class="srow"><div class="search">' + ic('search') + '搜索衣服</div><button class="fbtn">' + ic('filter') + '筛选</button></div>' +
+      '<div class="grid">' + ITEMS.concat(ITEMS).map(card).join('') + '</div>';
+  } else if (page === 'gaps') {
+    body = '<div class="srow"><div class="search">' + ic('search') + '搜索方向</div></div>' +
+      '<div class="collage collage-wide">' +
+        '<img class="c1" src="' + IMG + 'cover-natural.webp" alt="">' +
+        '<img class="c2" src="' + IMG + 'cover-urban.webp" alt="">' +
+        '<img class="c3" src="' + IMG + 'cover-heritage.webp" alt="">' +
+      '</div>' +
+      '<h2 class="gaps-h">这套里，缺一件薄外套</h2>' +
+      '<p class="gaps-p" style="max-width:520px">按你现在的衣橱和都市极简的方向，外层是唯一没有备份的位置。</p>' +
+      '<button class="cta" style="width:320px">' + ic('spark') + '按这个审美分析</button>';
+  } else {
+    body = '<button class="chooser" style="max-width:440px">' + ic('spark') + '<strong>都市极简</strong><span class="caret">⌄</span></button>' +
+      '<div class="season"><b>春</b>· 18°C 多云 · 适合薄外套</div>' +
+      '<div class="outfit-photos" style="max-width:520px">' +
+        '<div><img src="' + IMG + 'cover-urban.webp" alt=""></div>' +
+        '<div><img src="' + IMG + 'cover-refined.webp" alt=""></div>' +
+        '<div><img src="' + IMG + 'cover-heritage.webp" alt=""></div>' +
+      '</div>' +
+      '<p class="outfit-note">米白衬衫配黑色直筒裤，外层压一件深棕短夹克 —— 三件都是你已有的。</p>' +
+      '<button class="cta" style="width:320px">' + ic('spark') + '从衣橱生成搭配</button>';
+  }
+  document.getElementById('desk').innerHTML =
+    '<div class="dt">' +
+      '<div class="pg' + (deskTitle?'':' hide') + '">' + PAGE[page].name + '</div>' +
+      '<nav class="nav">' + tabs + '</nav>' +
+      '<div class="st"><span class="dot"></span>AI 已就绪</div>' +
+      '<div class="setb">' + ic('settings') + '</div>' +
+    '</div>' +
+    '<div class="dv">' +
+      '<h2 class="page' + (deskTitle?' hide':'') + '">' + PAGE[page].name + '</h2>' + body +
+    '</div>';
+
+  document.getElementById('deskCap').innerHTML = deskTitle
+    ? '<b>桌面 · 加页面名</b>　顶栏左侧显示当前页（和手机端同一套结构），右侧仍是导航 + 设置。'
+    : '<b>桌面 · 保持现状</b>　只有导航胶囊 + 设置，靠高亮表示当前页。标题回到内容区顶部（§26 之前的样子）。';
+}
+
+document.getElementById('planSeg').addEventListener('click', e => {
+  const b = e.target.closest('[data-plan]'); if (!b) return;
+  plan = b.dataset.plan;
+  document.querySelectorAll('#planSeg button').forEach(x => x.classList.toggle('on', x === b));
+  renderPhone();
+});
+document.getElementById('pageSeg').addEventListener('click', e => {
+  const b = e.target.closest('[data-page]'); if (!b) return;
+  page = b.dataset.page;
+  document.querySelectorAll('#pageSeg button').forEach(x => x.classList.toggle('on', x === b));
+  renderPhone(); renderDesk();
+});
+document.getElementById('deskTitle').addEventListener('change', e => {
+  deskTitle = e.target.checked; renderDesk();
+});
+document.getElementById('screen').addEventListener('scroll', e => {
+  const tb = e.target;
+  tb.classList.toggle('scrolled', false);
+}, true);
+document.getElementById('screen').addEventListener('scroll', e => {
+  if (e.target.classList.contains('body')) {
+    document.getElementById('screen').classList.toggle('scrolled', e.target.scrollTop > 4);
+  }
+}, true);
+
+renderPhone();
+renderDesk();
+</script>
+</body>
+</html>

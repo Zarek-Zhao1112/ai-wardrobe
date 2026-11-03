@@ -144,7 +144,7 @@ body.purchase-sheet-open>.toast{z-index:120;bottom:var(--sp-6)}
 .purchase-page-copy{position:fixed;inset:0;z-index:19;overflow:hidden;pointer-events:none;isolation:isolate}
 .purchase-page-copy .purchase-view{transform-origin:50% 30%}
 @media(max-width:640px){
- .purchase-view.has-result{height:calc(100vh - var(--tabbar-h) - var(--tabbar-gap) - var(--sp-4) - max(var(--sp-4),env(safe-area-inset-top,0px)) - env(safe-area-inset-bottom,0px));min-height:0}
+ .purchase-view.has-result{height:calc(100vh - var(--topbar-h-sm) - env(safe-area-inset-top,0px) - var(--sp-4) - var(--tabbar-h) - var(--tabbar-gap) - var(--sp-4) - env(safe-area-inset-bottom,0px));min-height:0}
  .purchase-view.has-result .purchase-content{flex:1 1 auto;min-height:0;margin-top:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:var(--sp-4);scrollbar-width:none}
  .purchase-view.has-result .purchase-content::-webkit-scrollbar{display:none}
 }

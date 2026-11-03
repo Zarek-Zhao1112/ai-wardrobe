@@ -11,7 +11,7 @@
 import { api } from "../../core/api.js";
 import { getImportProgress } from "../import/photo-import.js";
 import { slotOptionsHtml, typeOptionsHtml } from "../../core/fields.js";
-import { emptyState, esc, icon, renderError, toast, serviceSettingsHtml } from "../../core/ui.js";
+import { emptyState, esc, icon, renderError, toast } from "../../core/ui.js";
 
 export const label = "衣橱";
 let badgeBinding=null;
@@ -57,10 +57,6 @@ export async function mount(root, ctx, arg, restore = null) {
   };
 
   root.innerHTML = `
-    <div class="view-head page-actions wardrobe-actions">
-      <span class="faint wardrobe-count" id="w-count"></span>
-      <div class="page-settings status">${serviceSettingsHtml(ctx.health)}</div>
-    </div>
     <div class="wardrobe-tools">
       <div class="search-row">
         <label class="search-field">${icon("search")}<input type="search" id="w-search" placeholder="搜索衣服" aria-label="搜索名称、品牌或备注"></label>
@@ -72,8 +68,11 @@ export async function mount(root, ctx, arg, restore = null) {
         <label class="control-toggle"><input type="checkbox" id="w-archived"> 含已归档</label>
         <button id="w-reload" class="ghost">刷新列表</button>
       </div>
-      <div class="category-nav" role="group" aria-label="按衣服分类筛选">
-        ${[["", "全部"], ...Object.entries(taxonomy.slots || {})].map(([key, text]) => `<button type="button" class="category${key === "" ? " active" : ""}" data-slot="${esc(key)}" aria-pressed="${key === ""}">${esc(text)}</button>`).join("")}
+      <div class="wardrobe-categories">
+        <div class="category-nav" role="group" aria-label="按衣服分类筛选">
+          ${[["", "全部"], ...Object.entries(taxonomy.slots || {})].map(([key, text]) => `<button type="button" class="category${key === "" ? " active" : ""}" data-slot="${esc(key)}" aria-pressed="${key === ""}">${esc(text)}</button>`).join("")}
+        </div>
+        <span class="faint wardrobe-count" id="w-count"></span>
       </div>
     </div>
     <div id="w-body"><p class="muted">加载中…</p></div>
