@@ -57,3 +57,7 @@ docs/agent-collaboration.md
 # 脱敏扫描的个人 needle（真实姓名 / 本机路径）——脚本主体进仓库，这份不进
 scripts/leak_needles.local.txt
 
+
+# 设计原型的本机素材：审美封面 + 真机单品照（含个人衣物照片），绝不入库
+docs/design/covers/
+docs/design/phone-items/

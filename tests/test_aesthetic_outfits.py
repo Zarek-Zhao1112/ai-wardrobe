@@ -222,7 +222,12 @@ def test_no_model_scene_ignored_and_snapshot_persists(monkeypatch):
     first = recommend.recommend(uid, scene="work", aesthetic="clean", limit=1, use_llm=False)["outfits"][0]
     second = recommend.recommend(uid, scene="party", aesthetic="clean", limit=1, use_llm=False)["outfits"][0]
     assert first["scene"] is second["scene"] is None
-    assert first["item_ids"] == second["item_ids"]
+    # ★ 单套模式是**随机**的（§42）：同一审美连点两次可能撞同一套，也可能不同。
+    # 真正靠得住的是「带 exclude 就一定避开同一整套」—— 「换一套」就靠它。
+    # 注意判据是「整套不同」，不是「一件都不重合」：换一件重搭也是换了一套。
+    third = recommend.recommend(uid, aesthetic="clean", limit=1, use_llm=False,
+                                 exclude_item_ids=first["item_ids"])["outfits"][0]
+    assert set(third["item_ids"]) != set(first["item_ids"])
     assert first["aesthetic"]["id"] == "clean"
     assert len(first["aesthetic"]["assessment"]["dimensions"]) == 5
     monkeypatch.setitem(aesthetics.PROFILES["clean"], "name", "新版名称")
@@ -243,6 +248,31 @@ def test_model_receives_complete_method_and_real_item_properties(fake_llm):
     assert rows and all("pattern" in row and "fit" in row and "type" in row and "length" in row for row in rows)
     assert all("scene" not in row and "formality" not in row for row in rows)
     assert result["outfits"][0]["reason"] == "参考已知配色"
+
+
+def test_single_mode_sends_only_one_outfit_to_model(fake_llm):
+    """§42 单套模式：只把这 1 套的单品送进模型，prompt 不能还带 12 套候选。
+
+    这是这次改动的核心 —— 输入缩小 85% 全靠这一条，钉住它免得以后被改回去。
+    """
+    uid = fresh_user(); seed(uid)
+    fake = fake_llm([{"reason": "干净利落，比例清楚"}])
+    result = recommend.recommend(uid, aesthetic="clean", client=fake, limit=1)
+    text = fake.calls[0]["messages"][1]["content"]
+    rows = [json.loads(line) for line in text.splitlines() if line.startswith('{"code":')]
+    assert 0 < len(rows) <= 4          # 只有选中的那一套的单品
+    assert "候选搭配：" not in text      # 不再送 12 套候选清单
+    assert len(result["outfits"]) == 1
+    assert result["outfits"][0]["reason"] == "干净利落，比例清楚"
+
+
+def test_multi_mode_still_sends_candidate_list(fake_llm):
+    """多套模式不能被单套模式带坏：仍然送候选清单让模型排序。"""
+    uid = fresh_user(); seed(uid)
+    fake = fake_llm([{"ranked": [{"outfit": "O1", "reason": "稳"}]}])
+    recommend.recommend(uid, aesthetic="clean", client=fake, limit=3)
+    text = fake.calls[0]["messages"][1]["content"]
+    assert "候选搭配：" in text
 
 
 def test_scene_and_formality_not_in_preference_index(monkeypatch):

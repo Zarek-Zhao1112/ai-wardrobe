@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import random
 import re
 from contextlib import nullcontext
 from typing import Any, Optional
@@ -23,6 +24,11 @@ MMR_LAMBDA: float = 0.7
 
 #: 单次送给模型的候选套数上限。再多就是白烧 token —— 模型挑不出第 30 套的差别。
 MAX_TO_LLM: int = 12
+
+#: ★ 单套模式（limit=1）时，本地先排出的候选池大小。
+#: 从这几套里**随机挑 1 套**给模型写理由 —— 换来「每次点都不一样」，
+#: 同时只把这 1 套的单品与评估送进模型，输入比 12 套候选少 81%。
+SINGLE_POOL: int = 5
 
 
 
@@ -206,6 +212,7 @@ def _llm_rank(
     scene: Any,
     season: Any,
     profile: dict | None = None,
+    mode: str = "rank",
 ) -> list[dict]:
     """让模型重排并写理由。返回 `[{"outfit": "O1", "reason": "..."}]`（可能被裁剪）。
 
@@ -214,12 +221,33 @@ def _llm_rank(
     它唯一能做的就是编。（W4 审查抓到：这个返回值原本被丢掉了。）
 
     ⚠️ 模型返回越界编号时**丢弃**而不是报错 —— 一个坏编号不该毁掉整次推荐。
+
+    ★ `mode="explain"`（单套模式）：只送**一套**进来，模型不挑、只写一段理由。
+    输入因此少了 12 套候选清单与 12 套本地评估，实测省掉 81% 的 prompt。
+    返回结构与 rank 模式一致，调用方不用分支。
     """
-    catalog = _catalog(outfit_ids, outfits_by_id, aliases)
-    local_assessments = "\n".join(f"{oid}：" + json.dumps({d["key"]: d["status"] for d in outfits_by_id[oid].get("_assessment", {}).get("dimensions", [])}, ensure_ascii=False) for oid in outfit_ids)
     profile = profile or aesthetics.get_profile()
     goals = "\n".join(f"{d['label']}：{d['goal']}" for d in profile["dimensions"])
-    prompt = f"""完整审美方案：{profile['name']}，版本{profile['version']}。
+    local_assessments = "\n".join(f"{oid}：" + json.dumps({d["key"]: d["status"] for d in outfits_by_id[oid].get("_assessment", {}).get("dimensions", [])}, ensure_ascii=False) for oid in outfit_ids)
+    if mode == "explain":
+        prompt = f"""完整审美方案：{profile['name']}，版本{profile['version']}。
+核心：{profile['core']}
+可变化：{profile['flexible']}
+五维安排：
+{goals}
+季节：{season or '未指定'}（仅表示衣橱过滤，不代表具体温度）。
+这件搭配的单品是JSON行，缺失字段是null或空数组；只依据这些属性，不读取或猜测场合：
+{item_lines}
+本地五维评估（matched仅表示已知属性线索符合方向，approximate为近似尝试，unknown为信息不足）：
+{local_assessments}
+请为这一套搭配写一段 40~60 字的理由，说明它为什么符合这个审美方案。
+理由只引用已知属性与方案目标，不要出现O1或A1等内部代号。
+颜色和图案不是硬性禁配；不能由材质成分断言光泽、挺阔、垂坠、柔软、保暖；
+缺信息时承认未知；不要声称看过照片或实际试穿。
+输出JSON：{{"reason":"..."}}"""
+    else:
+        catalog = _catalog(outfit_ids, outfits_by_id, aliases)
+        prompt = f"""完整审美方案：{profile['name']}，版本{profile['version']}。
 核心：{profile['core']}
 可变化：{profile['flexible']}
 五维安排：
@@ -245,6 +273,20 @@ visual_profile是原图或商品文字的线索，certainty=approximate只可描
         ],
         temperature=0.3,
     )
+    if mode == "explain":
+        # 兼容两种返回：`{"reason": "..."}` 与 `{"ranked":[{"outfit":"O1","reason":"..."}]}`。
+        # 模型返回格式不保证，别因为形状不同就丢掉理由。
+        raw = data.get("reason") if isinstance(data, dict) else None
+        if not isinstance(raw, str) or not raw.strip():
+            rows = data.get("ranked") if isinstance(data, dict) else None
+            if isinstance(rows, list) and rows and isinstance(rows[0], dict):
+                raw = rows[0].get("reason")
+        if not isinstance(raw, str) or not raw.strip():
+            return []
+        reason = raw.strip()[:500]
+        if re.search(r"[OA][0-9]+", reason, re.I):
+            reason = None
+        return [{"outfit": outfit_ids[0], "reason": reason or None}]
     ranked = data.get("ranked") if isinstance(data, dict) else None
     if not isinstance(ranked, list):
         return []
@@ -356,27 +398,33 @@ def _to_out(row: dict, items_by_id: dict[str, dict]) -> dict:
 
 
 def recommend(
-    user_id: str,
-    *,
-    scene: Any = None,
-    season: Any = None,
-    limit: int = 3,
-    weather: Any = None,
-    source: str = "api",
-    client: Optional[LLMClient] = None,
-    use_llm: bool = True,
-    aesthetic: str | None = None,
-    anchor_item_id: str | None = None,
+  user_id: str,
+  *,
+  scene: Any = None,
+  season: Any = None,
+  limit: int = 3,
+  weather: Any = None,
+  source: str = "api",
+  client: Optional[LLMClient] = None,
+  use_llm: bool = True,
+  aesthetic: str | None = None,
+  anchor_item_id: str | None = None,
+  exclude_item_ids: list[str] | None = None,
 ) -> dict:
     """给当前上下文推荐 `limit` 套搭配。
-
+    
     返回：
-        `{"season", "season_label", "candidates", "outfits": [...], "degraded", "note"}`
-
+    `{"season", "season_label", "candidates", "outfits": [...], "degraded", "note"}`
+    
     **降级行为（重要）**：未配模型 / 模型调用失败时，**不抛异常**，而是退回
     "只用本地打分排序"，`outfits` 里的 `reason` 为空、`degraded=True`。
     理由：没有 key 也应该能用（本地排序本身已经基于用户偏好），
     而且这让 P1 阶段（尚未配 key）也能端到端验证整条链路。
+    
+    ★ `limit == 1` 走**单套模式**：本地按相关性排出前 `SINGLE_POOL` 套，
+    随机挑 1 套（`exclude_item_ids` 里的单品命中的套会被排除，保证「换一套」真的换了），
+    只把这 1 套的单品与评估送进模型，模型只写理由不排序。
+    这样输入 prompt 比「12 套候选」少 81%（实测 9738 → 约 1850 字符）。
     """
     # §20：场合形参仅兼容旧入口，不参与新生成、偏好或保存。
     scene = None
@@ -400,8 +448,30 @@ def recommend(
         assessment = aesthetics.assess(outfit, profile)
         outfit["_assessment"] = assessment
         outfit["_relevance"] = .85 * assessment["score"] + .15 * personal
-    picked = aesthetics.shortlist(sample, limit)
-    candidates_for_model = aesthetics.shortlist(sample, max(MAX_TO_LLM, limit))
+    # ★ 单套模式：只出一套。本地排前 SINGLE_POOL 套后随机挑 1 套，
+    # 候选清单只含这 1 套 → 送进模型的单品从 28 件降到 3~4 件。
+    single = limit == 1
+    if single:
+        pool = aesthetics.shortlist(sample, SINGLE_POOL)
+        # ★「换一套」用**软偏好**，两道硬规则都会出问题：
+        #   ①按「共享任一件」排除 —— 衣橱只有一双鞋时，所有候选都共享它，全灭；
+        #   ②按「整套完全相同」排除 —— 又能只换一条裤子，看着像没换。
+        # 所以按「与上一套重合几件」升序分档，只在**最不重合的那一档**里随机。
+        # 衣橱够大时第一档就是零重合（彻底换掉），衣橱小时也不会返回空。
+        avoid = set(exclude_item_ids or ())
+        if avoid:
+            tiers: dict[int, list[dict]] = {}
+            for candidate in pool:
+                overlap = len(set(candidate.get("item_ids") or ()) & avoid)
+                tiers.setdefault(overlap, []).append(candidate)
+            usable = tiers[min(tiers)]
+        else:
+            usable = pool
+        candidates_for_model = [random.choice(usable)]
+        picked = candidates_for_model
+    else:
+        picked = aesthetics.shortlist(sample, limit)
+        candidates_for_model = aesthetics.shortlist(sample, max(MAX_TO_LLM, limit))
     outfits_by_id = {f"O{n}": outfit for n, outfit in enumerate(candidates_for_model, start=1)}
     items_by_id = {item["id"]: item for outfit in sample for item in outfit["items"]}
     model_items = {item["id"]: item for outfit in candidates_for_model for item in outfit["items"]}
@@ -416,7 +486,8 @@ def recommend(
     if use_llm:
         try:
             ranked = _llm_rank(client or get_client(), list(outfits_by_id), outfits_by_id, aliases,
-                item_lines, count=min(limit, len(outfits_by_id)), scene=None, season=actual_season, profile=profile)
+                item_lines, count=min(limit, len(outfits_by_id)), scene=None, season=actual_season, profile=profile,
+                mode="explain" if single else "rank")
             if not ranked:
                 degraded = True
                 note = "AI未返回有效候选，已按同一审美方案提供本地搭配。"

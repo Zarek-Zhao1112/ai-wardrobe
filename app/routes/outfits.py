@@ -45,20 +45,25 @@ def recommend_outfits(
     use_llm: bool = Query(True, description="传 false 则只用本地排序，不调模型"),
     aesthetic: str = Query(aesthetics.DEFAULT, description="完整审美方案id"),
     anchor_item_id: str | None = Query(None, min_length=1, max_length=128, description="每套搭配都必须包含的衣物"),
+    exclude_item_ids: str | None = Query(None, description="逗号分隔的单品id；单套模式用它避开上次那套"),
 ) -> dict:
     """推荐几套搭配。
 
     **没配模型也不会失败**：自动退回本地排序，响应里 `degraded=true`、`reason` 为空。
     这样未配 key 也能把整条链路跑通。
+
+    `limit=1` 是**单套模式**：本地排前几名后随机挑 1 套，只把这 1 套送给模型写理由。
     """
     try:
         aesthetics.get_profile(aesthetic)
     except ValueError as error:
         raise HTTPException(400, str(error)) from error
+    exclude = [x for x in (exclude_item_ids or "").split(",") if x]
     try:
         return recommend_svc.recommend(
             _uid(), aesthetic=aesthetic, season=_check_season(season),
             limit=limit, source="api", use_llm=use_llm, anchor_item_id=anchor_item_id,
+            exclude_item_ids=exclude,
         )
     except recommend_svc.AnchorUnavailable as error:
         raise HTTPException(400, str(error)) from error

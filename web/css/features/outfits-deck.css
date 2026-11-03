@@ -85,20 +85,21 @@
 .outfit-stack-card.is-dragging { transition: none; }
 /* 后卡只是厚度：不接手势，也不进无障碍树。 */
 .outfit-stack-card.is-ghost { pointer-events: none; }
-.outfit-stack-grid { flex: 0 0 54%; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 6px; padding: 8px; background: var(--surface-2); }
+.outfit-stack-grid { flex: 0 0 54%; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 6px; padding: 8px; background: var(--surface-2); }
 .outfit-stack-piece { position: relative; display: block; min-width: 0; min-height: 0; }
 .outfit-stack-piece img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .outfit-stack-piece .ph { display: grid; place-items: center; height: 100%; color: var(--text-faint); font-size: 11px; }
 .outfit-stack-piece .outfit-piece-anchor { position: absolute; left: 4px; bottom: 4px; padding: 1px 5px; border: 1px solid var(--accent-line); border-radius: 7px; background: var(--accent-soft); color: var(--accent); font-size: 9px; }
 .outfit-stack-meta { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; }
-/* 文字块用 auto 外边距居中，按钮自然被顶到卡片底边 —— 两头都不留大空洞。 */
-.outfit-stack-copy { margin: auto 0; min-height: 0; }
+/* 文字贴住图区下沿、按钮压到卡片底边 —— 卡片高度富余时，多出来的空间集中在
+   文字与按钮之间这一段，而不是把文字块吊在正中（那样上下各一个洞，读起来像断成两截）。 */
+.outfit-stack-copy { margin: 0; min-height: 0; }
 .outfit-stack-k { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--text-faint); }
 .outfit-stack-meta h3 { margin: 5px 0 0; font-size: 16px; font-weight: 600; letter-spacing: var(--ls-tight); line-height: 1.35; }
 .outfit-stack-meta p { margin: 7px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .outfit-stack-meta .outfit-color-row { margin-top: 9px; }
-/* 按钮贴住卡片底边 —— 中间的余量由 .outfit-stack-copy 的 auto 外边距吸收。 */
-.outfit-stack-acts { display: flex; gap: 8px; padding-top: 11px; }
+/* 按钮贴住卡片底边 —— 富余的空间落在文字与按钮之间那一段。 */
+.outfit-stack-acts { display: flex; gap: 8px; padding-top: 11px; margin-top: auto; }
 .outfit-stack-acts .primary { flex: 1; min-height: 44px; border-radius: 13px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; }
 .outfit-stack-info { width: 44px; min-width: 44px; min-height: 44px; padding: 0; border: 1px solid var(--border); border-radius: 13px; background: var(--surface-2); color: var(--text-dim); display: grid; place-items: center; }
 .outfit-stack-info .icon { width: 17px; height: 17px; }

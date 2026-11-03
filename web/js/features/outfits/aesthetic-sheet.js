@@ -68,7 +68,9 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
   /** 生成设置那一块：options 帧和 more 帧共用，别写两份。 */
   function optionsHtml() {
     const settings = getSettings();
-    return `<div class="aesthetic-setting-row"><strong>一次生成</strong><div class="aesthetic-counts">${[3, 5].map(n => `<button type="button" data-sheet-count="${n}" aria-pressed="${settings.limit === n}">${n} 套</button>`).join("")}</div></div><div class="aesthetic-setting-row"><div><strong>AI 比较</strong><p>从候选组合里挑选更协调的搭配。</p></div><button type="button" role="switch" data-sheet-ai aria-checked="${settings.useLlm}" aria-label="AI 比较" class="aesthetic-switch"></button></div><p class="aesthetic-example-note">按当前季节，从已有衣物中选择。</p>`;
+    // ★ §42 单套模式：一次只出一套，「一次生成 3/5 套」这行没有意义了，整体去掉。
+    // 「AI 比较」也改了说法 —— 模型不再从候选里挑，只负责给选中的那套写理由。
+    return `<div class="aesthetic-setting-row"><div><strong>AI 写理由</strong><p>让 AI 说清这套为什么合这个审美。</p></div><button type="button" role="switch" data-sheet-ai aria-checked="${settings.useLlm}" aria-label="AI 写理由" class="aesthetic-switch"></button></div><p class="aesthetic-example-note">按当前季节，从已有衣物中选择。</p>`;
   }
   function renderDeck(e, focus = true) {
     const built = deck.build();
@@ -207,7 +209,14 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
     },
     openGuide: (profile, anchor) => profile && open({ kind: "guide", profile }, anchor),
     openOptions: anchor => open({ kind: "options" }, anchor),
-    openBasis: (outfit, anchor) => outfit && open({ kind: "basis", outfit }, anchor),
+    /** ★ 从结果卡里点 (i) 时面板**已经开着**（entry 存在），走 open() 会被
+     *  `if (disposed || !root.isConnected || entry) return;` 直接挡掉 ——
+     *  表现为按钮点了没反应。这里必须叠一帧上去。 */
+    openBasis: (outfit, anchor) => {
+      if (!outfit) return;
+      if (entry) { push({ kind: "basis", outfit }); return; }
+      open({ kind: "basis", outfit }, anchor);
+    },
     /** 只重画"当前是这一类"的帧：生成完成刷 deck，历史回来刷 more。 */
     refresh(kind) {
       const e = entry; if (!e || e.phase === "closing") return;

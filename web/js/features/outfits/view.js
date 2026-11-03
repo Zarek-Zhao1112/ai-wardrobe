@@ -60,10 +60,23 @@ export async function mount(root, ctx, arg = "", restore = null) {
   syncViewport();
   window.addEventListener("resize", syncViewport);
   window.visualViewport?.addEventListener("resize", syncViewport);
+  // 配件图加载失败时换成占位文字。`error` 不冒泡，只能在捕获阶段接；
+  // 不接的话浏览器会渲染 alt 文字 —— 它是个 `<a>` 里的 img，会被染成蓝色带下划线的
+  // 链接样子，看着像坏了（真机偶发过一次：图片本身 200，但请求被瞬断）。
+  const imageFailed = event => {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement) || !img.closest(".outfit-stack-piece")) return;
+    const ph = document.createElement("span");
+    ph.className = "ph";
+    ph.textContent = "图片暂时打不开";
+    img.replaceWith(ph);
+  };
+  document.addEventListener("error", imageFailed, true);
   activeOutfit = { root, dispose() {
     disposed = true;
     window.removeEventListener("resize", syncViewport);
     window.visualViewport?.removeEventListener("resize", syncViewport);
+    document.removeEventListener("error", imageFailed, true);
     sheet?.dispose();
     document.removeEventListener("visibilitychange", refreshSeason);
     document.removeEventListener("outfits:feedback", feedbackChanged);
@@ -98,8 +111,9 @@ export async function mount(root, ctx, arg = "", restore = null) {
   const profiles = catalog.aesthetics || [];
   if (!profiles.length) { deckEl.innerHTML = `<div class="outfit-deck-empty"><p>暂时没有可用的审美方案。</p></div>`; return; }
 
-  const state = { aesthetic: catalog.default || profiles[0].id, limit: 3, useLlm: true, anchorId };
+  const state = { aesthetic: catalog.default || profiles[0].id, limit: 1, useLlm: true, anchorId };
   if (restore?.state) Object.assign(state, restore.state);
+  state.limit = 1;   // ★ 单套模式：一次只出一套（§42）。旧快照里的 3/5 套不再沿用。
   state.season = ""; // 当前季节由服务端确定，旧快照的季节选择不再沿用。
   state.anchorId = anchorId;
   if (!profiles.some(profile => profile.id === state.aesthetic)) state.aesthetic = catalog.default || profiles[0].id;
@@ -189,9 +203,11 @@ export async function mount(root, ctx, arg = "", restore = null) {
       const url = api.presentationUrl(item), name = item.name || item.type_label || "未命名";
       return `<a class="outfit-stack-piece" href="#item/${esc(item.id)}" aria-label="查看${esc(name)}">${url ? `<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(name)}" loading="lazy">` : `<span class="ph">${esc(item.type_label || "无照片")}</span>`}${item.id === anchorId ? '<span class="outfit-piece-anchor">必选</span>' : ""}</a>`;
     }).join("");
+    // 3 件排一行、4 件排 2×2。固定 2 列时 3 件会空出第 4 格，卡片中部显空。
+    const cols = items.length <= 3 ? Math.max(1, items.length) : 2;
     return `<article class="outfit-stack-card is-top" data-k="${k}" data-outfit-card="${esc(outfit.id)}" style="--k:${k};z-index:${20 - k}">
-      <div class="outfit-stack-grid">${pieces}</div>
-      <div class="outfit-stack-meta"><div class="outfit-stack-copy"><div class="outfit-stack-k"><span>${position + 1} / ${total} 套</span><span>${items.length} 件</span></div>
+      <div class="outfit-stack-grid" style="--cols:${cols}">${pieces}</div>
+      <div class="outfit-stack-meta"><div class="outfit-stack-copy"><div class="outfit-stack-k"><span>${total > 1 ? `${position + 1} / ${total} 套` : ""}</span><span>${items.length} 件</span></div>
         <h3>${esc(title)}</h3><p>${esc(outfit.reason || `按${profile?.name || "当前审美"}从已有衣物里挑的。`)}</p>
         <div class="outfit-color-row">${colors.map(color => `<i style="background:${PALETTE[color]}"></i>`).join("")}<span>${esc(labels.join(" × "))}</span></div></div>
         <div class="outfit-stack-acts"><button type="button" class="primary" data-deck-action="tryon">${icon("camera")}实时试衣</button><button type="button" class="outfit-stack-info" data-deck-action="basis" aria-label="查看这套的搭配依据与反馈">${icon("info")}</button></div>
@@ -206,9 +222,12 @@ export async function mount(root, ctx, arg = "", restore = null) {
     const name = deckProfile?.name || "搭配";
     // 空结果 + 没报错 = 还没生成过 → 用骨架，不要先闪一下"没有可用搭配"。
     const working = busy || !!inFlight || (!total && !errorText);
-    const title = working ? `${name} · 生成中` : total ? `${name} · ${total} 套` : name;
-    const sub = working ? `正在从衣橱里挑 ${state.limit} 套…`
+    // 单套模式（§42）：标题不再挂"· 1 套"，副标题也不再挂"1 / 1 · 左右拖动"。
+    const title = working ? `${name} · 生成中` : total === 1 ? name : total ? `${name} · ${total} 套` : name;
+    const sub = working
+      ? (state.limit === 1 ? `正在按「${name}」从衣橱挑 1 套…` : `正在从衣橱里挑 ${state.limit} 套…`)
       : errorText ? ""
+      : total === 1 ? `按${name}挑了 1 套`
       : total ? `<b>${index + 1} / ${total}</b> · 左右拖动换一套`
       : "换个审美，或者先去衣橱多录几件";
     let body;
@@ -217,9 +236,11 @@ export async function mount(root, ctx, arg = "", restore = null) {
     else if (!total) body = `<div class="outfit-stack"><div class="outfit-deck-error"><p>这个审美还没配出可用的组合，先去衣橱多录几件。</p><button type="button" data-deck-action="retry">再试一次</button></div></div>`;
     else body = `<div class="outfit-stack">${deck.map((outfit, position) => position >= index && position <= index + 2 ? stackCardHtml(outfit, position - index, position, total) : "").join("")}</div>`;
     let foot = "";
-    if (!working && !errorText && total) foot = index < total - 1
-      ? `<button type="button" class="outfit-deck-foot" data-deck-action="next">还有 ${total - 1 - index} 套 · 滑走这一张${icon("right")}</button>`
-      : `<button type="button" class="outfit-deck-foot" data-deck-action="regenerate">${icon("replay")}用这个审美再生成 ${state.limit} 套</button>`;
+    if (!working && !errorText && total) foot = total === 1
+      ? `<button type="button" class="outfit-deck-foot" data-deck-action="shuffle">${icon("replay")}换一套</button>`
+      : index < total - 1
+        ? `<button type="button" class="outfit-deck-foot" data-deck-action="next">还有 ${total - 1 - index} 套 · 滑走这一张${icon("right")}</button>`
+        : `<button type="button" class="outfit-deck-foot" data-deck-action="regenerate">${icon("replay")}用这个审美再生成 ${state.limit} 套</button>`;
     return { title, body: `<p class="outfit-deck-sub">${sub}</p>${body}`, foot };
   }
   function step(direction) {
@@ -274,6 +295,8 @@ export async function mount(root, ctx, arg = "", restore = null) {
     if (!alive()) return;
     if (action === "next") { step(1); return; }
     if (action === "regenerate" || action === "retry") { errorText = ""; void generate(deckProfile); return; }
+    // 「换一套」：把当前这套的单品排除掉，服务端从本地前几名里另挑一套。
+    if (action === "shuffle") { errorText = ""; void generate(deckProfile, deck[deckIndex]?.item_ids || []); return; }
     if (action === "tryon") {
       const trialDeck = deck;
       openTryonSheet({ root, anchor: node, outfits: trialDeck, index: deckIndex, onSelect: index => { if (alive() && deck === trialDeck) { deckIndex = index; sheet.refresh("deck"); } } });
@@ -282,12 +305,14 @@ export async function mount(root, ctx, arg = "", restore = null) {
     if (action === "basis") sheet.openBasis(deck[deckIndex], node);
   }
 
-  async function generate(profile) {
+  async function generate(profile, excludeIds) {
     if (busy || inFlight || !profile) return;
     busy = true; errorText = "";
     sheet.refresh("deck");
     const requested = { aesthetic: profile.id, limit: state.limit, useLlm: state.useLlm, anchorId };
-    const pending = api.recommend({ aesthetic: profile.id, season: "", limit: requested.limit, use_llm: requested.useLlm ? "true" : "false", anchor_item_id: anchorId || undefined });
+    // 单套模式：「换一套」把当前这套的单品带上去，服务端会避开它们重新挑。
+    const exclude = (excludeIds || []).filter(Boolean);
+    const pending = api.recommend({ aesthetic: profile.id, season: "", limit: requested.limit, use_llm: requested.useLlm ? "true" : "false", anchor_item_id: anchorId || undefined, exclude_item_ids: exclude.length ? exclude.join(",") : undefined });
     inFlight = pending;
     inFlightRequested = requested;
     try {
@@ -299,7 +324,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
         deck = outfits; deckIndex = 0;
         if (!outfits.length) errorText = response.note || "这次没配出能用的组合，先去衣橱多录几件。";
         // 降级提示只弹一次：它不该常驻在副标题里挤掉"第几套"这些实时信息。
-        else if (response.degraded) toast("AI 比较暂不可用，已按这个审美本地组套", "info");
+        else if (response.degraded) toast("AI 写理由暂不可用，已按这个审美本地组套", "info");
       }
     } catch (error) {
       if (deckProfile?.id === requested.aesthetic) {
@@ -386,7 +411,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
   sheet = createAestheticSheet({
     root, profiles,
     getSettings: () => ({ ...state }),
-    onSettings: patch => { if (alive()) Object.assign(state, patch); },
+    onSettings: patch => { if (alive()) { Object.assign(state, patch); state.limit = 1; } },
     onUseProfile: profile => { if (alive()) openDeck(profile, null); },
     onFeedback: (outfit, kind) => submitFeedback(outfit, kind),
     isFeedbackPending: id => feedbackPending.has(id),
