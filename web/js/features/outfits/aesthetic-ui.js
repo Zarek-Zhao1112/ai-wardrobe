@@ -1,5 +1,5 @@
 /** §34：审美样片用于理解方法，与真实衣橱结果分开展示。 */
-import { esc, icon } from "../../core/ui.js";
+import { esc } from "../../core/ui.js";
 const STATUS = { matched: "有依据", approximate: "近似尝试", unknown: "信息不足" };
 export function examplesFor(profile) {
   return (profile?.examples || []).filter(row => row.kind === "ai_example" &&
@@ -31,17 +31,10 @@ export function coverFor(profile) {
 export function rulesHtml(profile) {
   return `<dl class="aesthetic-rules">${arrangementFor(profile).map(row => `<div><dt>${esc(row.label)}</dt><dd>${esc(row.goal)}</dd></div>`).join("")}</dl>`;
 }
-export function profileCardHtml(profile) {
-  const cover = coverFor(profile);
-  // 卡片不列配色条：`_color_score` 判的是 20 个颜色**名字**（黑/米白/藏蓝…），
-  // 而配色条画的是从封面上量出来的 hex，两者没有任何连接。摆出来等于承诺一个
-  // 不存在的功能，所以撤掉。封面色调本身已经在图里，不需要再做一次转述。
-  return `<section class="outfit-profile-card"><p class="aesthetic-eyebrow">当前审美${cover ? " · 质感" : ""}</p><h2>${esc(profile.name)}</h2>
-    <p class="outfit-profile-core">${esc(profile.core || profile.summary)}</p>
-    ${cover ? `<button type="button" class="outfit-profile-cover" data-aesthetic-guide aria-label="认识${esc(profile.name)}"><img src="${esc(cover)}" alt="" decoding="async"></button>` : ""}
-    <div class="chips">${(profile.points || []).map(point => `<span class="chip">${esc(point)}</span>`).join("")}</div>
-    <div class="outfit-profile-learn"><span>配色、轮廓、质感一起安排</span><button type="button" data-aesthetic-guide>认识这个审美${icon("right")}</button></div></section>`;
-}
+/* §40 起没有「当前审美」大卡了：第一层是一屏一张的审美卡，点开是堆叠结果，
+ * 所以原来的 profileCardHtml 已删除。它当初撤掉配色条的理由仍然成立，记在这里：
+ * `_color_score` 判的是 20 个颜色**名字**，而配色条画的是从封面上量出来的 hex，
+ * 两者没有任何连接，摆出来等于承诺一个不存在的功能。封面色调本身已经在图里。 */
 export function methodDetails(profile, assessment = null, opened = false) {
   if (!profile) return '<p class="faint">旧版搭配，未记录审美方案。</p>';
   return `<details class="aesthetic-details" ${opened ? "open" : ""}><summary>${assessment ? "查看搭配依据" : "查看完整审美方案"}</summary>

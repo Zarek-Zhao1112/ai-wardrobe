@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>搭配页 · 两层原型</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#eef0f4;color:#1d1d1f;
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{display:flex;gap:56px;justify-content:center;align-items:flex-start;padding:44px 28px 60px;flex-wrap:wrap}
+.left{flex:none;display:flex;flex-direction:column;align-items:center;gap:16px}
+.phone{width:412px;height:866px;border-radius:56px;background:#1c1c1e;padding:11px;
+  box-shadow:0 26px 70px rgba(20,25,40,.24),0 2px 6px rgba(20,25,40,.16);flex:none}
+.screen{position:relative;width:100%;height:100%;border-radius:42px;background:#f5f5f7;overflow:hidden;
+  display:flex;flex-direction:column}
+
+.tb{height:48px;flex:none;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;background:#f5f5f7;position:relative;z-index:3}
+.tb b{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.gear{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.9);
+  background:rgba(255,255,255,.68);display:grid;place-items:center;
+  box-shadow:inset 1px 1px 1px rgba(255,255,255,.95),0 4px 14px rgba(29,40,60,.06)}
+.tbline{position:absolute;left:0;right:0;bottom:0;height:1px;background:#e4e4e9}
+
+.layer1{flex:1;min-height:0;display:flex;flex-direction:column;padding:0 16px 96px;position:relative}
+.season{height:28px;flex:none;display:flex;align-items:center;justify-content:space-between;
+  font-size:11px;color:#6b6b70}
+.season .sl{display:flex;align-items:center;gap:5px}
+.season .sr{font-variant-numeric:tabular-nums;color:#9a9aa0}
+
+.adeck{flex:1;min-height:0;display:flex;overflow-x:auto;overflow-y:hidden;
+  scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain}
+.adeck::-webkit-scrollbar{display:none}
+
+.acard{flex:0 0 100%;scroll-snap-align:start;scroll-snap-stop:always;
+  display:flex;flex-direction:column;min-height:0}
+.aface{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:22px;overflow:hidden;
+  background:#fff;border:.5px solid rgba(0,0,0,.05);box-shadow:0 6px 22px rgba(20,25,40,.06);
+  position:relative;cursor:pointer;transition:transform .2s}
+.aface:active{transform:scale(.988)}
+.aface .cover{flex:1;min-height:0;overflow:hidden;background:#e8e6e1;position:relative}
+.aface .cover img{width:100%;height:100%;object-fit:cover;display:block}
+.aface .cover .hint{position:absolute;left:12px;top:12px;font-size:10px;color:#fff;
+  background:rgba(28,28,30,.42);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border-radius:999px;padding:5px 10px;letter-spacing:.02em}
+.aface .body{padding:14px 16px 16px;flex:none}
+.aface .body h2{margin:0;font-size:22px;font-weight:600;letter-spacing:-.025em;line-height:1.2}
+.aface .body p{margin:7px 0 0;font-size:13px;line-height:1.62;color:#5c5c61;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.aface .row{display:flex;align-items:center;justify-content:space-between;margin-top:11px;gap:10px}
+.chips{display:flex;gap:6px;min-width:0;overflow:hidden}
+.chip{font-size:11px;padding:5px 10px;border-radius:999px;background:#f0f0f4;color:#5c5c61;white-space:nowrap}
+.more{border:0;background:none;font:inherit;font-size:12px;color:#0066cc;white-space:nowrap;
+  padding:6px 0;min-height:32px;display:flex;align-items:center;gap:2px}
+
+.adots{height:26px;flex:none;display:flex;align-items:center;justify-content:center;gap:7px}
+.adots button{width:6px;height:6px;padding:0;border:0;border-radius:50%;background:#d2d2d8;
+  transition:width .22s,background .22s;cursor:pointer}
+.adots button.on{width:20px;border-radius:3px;background:#1d1d1f}
+
+.tabbar{position:absolute;left:12px;right:12px;bottom:12px;height:72px;border-radius:26px;
+  background:rgba(255,255,255,.74);backdrop-filter:blur(24px) saturate(1.7);
+  -webkit-backdrop-filter:blur(24px) saturate(1.7);border:1px solid rgba(255,255,255,.9);
+  box-shadow:0 6px 26px rgba(20,25,40,.10);display:flex;align-items:center;z-index:4}
+.tabbar a{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;
+  font-size:11px;color:#8a8a90;text-decoration:none;padding:8px 0}
+.tabbar a.on{color:#0066cc}
+.tabbar i{width:20px;height:20px;border-radius:6px;border:1.6px solid currentColor;
+  display:block;opacity:.9}
+.tabbar a.on i{background:#0066cc;border-color:#0066cc}
+
+.sheet{position:absolute;inset:0;z-index:20;pointer-events:none;isolation:isolate}
+.sheet .veil{position:absolute;inset:0;background:rgba(36,43,55,.18);opacity:0;transition:opacity .34s}
+.sheet .glass{position:absolute;inset:6px;border-radius:30px;display:flex;flex-direction:column;
+  background:rgba(250,251,253,.9);backdrop-filter:blur(30px) saturate(1.8);
+  -webkit-backdrop-filter:blur(30px) saturate(1.8);
+  border:1px solid rgba(255,255,255,.92);box-shadow:0 -14px 60px rgba(29,40,60,.18);
+  transform:translateY(calc(100% + 20px));opacity:.65;overflow:hidden;
+  transition:transform .46s cubic-bezier(.22,.75,.22,1),opacity .3s}
+.sheet .glass:before{content:"";position:absolute;top:0;left:19%;right:19%;height:1px;
+  background:linear-gradient(90deg,transparent,#fff,transparent);pointer-events:none}
+.sheet.open{pointer-events:auto}
+.sheet.open .veil{opacity:1}
+.sheet.open .glass{transform:none;opacity:1}
+
+.ghead{height:54px;flex:none;display:flex;align-items:center;justify-content:space-between;
+  padding:6px 10px 0 20px}
+.ghead h2{margin:0;font-size:13px;font-weight:500;color:#3a3a3f;letter-spacing:.01em}
+.gclose{width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.92);
+  background:rgba(255,255,255,.7);display:grid;place-items:center;cursor:pointer;
+  box-shadow:inset 1px 1px 1px rgba(255,255,255,.95),0 4px 14px rgba(29,40,60,.08)}
+.gsub{flex:none;padding:0 20px;height:20px;display:flex;align-items:center;gap:7px;
+  font-size:11px;color:#6b6b70}
+.gsub b{font-weight:500;color:#1d1d1f}
+
+.gdeck{flex:1;min-height:0;position:relative;margin:12px 16px 0;perspective:1000px}
+.ocard{position:absolute;left:0;right:0;top:0;bottom:28px;border-radius:20px;background:#fff;
+  border:.5px solid rgba(0,0,0,.07);box-shadow:0 8px 26px rgba(20,25,40,.09);
+  overflow:hidden;display:flex;flex-direction:column;
+  transition:transform .34s cubic-bezier(.22,.75,.22,1),opacity .3s}
+.ocard.drag{transition:none}
+.ocard .grid{flex:0 0 54%;min-height:0;display:grid;grid-template-columns:1fr 1fr;
+  grid-template-rows:1fr 1fr;gap:6px;padding:8px;background:#fafaf8}
+.ocard .grid img{width:100%;height:100%;object-fit:contain;display:block}
+.ocard .meta{flex:1;min-height:0;padding:16px;display:flex;flex-direction:column;justify-content:center}
+.ocard .meta .k{font-size:10px;color:#8a8a90;margin-bottom:5px;
+  display:flex;align-items:center;justify-content:space-between}
+.ocard .meta h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.02em;line-height:1.3}
+.ocard .meta p{margin:7px 0 0;font-size:12.5px;line-height:1.65;color:#5c5c61;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.ocard .meta .sw{display:flex;align-items:center;gap:4px;margin-top:10px}
+.ocard .meta .sw i{width:9px;height:9px;border-radius:50%;display:block}
+.ocard .meta .sw span{font-size:10px;color:#8a8a90;margin-left:4px}
+.ocard .acts{display:flex;gap:8px;margin-top:11px}
+.ocard .acts button{min-height:42px;border-radius:13px;border:0;font:inherit;font-size:12px;
+  display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.ocard .acts .pri{flex:1;background:#0066cc;color:#fff}
+.ocard .acts .inf{width:42px;background:#f2f2f5;color:#5c5c61;border:1px solid #e6e6ea}
+
+.ghint{position:absolute;left:0;right:0;bottom:-2px;text-align:center;font-size:10px;color:#9a9aa0}
+.gfoot{flex:none;height:56px;display:flex;align-items:center;padding:0 16px 10px}
+.gmore{width:100%;height:42px;border-radius:21px;border:1.5px dashed #c9c9d0;
+  background:rgba(255,255,255,.45);font:inherit;font-size:12px;color:#6b6b70;
+  display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+
+.skel{position:absolute;inset:0;border-radius:20px;background:#fff;
+  border:.5px solid rgba(0,0,0,.07);box-shadow:0 8px 26px rgba(20,25,40,.09);
+  overflow:hidden;display:flex;flex-direction:column;padding:8px}
+.skel .g{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px}
+.skel .g i{background:#f1f1f4;border-radius:10px;display:block;animation:pulse 1.6s ease-in-out infinite}
+.skel .t{padding:14px 6px 6px;display:flex;flex-direction:column;gap:8px}
+.skel .t i{height:11px;border-radius:6px;background:#f1f1f4;display:block;animation:pulse 1.6s ease-in-out infinite}
+.skel .t i:first-child{width:56%;height:15px}
+.skel .t i:nth-child(2){width:100%}
+.skel .t i:nth-child(3){width:72%}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.55}}
+.skel .msg{position:absolute;left:0;right:0;bottom:0;padding:12px;text-align:center;
+  font-size:11px;color:#8a8a90;background:linear-gradient(to top,#fff 40%,rgba(255,255,255,0))}
+
+.intro{padding:2px 22px 22px;overflow-y:auto;scrollbar-width:none}
+.intro-cover{height:216px;border-radius:18px;overflow:hidden;margin-bottom:18px;background:#e8e6e1}
+.intro-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.intro-note{font-size:11.5px;line-height:1.75;color:#8a8a90;margin:0}
+.intro::-webkit-scrollbar{display:none}
+.intro h3{margin:0 0 10px;font-size:26px;font-weight:600;letter-spacing:-.03em}
+.intro p{margin:0 0 16px;font-size:13px;line-height:1.75;color:#3a3a3f}
+.intro ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px}
+.intro li{font-size:12px;color:#5c5c61;display:flex;gap:9px;align-items:flex-start;
+  padding:11px 12px;background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.05);border-radius:12px}
+.intro li b{font-weight:500;color:#1d1d1f;flex:none;font-variant-numeric:tabular-nums}
+
+.notes{flex:0 1 400px;min-width:320px;padding-top:6px}
+.notes h1{font-size:19px;font-weight:600;margin:0 0 6px;letter-spacing:-.02em}
+.notes .lede{font-size:12.5px;line-height:1.7;color:#5c5c61;margin:0 0 20px}
+.notes h2{font-size:12px;font-weight:600;margin:22px 0 9px;color:#1d1d1f;
+  letter-spacing:.04em;text-transform:uppercase}
+.notes table{width:100%;border-collapse:collapse;font-size:12px}
+.notes td{padding:7px 0;border-bottom:1px solid #e4e4e9;color:#5c5c61;vertical-align:top}
+.notes td:first-child{color:#1d1d1f;padding-right:12px;white-space:nowrap}
+.notes td:last-child{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.notes ol{margin:0;padding-left:18px;font-size:12.5px;line-height:1.75;color:#5c5c61}
+.notes ol b{color:#1d1d1f;font-weight:500}
+.tagline{display:inline-block;font-size:11px;color:#0066cc;background:#e8f2fd;
+  border-radius:999px;padding:4px 10px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="left">
+    <div class="phone">
+      <div class="screen">
+        <header class="tb"><b>搭配</b>
+          <span class="gear">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5c5c61" stroke-width="1.6" stroke-linecap="round">
+              <circle cx="12" cy="12" r="3.1"/>
+              <path d="M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6M5.4 5.4l1.8 1.8M16.8 16.8l1.8 1.8M18.6 5.4l-1.8 1.8M7.2 16.8l-1.8 1.8"/>
+            </svg>
+          </span>
+          <span class="tbline"></span>
+        </header>
+
+        <div class="layer1">
+          <div class="season">
+            <span class="sl" id="seasonLeft">秋 · 21°C · 26 件</span>
+            <span class="sr" id="seasonRight">1 / 6</span>
+          </div>
+          <div class="adeck" id="adeck"></div>
+          <div class="adots" id="adots"></div>
+        </div>
+
+        <nav class="tabbar">
+          <a href="javascript:void 0"><i></i>衣橱</a>
+          <a href="javascript:void 0"><i></i>添置</a>
+          <a href="javascript:void 0" class="on"><i></i>搭配</a>
+        </nav>
+
+        <div class="sheet" id="sheet">
+          <div class="veil" id="veil"></div>
+          <div class="glass">
+            <div class="ghead">
+              <h2 id="gtitle">自然日常 · 3 套</h2>
+              <button class="gclose" id="gclose" aria-label="关闭">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#3a3a3f" stroke-width="1.9" stroke-linecap="round">
+                  <path d="M6 6l12 12M18 6L6 18"/>
+                </svg>
+              </button>
+            </div>
+            <div class="gsub" id="gsub"></div>
+            <div class="gdeck" id="gdeck"></div>
+            <div class="gfoot" id="gfoot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#8a8a90;text-align:center;max-width:390px;line-height:1.7">
+      点卡片背面空白处＝换成这个审美并生成 · 卡片上的「认识这个」＝只看介绍<br>
+      面板打开后，按住最上面那张卡左右拖
+    </div>
+  </div>
+
+  <aside class="notes">
+    <span class="tagline">两层结构 · 纵向滚动 0</span>
+    <h1>搭配页改成两层</h1>
+    <p class="lede">第一层是一屏一张的审美卡，第二层是点卡后升起的玻璃面板。原来的「从衣橱生成搭配」按钮不存在了 —— 点审美卡本身就是生成。</p>
+
+    <h2>实测尺寸（390×844）</h2>
+    <table>
+      <tr><td>顶栏</td><td>48</td></tr>
+      <tr><td>第一层可用高</td><td>712</td></tr>
+      <tr><td>审美卡</td><td>358 × 646</td></tr>
+      <tr><td>其中封面</td><td>356 × 496</td></tr>
+      <tr><td>玻璃面板</td><td>378 × 832</td></tr>
+      <tr><td>堆叠卡</td><td>344 × 688</td></tr>
+      <tr><td>纵向滚动</td><td>0 / 0</td></tr>
+    </table>
+
+    <h2>这版按我的建议做的三件事</h2>
+    <ol>
+      <li><b>点卡面＝生成</b>，角落「认识这个」只看介绍不开生成。</li>
+      <li><b>审美用横滑 + 圆点</b>，卡片左右各留 16px，把系统返回手势的边缘让出来。桌面可点圆点切换。</li>
+      <li><b>滑走＝翻页不是否决</b>，左滑下一套、右滑上一套，能滑回来；记录喜欢还是靠卡上的书签和「看依据」。</li>
+    </ol>
+
+    <h2>还没定的</h2>
+    <ol style="margin-top:0">
+      <li>「最近搭配」「历史」这版没放（占 61px）。</li>
+      <li>面板堆叠末尾那张虚线卡现在只是占位。</li>
+      <li>生成中用了骨架 + 1 秒假延迟，真实是 3–8 秒。</li>
+    </ol>
+  </aside>
+</div>
+
+<script>
+var IMG = "http://127.0.0.1:18787";
+var AEST = "http://127.0.0.1:8899/web/reference/aesthetics/";
+
+var PROFILES = [
+  {id:"urban", name:"都市极简", cover:"cover-urban.webp", core:"用清楚的线条、利落的比例和安静的材质，让整套衣服显得有秩序。", points:["线条清楚","长度利落","细节克制"]},
+  {id:"natural", name:"自然日常", cover:"cover-natural.webp", core:"让柔和的颜色、自然纹理和舒展的衣服线条一起产生轻松、有呼吸感的整体。", points:["自然纹理","舒展余量","柔和连接"]},
+  {id:"heritage_v2", name:"复古质感", cover:"cover-heritage.webp", core:"把洗旧的颜色、厚实的纹理、明确的腰线和有分量的鞋组织在一起，让整套衣服显得结实、有年代感。", points:["厚实纹理","腰线明确","鞋子有分量"]},
+  {id:"street_v2", name:"街头表达", cover:"cover-street.webp", core:"主动安排衣服的宽、短、长和鞋子的体量，让一套日常衣服有清楚的体积对比与视觉重心。", points:["体积对比","长短有安排","重心清楚"]},
+  {id:"technical", name:"轻便机能", cover:"cover-technical.webp", core:"让轻薄面料、便于活动的剪裁、清楚的分层与运动鞋一起显得轻快、实用。", points:["轻薄有形","活动自如","分层明确"]},
+  {id:"refined", name:"柔和精致", cover:"cover-refined.webp", core:"把细腻的颜色、柔软垂坠的线条和讲究的收口配合起来，形成温和、轻巧的精致感。", points:["细腻过渡","柔软垂坠","收口讲究"]}
+];
+
+var IT = {
+  coat:  "it_import_4d74c82581f788b69ccf18c431be4f2c.display-d0bac53be1f74e92a3cd7494295e0e5b.png",
+  vest:  "it_import_3a9594790df7ad4e0bf7fd341f23d085.display-065c447d331b4660925b009d38983bcd.png",
+  pantG: "it_import_e91a919a2789dbec1c1447aac519ca28.display-f95b2b9a4cf64893ae8620c2ac33ebb5.png",
+  shoeK: "it_import_e46cf9455f5cbea0107187de395a639b.display-af13817832ea4b51a3533cabe3d5d733.png",
+  wool:  "it_import_31da4313001ef93dd3d2edb2fc80297c.display-621acce9146a44afa8d7a992471b91eb.png",
+  teeB:  "it_import_a9675d33acd78bee1619b3bb48bb2853.display-dcbf824f84fd4145bb3b89e2979c0953.png",
+  slack: "it_import_1f8132dec3ddb5cee0d5e7cd912a5bab.display-37015db56511434abb5de4efb2dc4637.png",
+  shoeB: "it_import_3e7e01890e36804c607a2329731da80a.display-a74d8ebc64bf45fb995fa255de39a08c.png",
+  jacket:"it_import_cd8b48c1f57bb34b990593085e95eba3.display-b19b48f23c23494d9a943cc0ee6be2ea.png",
+  knitB: "it_import_f5dc8ee35756d5d008383904bbb42674.display-90b29e8a1bd14d69a943ac0a40423ba7.png",
+  jeanB: "it_import_a486032a626effed10ec62d3ed582b22.display-d25705b837154d978ca47a6fc8c11ca4.png",
+  capN:  "it_import_f039d372410942a3b95e5c8015d94203.display-52580c7fcc9f4f4896208e366ecb804e.png"
+};
+
+var DECKS = {
+  natural:[
+    {t:"灰与卡其，自然日常",c:["#c9c9c5","#dfd6c4","#baa078"],cl:"灰 × 米 × 卡其",
+     r:"外层米白棉服压住，里面白背心留呼吸感；灰运动裤和卡其鞋是同一条暖灰线，整套没有硬对比。",
+     i:[IT.coat,IT.vest,IT.pantG,IT.shoeK]},
+    {t:"驼色大衣，通勤不出错",c:["#baa078","#292929","#e8e6e1"],cl:"驼 × 黑 × 米白",
+     r:"大衣本身已经给了轮廓和分量，其余三件全部收窄：高领、直筒裤、黑鞋，只剩一条竖线。",
+     i:[IT.coat,IT.knitB,IT.jeanB,IT.shoeB]},
+    {t:"针织叠衬衫，轻一点",c:["#c9c9c5","#8cabc8","#292929"],cl:"灰蓝 × 黑",
+     r:"用薄针织代替外套，蓝色衬衫只在下摆和领口露一点，整体比前两套轻，但不失结构。",
+     i:[IT.knitB,IT.teeB,IT.pantG,IT.shoeK]}
+  ],
+  urban:[
+    {t:"全黑一套，线条说话",c:["#292929","#c9c9c5"],cl:"黑 × 灰",
+     r:"黑大衣的长度已经给了轮廓，其余部件都收窄：黑T恤、黑休闲裤、黑鞋，没有多余信息。",
+     i:[IT.jacket,IT.teeB,IT.slack,IT.shoeB]},
+    {t:"灰阶三层，上下呼应",c:["#c9c9c5","#292929","#e8e6e1"],cl:"灰 × 黑 × 白",
+     r:"从内到外由浅到深，视觉重心落在中段；裤脚和鞋同色，把下半身并成一块。",
+     i:[IT.vest,IT.knitB,IT.jeanB,IT.shoeK]},
+    {t:"藏蓝压阵，留白在上",c:["#293247","#e8e6e1","#292929"],cl:"藏蓝 × 白 × 黑",
+     r:"深色只放在下半身，上半身留白，整个人看起来更挺，也更适合上班。",
+     i:[IT.wool,IT.teeB,IT.slack,IT.shoeB]}
+  ],
+  heritage_v2:[
+    {t:"粗针织配直筒，有分量",c:["#82634f","#292929","#baa078"],cl:"棕 × 黑 × 卡其",
+     r:"厚针织扛住上半身的体积，直筒裤和工装鞋把重量压住，肩线不做处理，让它自然塌一点。",
+     i:[IT.wool,IT.jeanB,IT.shoeK,IT.capN]},
+    {t:"洗旧丹宁，配深色外套",c:["#8cabc8","#292929","#82634f"],cl:"旧蓝 × 黑 × 棕",
+     r:"丹宁本身有洗水色差，外套用纯黑压住，避免整体发灰；鞋选棕色，把暖调带回来。",
+     i:[IT.jacket,IT.jeanB,IT.knitB,IT.shoeK]},
+    {t:"背心叠衬衫，露出腰线",c:["#702e3c","#e8e6e1","#292929"],cl:"酒红 × 米白 × 黑",
+     r:"腰线靠背心的下摆划出来，衬衫只留袖口，颜色用酒红提一下，整套不至于太沉。",
+     i:[IT.vest,IT.teeB,IT.slack,IT.shoeB]}
+  ],
+  street_v2:[
+    {t:"宽上短下，重心在上",c:["#292929","#8cabc8","#e8e6e1"],cl:"黑 × 蓝 × 白",
+     r:"外套版型放宽，裤子选短一截的直筒，露出脚踝那一小段，视觉重心被提到腰以上。",
+     i:[IT.jacket,IT.teeB,IT.jeanB,IT.shoeB]},
+    {t:"全黑加帽子，体积对撞",c:["#292929","#5c5c61"],cl:"黑 × 深灰",
+     r:"上下都是黑，靠帽子和鞋的体量做对比；裤脚堆一点在鞋面上，是这套唯一的花样。",
+     i:[IT.coat,IT.teeB,IT.pantG,IT.capN]},
+    {t:"卡其工装，鞋子要重",c:["#baa078","#7e8863","#292929"],cl:"卡其 × 军绿 × 黑",
+     r:"工装裤的体积已经够，外套选短款避免拖沓；鞋子必须重，才能撑住裤脚的宽度。",
+     i:[IT.vest,IT.pantG,IT.shoeK,IT.capN]}
+  ],
+  technical:[
+    {t:"薄外套加运动鞋，轻快",c:["#8cabc8","#292929","#c9c9c5"],cl:"浅蓝 × 黑 × 灰",
+     r:"全部选轻薄面料，靠分层而不是厚度保暖；裤子收到脚踝，让运动鞋露出完整轮廓。",
+     i:[IT.jacket,IT.teeB,IT.pantG,IT.shoeB]},
+    {t:"三层结构，能脱能穿",c:["#5c5c61","#e8e6e1","#292929"],cl:"深灰 × 米白 × 黑",
+     r:"内层贴身、中层保暖、外层挡风，每层都能单独穿出去，温度变化时不会尴尬。",
+     i:[IT.knitB,IT.teeB,IT.slack,IT.shoeB]},
+    {t:"短款加直筒，活动方便",c:["#292929","#baa078","#c9c9c5"],cl:"黑 × 卡其 × 灰",
+     r:"外套收到腰线以上，裤子留直筒余量，蹲下和跨步都不绷，适合一整天在外面。",
+     i:[IT.vest,IT.jeanB,IT.shoeK,IT.capN]}
+  ],
+  refined:[
+    {t:"米白加灰，收口讲究",c:["#e8e6e1","#c9c9c5","#baa078"],cl:"米白 × 灰 × 卡其",
+     r:"全身都在同一个低饱和区间里，差别靠材质：针织的哑光、裤子的垂坠、鞋面的细纹。",
+     i:[IT.knitB,IT.slack,IT.shoeK,IT.vest]},
+    {t:"柔软垂坠，一条长线",c:["#c9c9c5","#8cabc8","#e8e6e1"],cl:"浅灰 × 浅蓝",
+     r:"上衣不塞进裤子，让下摆自然垂下来和裤线连成一条，整个人看起来更长。",
+     i:[IT.wool,IT.jeanB,IT.shoeB,IT.vest]},
+    {t:"细节收口，颜色别多",c:["#292929","#e8e6e1","#c9c9c5"],cl:"黑 × 米白 × 灰",
+     r:"只留两个颜色，剩下全靠领口、袖口、裤脚三处的收边说话，越简单越经看。",
+     i:[IT.knitB,IT.teeB,IT.slack,IT.shoeB]}
+  ]
+};
+
+var state = { idx: 0, open: false, loading: false, mode: "deck", a: 1, o: 0, decks: [] };
+
+function el(id){ return document.getElementById(id); }
+
+function renderCards(){
+  el("adeck").innerHTML = PROFILES.map(function(p){
+    return '<div class="acard"><div class="aface" data-open="' + p.id + '">' +
+      '<div class="cover"><img src="' + AEST + p.cover + '" alt="" decoding="async">' +
+        '<span class="hint">点这里生成搭配</span></div>' +
+      '<div class="body"><h2>' + p.name + '</h2><p>' + p.core + '</p>' +
+        '<div class="row"><div class="chips">' + p.points.map(function(x){
+          return '<span class="chip">' + x + '</span>'; }).join("") + '</div>' +
+        '<button class="more" data-intro="' + p.id + '">认识这个 ›</button></div>' +
+      '</div></div></div>';
+  }).join("");
+  el("adots").innerHTML = PROFILES.map(function(_, i){
+    return '<button data-dot="' + i + '" class="' + (i === state.idx ? "on" : "") + '" aria-label="第' + (i+1) + '个"></button>';
+  }).join("");
+  el("seasonRight").textContent = (state.idx + 1) + " / " + PROFILES.length;
+}
+
+function syncIndex(){
+  var deck = el("adeck"), w = deck.clientWidth;
+  if (!w) return;
+  var i = Math.round(deck.scrollLeft / w);
+  i = Math.max(0, Math.min(PROFILES.length - 1, i));
+  if (i === state.idx) return;
+  state.idx = i;
+  el("seasonRight").textContent = (i + 1) + " / " + PROFILES.length;
+  [].forEach.call(el("adots").children, function(b, k){
+    b.className = k === i ? "on" : "";
+  });
+}
+
+function goTo(i){
+  var deck = el("adeck");
+  deck.scrollTo({ left: i * deck.clientWidth, behavior: "smooth" });
+}
+
+function currentProfile(){ return PROFILES[state.idx]; }
+
+function openSheet(mode, pid){
+  var p = pid ? PROFILES.filter(function(x){ return x.id === pid; })[0] : currentProfile();
+  state.mode = mode;
+  state.open = true;
+  state.a = PROFILES.indexOf(p);
+  el("sheet").classList.add("open");
+  el("gtitle").textContent = mode === "intro" ? ("认识" + p.name) : (p.name + " · 3 套");
+  if (mode === "intro") { el("gsub").textContent = ""; renderIntro(p); return; }
+  el("gsub").innerHTML = '从 26 件里挑 · 左右拖动换一套';
+  startGenerate(p);
+}
+
+function renderIntro(p){
+  el("gdeck").innerHTML = '';
+  el("gdeck").style.display = "none";
+  el("gfoot").innerHTML = '<button class="gmore" id="useIt" style="border-style:solid;border-color:#0066cc;background:#0066cc;color:#fff">用这个审美生成搭配</button>';
+  var box = document.createElement("div");
+  box.className = "intro";
+  box.style.height = "100%";
+  box.innerHTML =
+    '<div class="intro-cover"><img src="' + AEST + p.cover + '" alt=""></div>' +
+    '<h3>' + p.name + '</h3><p>' + p.core + '</p>' +
+    '<div class="chips" style="margin-bottom:14px">' + p.points.map(function(x){
+      return '<span class="chip">' + x + '</span>'; }).join("") + '</div>' +
+    '<p class="intro-note">真实页面这里接现有的「认识这个审美」：三套具体穿法（可展开看五条安排要点）、三套变化共同的审美安排、以及参考来源。这一步不生成，看一眼就走。</p>';
+  el("gdeck").appendChild(box);
+  el("gdeck").style.display = "";
+  el("useIt").onclick = function(){ openSheet("deck", p.id); };
+}
+
+function startGenerate(p){
+  state.loading = true;
+  el("gdeck").style.display = "";
+  el("gfoot").innerHTML = "";
+  el("gdeck").innerHTML = '<div class="skel"><div class="g">' +
+    '<i></i><i></i><i></i><i></i></div>' +
+    '<div class="t"><i></i><i></i><i></i></div>' +
+    '<div class="msg">正在按「' + p.name + '」从 26 件里挑…</div></div>';
+  var key = p.id, token = ++startGenerate.token;
+  setTimeout(function(){
+    if (token !== startGenerate.token || !state.open) return;
+    state.loading = false;
+    state.decks = DECKS[key] || DECKS.natural;
+    state.o = 0;
+    renderDeck();
+  }, 1000);
+}
+startGenerate.token = 0;
+
+function renderDeck(){
+  var list = state.decks, total = list.length;
+  var html = "", i;
+  for (i = Math.min(total - 1, state.o + 2); i >= state.o; i--) {
+    var d = list[i], k = i - state.o, top = k === 0;
+    html += '<article class="ocard' + (top ? ' top' : '') + '" data-k="' + k + '"' +
+      ' style="transform-origin:top center;transform:translateY(' + (k * 38) + 'px) scale(' + (1 - k * 0.04) + ');' +
+      ' z-index:' + (20 - k) + '; opacity:' + (k > 2 ? 0 : 1) + '">' +
+      '<div class="grid">' + d.i.map(function(src){
+        return '<img src="' + IMG + '/images/' + src + '" alt="" loading="lazy">'; }).join("") + '</div>' +
+      '<div class="meta"><div class="k"><span>' + (state.o + 1) + ' / ' + total + ' 套</span>' +
+        '<span>' + d.i.length + ' 件</span></div>' +
+      '<h3 style="margin-top:2px">' + d.t + '</h3><p>' + d.r + '</p>' +
+      '<div class="sw">' + d.c.map(function(c){
+        return '<i style="background:' + c + '"></i>'; }).join("") +
+        '<span>' + d.cl + '</span></div>' +
+      '<div class="acts"><button class="pri">实时试衣</button><button class="inf">i</button></div>' +
+      '</div></article>';
+  }
+  el("gdeck").innerHTML = html;
+  el("gfoot").innerHTML = state.o < total - 1
+    ? '<button class="gmore" id="moreBtn">还有 ' + (total - 1 - state.o) + ' 套 · 滑走这一张</button>'
+    : '<button class="gmore" id="moreBtn">＋ 用这个审美再生成 3 套</button>';
+  bindDrag();
+  el("moreBtn").onclick = function(){
+    if (state.o < total - 1) { state.o++; renderDeck(); }
+    else { startGenerate(PROFILES[state.a]); }
+  };
+}
+
+function bindDrag(){
+  var card = el("gdeck").querySelector(".ocard.top");
+  if (!card) return;
+  var x0 = 0, dx = 0, dragging = false, w = el("gdeck").clientWidth;
+  card.addEventListener("pointerdown", function(e){
+    if (e.target.closest("button")) return;
+    dragging = true; x0 = e.clientX; dx = 0;
+    card.classList.add("drag");
+    card.setPointerCapture(e.pointerId);
+  });
+  card.addEventListener("pointermove", function(e){
+    if (!dragging) return;
+    dx = e.clientX - x0;
+    card.style.transform = "translateX(" + dx + "px) translateY(0) rotate(" + (dx / 26) + "deg)";
+    card.style.opacity = String(Math.max(.35, 1 - Math.abs(dx) / (w * 1.5)));
+  });
+  function end(){
+    if (!dragging) return;
+    dragging = false;
+    card.classList.remove("drag");
+    var total = state.decks.length;
+    if (dx < -86 && state.o < total - 1) {
+      card.style.transform = "translateX(-140%) rotate(-14deg)";
+      card.style.opacity = "0";
+      setTimeout(function(){ state.o++; renderDeck(); }, 190);
+    } else if (dx > 86 && state.o > 0) {
+      card.style.transform = "translateX(140%) rotate(14deg)";
+      card.style.opacity = "0";
+      setTimeout(function(){ state.o--; renderDeck(); }, 190);
+    } else {
+      card.style.transform = "translateY(0) scale(1)";
+      card.style.opacity = "1";
+    }
+  }
+  card.addEventListener("pointerup", end);
+  card.addEventListener("pointercancel", end);
+}
+
+function closeSheet(){
+  state.open = false;
+  el("sheet").classList.remove("open");
+  startGenerate.token++;
+}
+
+el("adeck").addEventListener("scroll", function(){ requestAnimationFrame(syncIndex); }, { passive: true });
+el("adeck").addEventListener("click", function(e){
+  var intro = e.target.closest("[data-intro]");
+  if (intro) { openSheet("intro", intro.dataset.intro); return; }
+});
+document.addEventListener("click", function(e){
+  var face = e.target.closest(".aface");
+  if (face && !state.open) { openSheet("deck", face.dataset.open); }
+  var dot = e.target.closest("[data-dot]");
+  if (dot) goTo(Number(dot.dataset.dot));
+});
+el("gclose").onclick = closeSheet;
+el("veil").onclick = closeSheet;
+
+renderCards();
+</script>
+</body>
+</html>

@@ -26,6 +26,8 @@
   --import-scrim: rgba(36, 43, 55, .16);
   --import-shadow: 0 -12px 56px rgba(29, 40, 60, .15);
   --glass-button-shadow: inset 1px 1px 1px rgba(255,255,255,.95), inset -1px -1px 1px rgba(107,121,145,.18), 0 4px 14px rgba(29,40,60,.06);
+  --label-scrim:  rgba(28, 28, 30, .52);      /* §40：压在照片上的浅色小标签底（白字要够对比） */
+  --shadow-card:  0 8px 26px rgba(20, 25, 40, .09);
   --import-radius: 30px;
   --focus-ring:   rgba(0, 102, 204, .28);
   --text:         #1d1d1f;   /* Apple 的 "ink" —— 16.8:1 */

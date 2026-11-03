@@ -1,10 +1,17 @@
-/** §34：六审美、三图指南与真实搭配依据；嵌套返回不离开当前页面。 */
+/** §34：六审美、三图指南与真实搭配依据；嵌套返回不离开当前页面。
+ *
+ *  §40 起它同时是**搭配结果面板**：
+ *    deck  —— 一屏一张的堆叠卡（玻璃面板整块盖住页面，按住最上面那张左右拖）
+ *    more  —— 生成设置（3/5 套、AI 比较）+ 最近搭配
+ *  两者都从 `deck` 适配器取内容，**不在本文件里存 deck 状态** —— 数据归 view.js，
+ *  这里只负责"什么时候重画"。这样滑走一套之后不会出现两份真值。
+ */
 import { esc, icon } from "../../core/ui.js";
 import { examplesFor, rulesHtml, methodDetails, coverFor } from "./aesthetic-ui.js";
 const FOCUSABLE = "button,a[href],input,select,summary,[tabindex]";
 const FEEDBACK = { like: "喜欢这套", dislike: "不喜欢", swap: "先不选" };
 let nextId = 0;
-export function createAestheticSheet({ root, profiles, getSettings, onSettings, onSelect, onGenerate, onFeedback, isFeedbackPending = () => false, useLabel = '用这个审美搭配', getBackground }) {
+export function createAestheticSheet({ root, profiles, getSettings, onSettings, onUseProfile = () => {}, onFeedback, isFeedbackPending = () => false, useLabel = '用这个审美搭配', getBackground, deck = null, getHistoryHtml = () => "", onRestore = () => {}, onMore = () => {} }) {
   let entry = null, disposed = false;
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   const alive = e => !disposed && entry === e && root.isConnected;
@@ -32,7 +39,7 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
     }
     if (restoreFocus && root.isConnected) {
       window.scrollTo(0, e.scrollY);
-      const anchor = e.anchor?.isConnected ? e.anchor : root.querySelector("[data-open-aesthetics],#o-go");
+      const anchor = e.anchor?.isConnected ? e.anchor : root.querySelector("[data-aesthetic-open]");
       anchor?.focus({ preventScroll: true });
     }
     if (!disposed && root.isConnected && location.hash === e.hash) e.afterClose?.();
@@ -58,20 +65,35 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
     else { e.frames = e.frames.slice(0, e.index + 1); e.frames.push(frame); e.index++; history.pushState({ ...history.state, aestheticSheet: { id: e.id, depth: e.index } }, "", location.href); }
     render(e);
   }
+  /** 生成设置那一块：options 帧和 more 帧共用，别写两份。 */
+  function optionsHtml() {
+    const settings = getSettings();
+    return `<div class="aesthetic-setting-row"><strong>一次生成</strong><div class="aesthetic-counts">${[3, 5].map(n => `<button type="button" data-sheet-count="${n}" aria-pressed="${settings.limit === n}">${n} 套</button>`).join("")}</div></div><div class="aesthetic-setting-row"><div><strong>AI 比较</strong><p>从候选组合里挑选更协调的搭配。</p></div><button type="button" role="switch" data-sheet-ai aria-checked="${settings.useLlm}" aria-label="AI 比较" class="aesthetic-switch"></button></div><p class="aesthetic-example-note">按当前季节，从已有衣物中选择。</p>`;
+  }
+  function renderDeck(e, focus = true) {
+    const built = deck.build();
+    e.panel.setAttribute("aria-label", built.title || "搭配");
+    // 从「认识这个」里点"用这个审美生成搭配"时，deck 是压在 guide 上的一帧，
+    // 所以头部要留一个返回；从第一层直接点卡进来是根帧，没有返回。
+    e.head.innerHTML = `<div class="aesthetic-sheet-title">${e.index ? `<button type="button" data-sheet-back class="aesthetic-back" aria-label="返回上一层">${icon("back")}</button>` : ""}<h2>${esc(built.title)}</h2></div><div class="outfit-deck-tools"><button type="button" class="outfit-deck-more" data-deck-more>更多</button><button type="button" class="aesthetic-glass" data-sheet-close aria-label="关闭面板">${icon("close")}</button></div>`;
+    e.scroll.innerHTML = built.body;
+    e.foot.innerHTML = built.foot || ""; e.foot.hidden = !built.foot;
+    deck.afterRender?.(e.scroll);
+    if (focus) e.head.querySelector("[data-sheet-close]")?.focus({ preventScroll: true });
+  }
   function render(e, focus = true) {
     if (!alive(e)) return;
     e.gesture?.dispose();
     const frame = e.frames[e.index], profile = frame.profile;
-    const titles = { select: "选择审美", guide: "认识" + (profile?.name || "这个审美"), example: "穿搭示例", options: "搭配设置", basis: "这套为什么这样搭" };
+    const isDeck = frame.kind === "deck";
+    e.layer.classList.toggle("is-deck", isDeck);
+    e.panel.classList.toggle("is-deck", isDeck);
+    if (isDeck) { renderDeck(e, focus); return; }
+    const titles = { guide: "认识" + (profile?.name || "这个审美"), options: "搭配设置", more: "更多", basis: "这套为什么这样搭" };
     e.panel.setAttribute("aria-label", titles[frame.kind]);
     e.head.innerHTML = `<div class="aesthetic-sheet-title">${e.index ? `<button type="button" data-sheet-back class="aesthetic-back" aria-label="返回上一层">${icon("back")}</button>` : icon("spark")}<h2>${esc(titles[frame.kind])}</h2></div><button type="button" class="aesthetic-glass" data-sheet-close aria-label="关闭面板">${icon("close")}</button>`;
     let body = "", footer = "";
-    if (frame.kind === "select") {
-      body = `<p class="aesthetic-sheet-intro">每种审美都有完整安排。选一组，也可以先看三套穿搭。</p><div class="aesthetic-choice-grid">${profiles.map(p => {
-        const cover = coverFor(p);
-        return `<article class="aesthetic-choice-card ${p.id === getSettings().aesthetic ? "is-selected" : ""}"><button type="button" data-sheet-pick="${esc(p.id)}" aria-pressed="${p.id === getSettings().aesthetic}">${cover ? `<img src="${esc(cover)}" alt="${esc(p.name)}质感示意" loading="lazy">` : ""}<strong>${esc(p.name)}</strong><small>${esc((p.points || []).slice(0, 2).join(" · "))}</small>${p.id === getSettings().aesthetic ? `<span class="aesthetic-choice-check">${icon("check")}</span>` : ""}</button><button type="button" data-sheet-guide="${esc(p.id)}">看三套穿搭${icon("right")}</button></article>`;
-      }).join("")}</div>`;
-    } else if (frame.kind === "guide") {
+    if (frame.kind === "guide") {
       // 视觉只留一张平铺静物（与卡片同一张、同一比例），不再放模特上身照 ——
       // 两者是两套视觉语言，点进来会像换了个页面。三套具体穿法改成文字条，
       // 每条可展开看五条安排要点，信息一条没少。
@@ -83,9 +105,10 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
         ${rulesHtml(profile)}<p class="aesthetic-example-note">${esc(profile.example_note || profile.flexible)}</p>`;
       if (profiles.some(p => p.id === profile.id && p.version === profile.version)) footer = `<button type="button" class="primary" data-sheet-use="${esc(profile.id)}">${icon("spark")}${esc(useLabel)}</button>`;
     } else if (frame.kind === "options") {
-      const settings = getSettings();
-      body = `<div class="aesthetic-setting-row"><strong>一次生成</strong><div class="aesthetic-counts">${[3, 5].map(n => `<button type="button" data-sheet-count="${n}" aria-pressed="${settings.limit === n}">${n} 套</button>`).join("")}</div></div><div class="aesthetic-setting-row"><div><strong>AI 比较</strong><p>从候选组合里挑选更协调的搭配。</p></div><button type="button" role="switch" data-sheet-ai aria-checked="${settings.useLlm}" aria-label="AI 比较" class="aesthetic-switch"></button></div><p class="aesthetic-example-note">按当前季节，从已有衣物中选择。</p>`;
+      body = optionsHtml();
       footer = '<button type="button" class="primary" data-sheet-close>好，就这样</button>';
+    } else if (frame.kind === "more") {
+      body = `${optionsHtml()}<h3 class="aesthetic-rule-heading">最近搭配</h3>${getHistoryHtml()}`;
     } else if (frame.kind === "basis") {
       const outfit = frame.outfit, selected = outfit._feedback || ({ accepted: "like", rejected: "dislike", swapped: "swap" }[outfit.status]);
       const waiting = e.feedbackBusy || isFeedbackPending(outfit.id);
@@ -145,11 +168,18 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
       const frame = e.frames[e.index], data = button.dataset;
       if ("sheetClose" in data) { requestClose(); return; }
       if ("sheetBack" in data) { if (e.index) history.back(); else requestClose(); return; }
-      if ("sheetPick" in data || "sheetUse" in data) {
-        const profile = profiles.find(p => p.id === (data.sheetPick || data.sheetUse)); if (!profile) return;
-        onSelect(profile.id); requestClose("sheetUse" in data ? () => onGenerate() : undefined); return;
+      // ★ 结果卡的四个动作交给 view：它才知道 deck 和当前是第几套。
+      if (frame.kind === "deck" && data.deckAction) { deck.onAction(data.deckAction, button); return; }
+      if ("deckMore" in data) { onMore(); push({ kind: "more" }); return; }
+      if ("restoreOutfit" in data) {
+        onRestore(data.restoreOutfit);
+        if (e.index) history.back(); else render(e);
+        return;
       }
-      if ("sheetGuide" in data) { const profile = profiles.find(p => p.id === data.sheetGuide); if (profile) push({ kind: "guide", profile }); return; }
+      if ("sheetUse" in data) {
+        const profile = profiles.find(p => p.id === data.sheetUse); if (!profile) return;
+        onUseProfile(profile); return;
+      }
       if ("sheetCount" in data) { onSettings({ limit: Number(data.sheetCount) }); render(e, false); e.scroll.querySelector(`[data-sheet-count="${data.sheetCount}"]`)?.focus({ preventScroll: true }); return; }
       if ("sheetAi" in data) { onSettings({ useLlm: !getSettings().useLlm }); render(e, false); e.scroll.querySelector("[data-sheet-ai]").focus({ preventScroll: true }); return; }
       if ("sheetFeedback" in data && !e.feedbackBusy) {
@@ -166,12 +196,26 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
     });
   }
   return {
-    openSelector: anchor => open({ kind: "select" }, anchor),
+    openDeck(profile, anchor) {
+      if (entry) {
+        const frame = entry.frames[entry.index];
+        if (frame?.kind !== "deck" && profile) push({ kind: "deck", profile });
+        return entry;
+      }
+      open({ kind: "deck", profile }, anchor);
+      return entry;
+    },
     openGuide: (profile, anchor) => profile && open({ kind: "guide", profile }, anchor),
     openOptions: anchor => open({ kind: "options" }, anchor),
-    openBasis: (outfit, anchor) => open({ kind: "basis", outfit }, anchor),
+    openBasis: (outfit, anchor) => outfit && open({ kind: "basis", outfit }, anchor),
+    /** 只重画"当前是这一类"的帧：生成完成刷 deck，历史回来刷 more。 */
+    refresh(kind) {
+      const e = entry; if (!e || e.phase === "closing") return;
+      const frame = e.frames[e.index];
+      if (kind && frame?.kind !== kind) return;
+      render(e, false);
+    },
     itemRemoved(id) { if (entry?.frames.some(frame => frame.outfit?.item_ids?.includes(id))) requestClose(); },
     dispose() { disposed = true; if (entry) finish(entry, false); }
   };
 }
-

@@ -63,6 +63,9 @@
   .status-menu[open] { z-index: 40; }
 
   .view[data-view="gaps"] { padding-bottom: 0; }
+  /* 搭配页要「一屏一张」：高度自己算（见 features/outfits-deck.css）。
+     ⚠️ 父容器的下留白必须清零，否则整页正好多出 24px 滚动 —— 实测就是这 24px。 */
+  .view[data-view="outfits"] { padding-bottom: 0; }
 
   /* 添置页要"一屏排满"：可用高度 = 100vh − 顶栏（含安全区） − 内容区上留白
      − 底栏占位（body 的 padding-bottom 见 style.css） − 安全区。

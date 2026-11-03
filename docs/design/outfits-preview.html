@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>搭配页卡片化 · 交互原型（已被 outfits-v2-preview 取代）</title>
+<style>
+:root{
+  --bg:#F4F4F6; --surface:#FFFFFF; --ink:#1A1A1C; --muted:#86868B;
+  --line:rgba(0,0,0,.07); --brand:#1677FF; --brand-weak:#E8F1FF;
+  --r-lg:16px; --r-md:12px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{
+  margin:0;background:#EDEDF0;color:var(--ink);
+  font:15px/1.55 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  padding:20px 20px 60px;
+}
+h1{font-size:15px;font-weight:500;margin:0 0 4px}
+.sub{font-size:13px;color:var(--muted);margin:0 0 18px}
+.wrap{display:flex;gap:32px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+.left{flex:0 0 auto}
+.right{flex:1 1 320px;min-width:300px;max-width:420px}
+
+.segrow{margin-bottom:14px}
+.seglabel{font-size:12px;color:var(--muted);margin:0 0 6px}
+.seg{display:inline-flex;background:#fff;border-radius:10px;padding:3px;gap:2px;border:.5px solid var(--line);flex-wrap:wrap}
+.seg button{
+  border:0;background:transparent;font:inherit;font-size:13px;color:var(--muted);
+  padding:7px 12px;border-radius:8px;cursor:pointer;
+}
+.seg button.on{background:var(--ink);color:#fff}
+
+.phone{
+  width:390px;height:844px;position:relative;background:var(--bg);
+  border-radius:40px;padding:0;overflow:hidden;
+  box-shadow:0 18px 50px rgba(20,25,40,.16);
+  display:flex;flex-direction:column;
+}
+.statusbar{height:0}
+.topbar{
+  height:48px;flex:0 0 48px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;background:var(--bg);box-shadow:0 1px 0 var(--line);position:relative;z-index:5;
+}
+.topbar b{font-size:15px;font-weight:600}
+.gear{width:44px;height:44px;border-radius:50%;background:#fff;border:.5px solid var(--line);display:grid;place-items:center;font-size:16px;color:#555}
+
+.body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:16px 0 200px;scrollbar-width:none}
+.body::-webkit-scrollbar{display:none}
+
+.tabbar{
+  position:absolute;left:16px;right:16px;bottom:16px;height:64px;border-radius:32px;
+  background:rgba(255,255,255,.82);backdrop-filter:blur(16px);
+  display:flex;align-items:center;justify-content:space-around;
+  box-shadow:0 6px 20px rgba(20,25,40,.10);z-index:45;
+}
+.tabbar span{font-size:11px;color:var(--muted);display:grid;justify-items:center;gap:3px}
+.tabbar i{width:22px;height:22px;border-radius:6px;background:#D8D8DD;display:block}
+.tabbar span.on{color:var(--brand)}
+.tabbar span.on i{background:var(--brand)}
+
+.row{display:flex;align-items:center;gap:10px;padding:0 16px;margin-bottom:14px}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;height:46px;padding:0 18px;
+  border-radius:23px;background:#fff;border:.5px solid var(--line);
+  font:inherit;font-size:15px;font-weight:600;cursor:pointer;color:var(--ink);
+}
+.pill .caret{color:var(--muted);font-size:12px}
+.season{display:inline-flex;align-items:center;gap:6px;margin-left:auto;font-size:13px;color:var(--muted);padding-right:2px}
+
+.pcard{margin:0 16px;background:var(--surface);border-radius:var(--r-lg);padding:18px 18px 16px;border:.5px solid var(--line)}
+.eyebrow{font-size:12px;color:var(--muted);margin:0 0 6px}
+.pcard h2{font-size:28px;font-weight:600;letter-spacing:-.4px;margin:0 0 8px}
+.core{font-size:14px;line-height:1.65;color:#4A4A50;margin:0 0 14px}
+.pcover{width:100%;aspect-ratio:3/4;border-radius:var(--r-md);overflow:hidden;background:#E6E4DE;margin-bottom:14px;border:0;padding:0;display:block}
+.pcover img{width:100%;height:100%;object-fit:cover;display:block}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.chip{font-size:12px;color:#5A5A60;background:#F1F1F3;border-radius:999px;padding:5px 11px}
+.learn{display:flex;align-items:center;justify-content:space-between;border-top:.5px solid var(--line);padding-top:12px}
+.learn span{font-size:12px;color:var(--muted)}
+.link{border:0;background:transparent;font:inherit;font-size:13px;color:var(--brand);cursor:pointer;padding:4px 0}
+
+.bandwrap{position:relative}
+.band{display:flex;gap:8px;overflow-x:auto;scroll-snap-type:x mandatory;padding:4px 16px 10px;scrollbar-width:none}
+.band::-webkit-scrollbar{display:none}
+.bandcard{
+  flex:0 0 96px;scroll-snap-align:start;border:0;padding:0;background:transparent;cursor:pointer;
+  display:grid;gap:7px;justify-items:center;
+}
+.bandcard .thumb{
+  width:96px;height:128px;border-radius:12px;overflow:hidden;background:#E6E4DE;
+  border:2px solid transparent;transition:border-color .12s,transform .12s;
+}
+.bandcard img{width:100%;height:100%;object-fit:cover;display:block}
+.bandcard span{font-size:12px;color:var(--muted);white-space:nowrap}
+.bandcard.on .thumb{border-color:var(--brand);transform:translateY(-2px)}
+.bandcard.on span{color:var(--ink);font-weight:600}
+
+.bigwrap{padding:0}
+.bigview{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:0 20px 8px;scrollbar-width:none}
+.bigview::-webkit-scrollbar{display:none}
+.bigcard{flex:0 0 314px;scroll-snap-align:center;background:#fff;border-radius:18px;border:.5px solid var(--line);overflow:hidden;padding:0 0 16px}
+.bigcard .pic{width:100%;height:242px;background:#E6E4DE;overflow:hidden}
+.bigcard .pic img{width:100%;height:100%;object-fit:cover;display:block}
+.bigcard h2{font-size:22px;font-weight:600;margin:14px 16px 6px}
+.bigcard p{font-size:13px;line-height:1.6;color:#4A4A50;margin:0 16px 12px}
+.bigcard .chips{margin:0 16px}
+.dots{display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0 4px;font-size:12px;color:var(--muted)}
+.dots b{font-weight:500;color:var(--ink)}
+
+.guide{display:flex;align-items:center;justify-content:space-between;margin:18px 16px 8px;font-size:12px;color:var(--muted)}
+.guide button{border:0;background:transparent;font:inherit;font-size:12px;color:var(--brand);cursor:pointer}
+
+.outfit{margin:0 16px;background:#fff;border-radius:18px;border:.5px solid var(--line);overflow:hidden}
+.stage{position:relative;background:#EFEDE8;padding:14px 14px 12px}
+.count{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:#6A6A70;margin-bottom:10px}
+.count small{color:#9A9AA0}
+.pieces{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pieces.single{grid-template-columns:1fr}
+.piece{aspect-ratio:1/1;border-radius:10px;overflow:hidden;background:#fff}
+.piece img{width:100%;height:100%;object-fit:contain;display:block}
+.copy{padding:14px 16px 16px}
+.label{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+.fav{width:32px;height:32px;border-radius:50%;border:.5px solid var(--line);background:#fff;cursor:pointer;font-size:13px;color:#888}
+.copy h2{font-size:19px;font-weight:600;margin:0 0 6px;letter-spacing:-.2px}
+.reason{font-size:13px;line-height:1.6;color:#5A5A60;margin:0 0 10px}
+.colors{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.colors i{width:12px;height:12px;border-radius:3px;display:block}
+
+.actions{display:flex;gap:8px;margin:12px 16px 0}
+.actions .primary{flex:1;height:46px;border:0;border-radius:23px;background:var(--brand);color:#fff;font:inherit;font-size:15px;font-weight:500;cursor:pointer}
+.actions .ghost{width:46px;height:46px;border-radius:23px;border:.5px solid var(--line);background:#fff;font-size:15px;cursor:pointer;color:#666}
+.pager{display:flex;align-items:center;justify-content:space-between;margin:14px 16px 0}
+.pdots{display:flex;gap:7px}
+.pdots i{width:7px;height:7px;border-radius:50%;background:#D2D2D8;display:block}
+.pdots i.on{background:var(--ink);width:18px;border-radius:4px}
+.next{border:0;background:transparent;font:inherit;font-size:13px;color:var(--brand);cursor:pointer}
+
+.deckwrap{margin:18px 16px 0;position:relative}
+.deck{position:relative;height:330px}
+.dcard{
+  position:absolute;left:0;right:0;top:0;background:#fff;border-radius:18px;
+  border:.5px solid var(--line);overflow:hidden;
+  z-index:calc(20 - var(--i));
+  transform:translateY(calc(var(--i) * 8px)) scale(calc(1 - var(--i) * .035));
+  transform-origin:top center;transition:transform .26s cubic-bezier(.2,.7,.2,1);
+  box-shadow:0 8px 24px rgba(20,25,40,.07);
+}
+.dcard.top{cursor:grab}
+.dcard.dragging{transition:none}
+.dcard .pic{height:172px;background:#EFEDE8;overflow:hidden;display:grid;grid-template-columns:1fr 1fr;gap:1px}
+.dcard .pic img{width:100%;height:100%;object-fit:contain;background:#fff;display:block}
+.dcard .meta{padding:12px 14px 14px}
+.dcard .meta .k{font-size:11px;color:var(--muted);margin-bottom:4px}
+.dcard .meta h3{font-size:17px;font-weight:600;margin:0 0 4px}
+.dcard .meta p{font-size:12px;line-height:1.55;color:#5A5A60;margin:0}
+.morecard{
+  position:absolute;left:0;right:0;top:0;height:200px;border-radius:18px;
+  border:1.5px dashed #C9C9D0;background:rgba(255,255,255,.6);
+  display:grid;place-items:center;gap:6px;color:var(--muted);font-size:13px;
+  z-index:calc(20 - var(--i));
+  transform:translateY(calc(var(--i) * 8px)) scale(calc(1 - var(--i) * .035));
+  transform-origin:top center;
+}
+.morecard b{font-weight:500;color:var(--ink);font-size:14px}
+.deckhint{text-align:center;font-size:11px;color:#9A9AA0;margin-top:12px}
+.genbar{position:absolute;left:0;right:0;bottom:80px;z-index:40;
+  padding:12px 16px 10px;background:var(--bg);box-shadow:0 -1px 0 var(--line)}
+.genbar .primary{width:100%;height:50px;border:0;border-radius:25px;background:var(--brand);color:#fff;font:inherit;font-size:15px;font-weight:500;cursor:pointer;box-shadow:0 6px 18px rgba(22,119,255,.22)}
+.genbar .hint{text-align:center;font-size:11.5px;color:#9A9AA0;margin:8px 0 0}
+.genbar .moreopt{display:flex;justify-content:center;margin-top:8px}
+.genbar .moreopt button{border:0;background:transparent;font:inherit;font-size:13px;color:var(--brand);cursor:pointer}
+
+.note{background:#fff;border-radius:14px;border:.5px solid var(--line);padding:14px 16px;font-size:13px;line-height:1.7;color:#3A3A40}
+.note h3{font-size:13px;font-weight:600;margin:0 0 8px}
+.note table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+.note td{padding:5px 0;border-bottom:.5px solid var(--line);vertical-align:top}
+.note td:first-child{color:var(--muted);width:44%}
+.note td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.note .ok{color:#12805C}
+.note .no{color:#C0392B}
+.note p{margin:10px 0 0;font-size:12.5px;color:#5A5A60;line-height:1.6}
+</style>
+</head>
+<body>
+
+<h1>搭配页 · 卡片化原型</h1>
+<p class="sub">左侧两组开关自由组合；手机屏里可以真的滑、真的拖。图片来自项目和手机上的真实衣物。</p>
+
+<div class="wrap">
+  <div class="left">
+    <div class="segrow">
+      <p class="seglabel">审美怎么选</p>
+      <div class="seg" id="segA">
+        <button data-v="pill">现状 · 胶囊按钮</button>
+        <button data-v="band">A · 封面带横滑</button>
+        <button data-v="stack">B · 一屏一张</button>
+      </div>
+    </div>
+    <div class="segrow">
+      <p class="seglabel">搭配结果怎么滑</p>
+      <div class="seg" id="segR">
+        <button data-v="single">现状 · 单张 + 圆点</button>
+        <button data-v="deck">堆叠 · 滑走一张</button>
+      </div>
+    </div>
+
+    <div class="phone">
+      <div class="topbar"><b>搭配</b><div class="gear">&#9881;</div></div>
+      <div class="body" id="screen"></div>
+      <div class="genbar" id="genbar"></div>
+      <nav class="tabbar">
+        <span><i></i>衣橱</span>
+        <span><i></i>添置</span>
+        <span class="on"><i></i>搭配</span>
+      </nav>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="note" id="note"></div>
+  </div>
+</div>
+
+<script>
+var IMG = "http://127.0.0.1:18787";
+var AEST = "http://127.0.0.1:8899/web/reference/aesthetics/";
+
+var PROFILES = [
+  {id:"urban", name:"都市极简", cover:"cover-urban.webp", core:"用清楚的线条、利落的比例和安静的材质，让整套衣服显得有秩序。", points:["线条清楚","长度利落","细节克制"]},
+  {id:"natural", name:"自然日常", cover:"cover-natural.webp", core:"让柔和的颜色、自然纹理和舒展的衣服线条一起产生轻松、有呼吸感的整体。", points:["自然纹理","舒展余量","柔和连接"]},
+  {id:"heritage_v2", name:"复古质感", cover:"cover-heritage.webp", core:"把洗旧的颜色、厚实的纹理、明确的腰线和有分量的鞋组织在一起，让整套衣服显得结实、有年代感。", points:["厚实纹理","腰线明确","鞋子有分量"]},
+  {id:"street_v2", name:"街头表达", cover:"cover-street.webp", core:"主动安排衣服的宽、短、长和鞋子的体量，让一套日常衣服有清楚的体积对比与视觉重心。", points:["体积对比","长短有安排","重心清楚"]},
+  {id:"technical", name:"轻便机能", cover:"cover-technical.webp", core:"让轻薄面料、便于活动的剪裁、清楚的分层与运动鞋一起显得轻快、实用。", points:["轻薄有形","活动自如","分层明确"]},
+  {id:"refined", name:"柔和精致", cover:"cover-refined.webp", core:"把细腻的颜色、柔软垂坠的线条和讲究的收口配合起来，形成温和、轻巧的精致感。", points:["细腻过渡","柔软垂坠","收口讲究"]}
+];
+
+var IT = {
+  coat:  "it_import_4d74c82581f788b69ccf18c431be4f2c.display-d0bac53be1f74e92a3cd7494295e0e5b.png",
+  vest:  "it_import_3a9594790df7ad4e0bf7fd341f23d085.display-065c447d331b4660925b009d38983bcd.png",
+  pantG: "it_import_e91a919a2789dbec1c1447aac519ca28.display-f95b2b9a4cf64893ae8620c2ac33ebb5.png",
+  shoeK: "it_import_e46cf9455f5cbea0107187de395a639b.display-af13817832ea4b51a3533cabe3d5d733.png",
+  wool:  "it_import_31da4313001ef93dd3d2edb2fc80297c.display-621acce9146a44afa8d7a992471b91eb.png",
+  teeB:  "it_import_a9675d33acd78bee1619b3bb48bb2853.display-dcbf824f84fd4145bb3b89e2979c0953.png",
+  slack: "it_import_1f8132dec3ddb5cee0d5e7cd912a5bab.display-37015db56511434abb5de4efb2dc4637.png",
+  shoeB: "it_import_3e7e01890e36804c607a2329731da80a.display-a74d8ebc64bf45fb995fa255de39a08c.png",
+  jacket:"it_import_cd8b48c1f57bb34b990593085e95eba3.display-b19b48f23c23494d9a943cc0ee6be2ea.png",
+  knitB: "it_import_f5dc8ee35756d5d008383904bbb42674.display-90b29e8a1bd14d69a943ac0a40423ba7.png",
+  jeanB: "it_import_a486032a626effed10ec62d3ed582b22.display-d25705b837154d978ca47a6fc8c11ca4.png",
+  capN:  "it_import_f039d372410942a3b95e5c8015d94203.display-52580c7fcc9f4f4896208e366ecb804e.png"
+};
+
+function itemPic(id){
+  return '<div class="piece"><img src="' + IMG + '/images/' + id + '" alt="" loading="lazy"></div>';
+}
+
+var DECKS = [
+  {name:"自然日常", title:"灰与卡其，自然日常。", colors:["#c9c9c5","#dfd6c4","#baa078"],
+   reason:"外层用米白棉服压住，里面白色背心留出呼吸感；灰运动裤和卡其鞋是同一条暖灰线，整套没有硬对比。",
+   items:[IT.coat, IT.vest, IT.pantG, IT.shoeK]},
+  {name:"都市极简", title:"全黑一套，线条说话。", colors:["#292929","#c9c9c5"],
+   reason:"黑大衣的长度已经给了轮廓，其余部件都收窄：黑T恤、黑休闲裤、黑鞋，只剩一条竖线，没有多余信息。",
+   items:[IT.wool, IT.teeB, IT.slack, IT.shoeB]},
+  {name:"街头表达", title:"上宽下窄，重心在脚。", colors:["#292929","#8cabc8","#7e8863"],
+   reason:"夹克短、毛衣松、牛仔裤直，三层体积递进；黑鞋压住下盘，藏蓝帽子把视线拉回上半身。",
+   items:[IT.jacket, IT.knitB, IT.jeanB, IT.shoeB]}
+];
+
+var state = {aesthetic:"pill", result:"single", profile:1, card:0};
+var qs = new URLSearchParams(location.search);
+if (qs.get("a")) state.aesthetic = qs.get("a");
+if (qs.get("r")) state.result = qs.get("r");
+
+function profileNow(){ return PROFILES[state.profile]; }
+
+function bandHtml(){
+  var p = profileNow();
+  var cards = PROFILES.map(function(x, i){
+    return '<button class="bandcard' + (i === state.profile ? ' on' : '') + '" data-p="' + i + '">' +
+      '<span class="thumb"><img src="' + AEST + x.cover + '" alt="' + x.name + '"></span>' +
+      '<span>' + x.name + '</span></button>';
+  }).join("");
+  return '<div class="bandwrap"><div class="band">' + cards + '</div></div>' +
+    '<div class="pcard" style="margin-top:4px">' +
+      '<h2 style="font-size:22px">' + p.name + '</h2>' +
+      '<p class="core">' + p.core + '</p>' +
+      '<div class="chips">' + p.points.map(function(t){ return '<span class="chip">' + t + '</span>'; }).join("") + '</div>' +
+      '<div class="learn"><span>配色、轮廓、质感一起安排</span><button class="link">认识这个审美 &rsaquo;</button></div>' +
+    '</div>';
+}
+
+function stackHtml(){
+  var cards = PROFILES.map(function(x){
+    return '<article class="bigcard">' +
+      '<div class="pic"><img src="' + AEST + x.cover + '" alt="' + x.name + '"></div>' +
+      '<h2>' + x.name + '</h2><p>' + x.core + '</p>' +
+      '<div class="chips">' + x.points.map(function(t){ return '<span class="chip">' + t + '</span>'; }).join("") + '</div>' +
+    '</article>';
+  }).join("");
+  return '<div class="bigwrap"><div class="bigview" id="bigview">' + cards + '</div></div>' +
+    '<div class="dots"><b id="bigpos">' + (state.profile + 1) + '</b> / 6 &nbsp;·&nbsp; 左右滑切换</div>';
+}
+
+function pillHtml(){
+  var p = profileNow();
+  return '<div class="row">' +
+      '<button class="pill">&#10022; ' + p.name + ' <span class="caret">&#8964;</span></button>' +
+      '<div class="season">&#127807; 秋</div>' +
+    '</div>' +
+    '<div class="pcard">' +
+      '<p class="eyebrow">当前审美 · 质感</p>' +
+      '<h2>' + p.name + '</h2>' +
+      '<p class="core">' + p.core + '</p>' +
+      '<div class="pcover"><img src="' + AEST + p.cover + '" alt=""></div>' +
+      '<div class="chips">' + p.points.map(function(t){ return '<span class="chip">' + t + '</span>'; }).join("") + '</div>' +
+      '<div class="learn"><span>配色、轮廓、质感一起安排</span><button class="link">认识这个审美 &rsaquo;</button></div>' +
+    '</div>';
+}
+
+function aestheticHtml(){
+  if (state.aesthetic === "pill") return pillHtml();
+  if (state.aesthetic === "band") return bandHtml();
+  return stackHtml();
+}
+
+function singleHtml(){
+  var d = DECKS[state.card];
+  var pieces = d.items.map(itemPic).join("");
+  return '<div class="guide"><span>' + d.name + ' · 3 套搭配</span><button>查看审美方案</button></div>' +
+    '<article class="outfit">' +
+      '<div class="stage">' +
+        '<div class="count"><span>' + (state.card + 1) + ' / 3 · ' + d.name + '</span><small>&#8596; 左右滑动换套</small></div>' +
+        '<div class="pieces' + (d.items.length === 1 ? ' single' : '') + '">' + pieces + '</div>' +
+      '</div>' +
+      '<div class="copy">' +
+        '<div class="label"><span>' + d.name + ' · ' + d.items.length + ' 件衣物</span><button class="fav">&#9737;</button></div>' +
+        '<h2>' + d.title + '</h2>' +
+        '<p class="reason">' + d.reason + '</p>' +
+        '<div class="colors">' + d.colors.map(function(c){ return '<i style="background:' + c + '"></i>'; }).join("") + '<span>灰 × 米色 × 卡其</span></div>' +
+      '</div>' +
+    '</article>' +
+    '<div class="actions"><button class="primary">&#9673; 实时试衣</button><button class="ghost">&#9432;</button></div>' +
+    '<div class="pager"><div class="pdots">' +
+      DECKS.map(function(_, i){ return '<i class="' + (i === state.card ? 'on' : '') + '"></i>'; }).join("") +
+      '</div><button class="next">换一套看看 &rsaquo;</button></div>';
+}
+
+function deckHtml(){
+  var rest = DECKS.length - state.card;
+  var stack = "";
+  for (var i = rest - 1; i >= 1; i--) {
+    var d = DECKS[state.card + i];
+    stack += '<article class="dcard" style="--i:' + i + '">' +
+      '<div class="pic">' + d.items.slice(0, 4).map(function(id){ return '<img src="' + IMG + '/images/' + id + '" alt="" loading="lazy">'; }).join("") + '</div>' +
+      '<div class="meta"><div class="k">' + d.name + ' · ' + d.items.length + ' 件</div><h3>' + d.title + '</h3><p>' + d.reason.slice(0, 32) + '…</p></div>' +
+      '</article>';
+  }
+  var d0 = DECKS[state.card];
+  stack += '<article class="dcard top" id="topcard" style="--i:0">' +
+      '<div class="pic">' + d0.items.slice(0, 4).map(function(id){ return '<img src="' + IMG + '/images/' + id + '" alt="" loading="lazy">'; }).join("") + '</div>' +
+      '<div class="meta"><div class="k">' + d0.name + ' · ' + d0.items.length + ' 件 · 第 ' + (state.card + 1) + ' / ' + DECKS.length + ' 套</div><h3>' + d0.title + '</h3><p>' + d0.reason + '</p></div>' +
+    '</article>';
+  stack += '<article class="morecard" style="--i:' + rest + '"><b>＋ 再生成 3 套</b><span>用这个审美重新挑</span></article>';
+
+  return '<div class="deckwrap"><div class="deck" id="deck">' + stack + '</div>' +
+    '<div class="deckhint">左右拖动画卡 · 滑到末尾是「再生成」</div></div>' +
+    '<div class="actions" style="margin-top:14px"><button class="primary">&#9673; 实时试衣</button><button class="ghost">&#9432;</button></div>';
+}
+
+function generateHtml(){
+  var merged = state.result === "deck";
+  return '' +
+    '<button class="primary">' + (merged ? '&#10022; 从衣橱生成 3 套' : '&#10022; 从衣橱生成搭配') + '</button>' +
+    (merged ? '' : '<div class="moreopt"><button>3 套 · 更多选项 &#8964;</button></div>');
+}
+
+function render(){
+  var html = aestheticHtml() + '<div id="resarea">' + (state.result === "single" ? singleHtml() : deckHtml()) + '</div>';
+  document.getElementById("screen").innerHTML = html;
+  document.getElementById("genbar").innerHTML = generateHtml();
+  bind();
+  measure();
+}
+
+function bind(){
+  var sc = document.getElementById("screen");
+  sc.querySelectorAll("[data-p]").forEach(function(b){
+    b.onclick = function(){ state.profile = Number(b.dataset.p); render(); };
+  });
+  var bv = document.getElementById("bigview");
+  if (bv) {
+    bv.addEventListener("scroll", function(){
+      var i = Math.round(bv.scrollLeft / (bv.scrollWidth / PROFILES.length));
+      i = Math.max(0, Math.min(PROFILES.length - 1, i));
+      if (i !== state.profile) {
+        state.profile = i;
+        document.getElementById("bigpos").textContent = i + 1;
+      }
+    }, {passive:true});
+  }
+  var pd = sc.querySelector(".next");
+  if (pd) pd.onclick = function(){ state.card = (state.card + 1) % DECKS.length; render(); };
+  var deck = document.getElementById("deck");
+  if (deck) bindDrag(deck);
+}
+
+function bindDrag(deck){
+  var card = document.getElementById("topcard");
+  if (!card) return;
+  var sx = 0, dx = 0, on = false;
+  card.addEventListener("pointerdown", function(e){
+    on = true; sx = e.clientX; dx = 0; card.classList.add("dragging");
+    card.setPointerCapture(e.pointerId);
+  });
+  card.addEventListener("pointermove", function(e){
+    if (!on) return;
+    dx = e.clientX - sx;
+    card.style.transform = "translateX(" + dx + "px) rotate(" + (dx / 24) + "deg)";
+  });
+  function up(){
+    if (!on) return;
+    on = false; card.classList.remove("dragging");
+    if (Math.abs(dx) > 70 && state.card < DECKS.length - 1) {
+      card.style.transform = "translateX(" + (dx > 0 ? 420 : -420) + "px) rotate(" + (dx / 12) + "deg)";
+      card.style.opacity = "0";
+      setTimeout(function(){ state.card++; render(); }, 190);
+    } else {
+      card.style.transform = "";
+    }
+  }
+  card.addEventListener("pointerup", up);
+  card.addEventListener("pointercancel", up);
+}
+
+function measure(){
+  var body = document.querySelector(".body");
+  var vh = body.clientHeight;
+  var genbar = document.querySelector(".genbar");
+  var firstRes = document.querySelector(".outfit, .deckwrap");
+  var pcard = document.querySelector(".pcard");
+  var r = firstRes ? Math.round(firstRes.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop) : 0;
+  var pc = pcard ? Math.round(pcard.getBoundingClientRect().height) : 0;
+  var band = document.querySelector(".band");
+  var big = document.querySelector(".bigcard");
+  var sticky = genbar && getComputedStyle(genbar).position === "absolute";
+  var rows = [
+    ["首屏可用高度", vh + " px"],
+    ["审美区高度", pc ? pc + " px" : "-"]
+  ];
+  if (band) rows.push(["封面带可见张数", ((band.clientWidth - 32) / 104).toFixed(1) + " 张"]);
+  if (big) rows.push(["大卡宽度", Math.round(big.getBoundingClientRect().width) + " px"]);
+  rows.push(["生成按钮", sticky ? "固定底部 · 始终可见" : "在内容流里", sticky ? "ok" : "no"]);
+  rows.push(["结果区起点", r + " px", r < vh ? "ok" : "no"]);
+  rows.push(["首屏露出结果", Math.max(0, vh - r) + " px", (vh - r) > 24 ? "ok" : "no"]);
+  var firstCard = document.querySelector(".dcard.top, .outfit");
+  var bar = document.querySelector(".genbar");
+  if (firstCard && bar) {
+    var cardBottom = firstCard.getBoundingClientRect().bottom;
+    var barTop = bar.getBoundingClientRect().top;
+    var cut = Math.round(cardBottom - barTop);
+    rows.push(["第一张卡是否被底栏压住", cut > 0 ? "压住 " + cut + " px" : "完整可见", cut > 0 ? "no" : "ok"]);
+  }
+
+  var html = "<h3>当前组合</h3><table>";
+  rows.forEach(function(row){
+    var cls = row[2] ? ' class="' + row[2] + '"' : "";
+    html += "<tr><td>" + row[0] + "</td><td" + cls + ">" + row[1] + "</td></tr>";
+  });
+  html += "</table>";
+  html += "<p>" + noteText() + "</p>";
+  document.getElementById("note").innerHTML = html;
+}
+
+function noteText(){
+  if (state.result === "deck" && state.aesthetic === "pill")
+    return "审美还是胶囊，结果先改成堆叠。这一格说明：只改结果的话，首屏仍然被 708px 介绍卡占满，卡片堆叠在屏幕下面，要滚才看得到。";
+  if (state.result === "deck" && state.aesthetic !== "pill")
+    return "推荐组合。审美压成一条，结果用堆叠，生成按钮和第一张卡都在首屏内。「更多选项」消失了，套数就是卡片张数，末尾那张虚线卡负责再生成。";
+  if (state.result === "single" && state.aesthetic === "band")
+    return "封面带 + 单张结果。选审美从 4 步降到 1 步，但结果仍是一张一张看，圆点和「换一套看看」会跟封面带形成两条并行的横滑区，容易混。";
+  if (state.result === "single" && state.aesthetic === "stack")
+    return "一屏一张 + 单张结果。大卡占了 600px 上下，结果被压到很下面，首屏基本看不到搭配。适合「先挑审美」的心智，不适合「看结果」。";
+  return "现状。审美是一枚胶囊，点开才看到六个方案；页面主体是当前审美的介绍卡，生成按钮在首屏之外。";
+}
+
+document.getElementById("segA").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-v]"); if (!b) return;
+  state.aesthetic = b.dataset.v; syncSeg(); render();
+});
+document.getElementById("segR").addEventListener("click", function(e){
+  var b = e.target.closest("button[data-v]"); if (!b) return;
+  state.result = b.dataset.v; state.card = state.card; syncSeg(); render();
+});
+function syncSeg(){
+  document.querySelectorAll("#segA button").forEach(function(b){ b.classList.toggle("on", b.dataset.v === state.aesthetic); });
+  document.querySelectorAll("#segR button").forEach(function(b){ b.classList.toggle("on", b.dataset.v === state.result); });
+}
+syncSeg();
+render();
+</script>
+</body>
+</html>
