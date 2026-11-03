@@ -75,7 +75,7 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
     } else if (frame.kind === "guide") {
       const examples = examplesFor(profile), index = frame.example || 0, sample = examples[index];
       body = `<h3 class="aesthetic-guide-name">${esc(profile.name)}</h3><p class="aesthetic-sheet-intro">${esc(profile.core || profile.summary)}</p>
-        ${sample ? `<button type="button" class="aesthetic-example-photo" data-sheet-example="${index}" aria-label="查看${esc(sample.title)}的具体安排"><img src="${esc(sample.image)}" alt="${esc(sample.items)}"><span class="aesthetic-example-badge">审美示意</span></button>
+        ${sample ? `<button type="button" class="aesthetic-example-photo" data-sheet-example="${index}" aria-label="查看${esc(sample.title)}的具体安排"><img src="${esc(sample.image)}" alt="${esc(sample.items)}"><span class="aesthetic-example-badge">穿在身上</span></button>
         <div class="aesthetic-example-caption"><strong>${esc(sample.title)}</strong><span>${index + 1} / ${examples.length} 套示例</span></div>
         <div class="aesthetic-example-controls"><button type="button" data-sheet-step="-1" aria-label="上一套示例">${icon("back")}</button><div>${examples.map((_, i) => `<button type="button" data-sheet-page="${i}" aria-label="第${i + 1}套示例" aria-pressed="${index === i}"><i></i></button>`).join("")}</div><button type="button" data-sheet-step="1" aria-label="下一套示例">${icon("right")}</button></div>
         <button type="button" class="aesthetic-example-link" data-sheet-example="${index}">看看这套的具体安排${icon("right")}</button>
