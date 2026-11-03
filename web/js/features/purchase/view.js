@@ -2,6 +2,7 @@
 import {api} from '../../core/api.js';
 import {esc,icon,serviceSettingsHtml,toast} from '../../core/ui.js';
 import {createAestheticSheet} from '../outfits/aesthetic-sheet.js';
+import {coverImage} from '../outfits/aesthetic-ui.js';
 import {createAssistantPanel} from './assistant-panel.js';
 import {intentSession as session} from './intent-session.js';
 import {seedReferences,subscribeReferenceMedia} from './reference-store.js';
@@ -32,7 +33,7 @@ export async function mount(root,ctx){
  function selection(){const d=currentDraft();return d?session.selection(d.id):{ids:[],note:'',expanded:false}}
  function acceptRefs(){seedReferences(session.data?.references||{})}
  function defer(){dirty=true;clearTimeout(timer);timer=setTimeout(()=>{if(alive())changed()},350)}
- function header(){const d=currentDraft(),p=mode==='result'?fullPlan()?.aesthetic:mode==='assistant'?d?.aesthetic:mode==='analyzing'?analysisProfile():profile(),match=profiles.find(row=>row.id===p?.id),sample=match?.examples?.[0];return `${['result','saved','processing'].includes(mode)?`<button type="button" class="pi-head-back" data-assistant-back aria-label="返回上一层">${icon('back')}</button>`:''}<div class="pi-head-style">${sample?`<img src="${esc(sample.image)}" alt="">`:icon('spark')}<span><strong>${esc(p?.name||'添置助手')}</strong><small>结合 ${session.data?.total||0} 件已有衣物</small></span></div><button type="button" class="pi-head-close" data-assistant-close aria-label="关闭添置助手">${icon('close')}</button>`}
+ function header(){const d=currentDraft(),p=mode==='result'?fullPlan()?.aesthetic:mode==='assistant'?d?.aesthetic:mode==='analyzing'?analysisProfile():profile(),match=profiles.find(row=>row.id===p?.id),cover=match?coverImage(match):'';return `${['result','saved','processing'].includes(mode)?`<button type="button" class="pi-head-back" data-assistant-back aria-label="返回上一层">${icon('back')}</button>`:''}<div class="pi-head-style">${cover?`<img src="${esc(cover)}" alt="">`:icon('spark')}<span><strong>${esc(p?.name||'添置助手')}</strong><small>结合 ${session.data?.total||0} 件已有衣物</small></span></div><button type="button" class="pi-head-close" data-assistant-close aria-label="关闭添置助手">${icon('close')}</button>`}
  function body(){
   const data=session.data,draft=currentDraft(),ready=readyDraft();
   if(mode==='analyzing')return analyzingHtml(analysisProfile(),data?.analysis_request);

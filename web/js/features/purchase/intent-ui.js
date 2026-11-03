@@ -2,13 +2,22 @@
 import { api } from '../../core/api.js';
 import { esc,icon } from '../../core/ui.js';
 import { referencePhoto, referenceLabel } from './reference.js';
+import { coverImage } from '../outfits/aesthetic-ui.js';
 export function photo(item){const url=item&&api.presentationUrl(item);return url?`<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(item.name||item.type_label||'已有衣物')}">`:`<span class="purchase-ph">${esc(item?.type_label||'已有衣物')}</span>`;}
 const primary=(action,text,disabled=false)=>`<button type="button" class="purchase-primary primary" ${action} ${disabled?'disabled':''}>${icon('spark')}<span>${text}</span></button>`;
-function samples(profile){return (profile?.examples||[]).slice(0,3).map(row=>`<img src="${esc(row.image)}" alt="${esc(row.title||'穿搭示意')}">`).join('');}
+/** 审美行的预览：**一张平铺封面**，与搭配页、六宫格选择面板同源。
+ *  以前这里是三张 `examples[].image`（模特样图）各压成 25×52 的竖条 ——
+ *  三个人同一张脸同一个站姿，看着像三条人形切片。封面是竖构图，
+ *  给 36×52（0.692 ≈ 原图 0.693）刚好零裁切，整套平铺完整可见。
+ *  拿不到 cover 就整块不渲染：宁可没有图，也不退回人像。 */
+function coverPreview(profile){
+ const cover=coverImage(profile);
+ return cover?`<span class="style-preview-images"><img src="${esc(cover)}" alt="${esc(profile?.name||'审美方向')}封面"></span>`:'';
+}
 export function initialHtml({data,profile,analyzing,preparation,photosReady=false}){
  const hero=(data?.hero||[]).slice(0,3),pending=preparation&&['running','unknown','interrupted'].includes(preparation.status)&&preparation.phase!=='finished';
  const resume=analyzing?'<button type="button" class="quiet blue home-return" data-open-analysis>查看分析进度 →</button>':data?.analysis?.workflow_version===2?'<button type="button" class="quiet blue home-return" data-resume-analysis>继续看看衣物方向 →</button>':'';
- return `<div class="home-layout"><div class="wardrobe-motif" aria-hidden="true">${hero.map(id=>`<div>${photo(data.items[id])}</div>`).join('')}${!hero.length?`<div>${icon('wardrobe')}</div>`:''}</div><h1 class="home-title">先选一种审美，<br>再看看添什么。</h1><p class="body-copy">让 AI 结合已有衣橱，<br>帮你想清楚下一件值得添什么。</p><button type="button" class="style-picker" data-open-aesthetics aria-haspopup="dialog"><span class="style-preview-images">${samples(profile)}</span><span><small>审美方向</small><strong>${esc(profile?.name||'自然日常')}</strong></span>${icon('right')}</button>${primary('data-purchase-analyze','按这个审美分析',analyzing||!data?.total||!profile)}${resume}${pending?'<button type="button" class="quiet blue home-return" data-open-preparation>查看本次准备 →</button>':data?.result?'<button type="button" class="quiet blue home-return" data-purchase-last>查看上次建议 →</button>':''}${!data?.total?'<p class="selection-note">先录入几件已有衣物，让建议更有依据。<br><a href="#add">去录入衣物</a></p>':''}</div>`;
+ return `<div class="home-layout"><div class="wardrobe-motif" aria-hidden="true">${hero.map(id=>`<div>${photo(data.items[id])}</div>`).join('')}${!hero.length?`<div>${icon('wardrobe')}</div>`:''}</div><h1 class="home-title">先选一种审美，<br>再看看添什么。</h1><p class="body-copy">让 AI 结合已有衣橱，<br>帮你想清楚下一件值得添什么。</p><button type="button" class="style-picker" data-open-aesthetics aria-haspopup="dialog">${coverPreview(profile)}<span><small>审美方向</small><strong>${esc(profile?.name||'自然日常')}</strong></span>${icon('right')}</button>${primary('data-purchase-analyze','按这个审美分析',analyzing||!data?.total||!profile)}${resume}${pending?'<button type="button" class="quiet blue home-return" data-open-preparation>查看本次准备 →</button>':data?.result?'<button type="button" class="quiet blue home-return" data-purchase-last>查看上次建议 →</button>':''}${!data?.total?'<p class="selection-note">先录入几件已有衣物，让建议更有依据。<br><a href="#add">去录入衣物</a></p>':''}</div>`;
 }
 function proposal(draft,direction,index,selection,items){return `<button type="button" class="proposal" role="checkbox" aria-checked="${selection.ids.includes(direction.id)}" data-intent-direction="${esc(direction.id)}"><span class="pi-direction-photo">${referencePhoto(direction)}</span><span class="proposal-body"><span class="proposal-title"><strong>${esc(direction.title)}</strong></span><span class="proposal-description">${esc(direction.reason)}</span><span class="proposal-match">${direction.owned.slice(0,2).map(id=>`<span class="intent-owned-mini">${photo(items[id])}</span>`).join('')}<span>和已有衣物一起搭</span></span></span><span class="choice-mark">${icon('check')}</span></button>`;}
 export function assistantHtml({draft,selection,items,preparing}){

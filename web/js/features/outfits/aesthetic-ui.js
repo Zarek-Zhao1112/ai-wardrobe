@@ -9,11 +9,15 @@ export function arrangementFor(profile) {
   return profile?.arrangement?.length ? profile.arrangement :
     (profile?.dimensions || []).map(row => ({ label: row.label, goal: row.goal }));
 }
+/** 只取校验过的封面地址，拿不到就返回空串 —— **绝不回退到示例人像**。
+ *  添置页用它：那里若回退，卡片又会冒出模特，等于把刚撤掉的视觉放回来。 */
+export function coverImage(profile) {
+  const cover = profile?.cover;
+  return typeof cover === "string" && /^\/reference\/aesthetics\/[a-zA-Z0-9_-]+\.webp$/.test(cover) ? cover : "";
+}
 /** 方向封面：平铺静物。没有 cover 的历史快照回退到第一张示例，行为与旧版一致。 */
 export function coverFor(profile) {
-  const cover = profile?.cover;
-  if (typeof cover === "string" && /^\/reference\/aesthetics\/[a-zA-Z0-9_-]+\.webp$/.test(cover)) return cover;
-  return examplesFor(profile)[0]?.image || "";
+  return coverImage(profile) || examplesFor(profile)[0]?.image || "";
 }
 export function rulesHtml(profile) {
   return `<dl class="aesthetic-rules">${arrangementFor(profile).map(row => `<div><dt>${esc(row.label)}</dt><dd>${esc(row.goal)}</dd></div>`).join("")}</dl>`;
