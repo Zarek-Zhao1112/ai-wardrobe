@@ -15,6 +15,14 @@ export function coverImage(profile) {
   const cover = profile?.cover;
   return typeof cover === "string" && /^\/reference\/aesthetics\/[a-zA-Z0-9_-]+\.webp$/.test(cover) ? cover : "";
 }
+/** 横条缩略图：封面下方「鞋 + 裤脚」的局部，给添置行那种 74×52 的横向格子用。
+ *  竖封面塞横向格子只会取到中间那条带（敞开外套 + 白 T = 一个胸口），所以另裁一张。
+ *  拿不到 thumb 时退到 cover：旧快照没有 thumb，退回整张封面总比没有图强。 */
+export function thumbImage(profile) {
+  const thumb = profile?.thumb;
+  if (typeof thumb === "string" && /^\/reference\/aesthetics\/[a-zA-Z0-9_-]+\.webp$/.test(thumb)) return thumb;
+  return coverImage(profile);
+}
 /** 方向封面：平铺静物。没有 cover 的历史快照回退到第一张示例，行为与旧版一致。 */
 export function coverFor(profile) {
   return coverImage(profile) || examplesFor(profile)[0]?.image || "";

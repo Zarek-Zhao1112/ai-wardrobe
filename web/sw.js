@@ -83,7 +83,7 @@ const NET_TIMEOUT_MS = 3000;
 
 // 清单由 scripts/checks/web_assets.py 生成，激活检查复用同一清单。
 // BEGIN GENERATED ASSETS
-const ASSET_REVISION = "c08092750e6d0ed1";
+const ASSET_REVISION = "9d77b1e843eed3f3";
 const SHELL_ASSETS = [
   "/",
   "/bind.html",
@@ -163,6 +163,12 @@ const SHELL_ASSETS = [
   "/reference/aesthetics/technical-01.webp",
   "/reference/aesthetics/technical-02.webp",
   "/reference/aesthetics/technical-03.webp",
+  "/reference/aesthetics/thumb-heritage.webp",
+  "/reference/aesthetics/thumb-natural.webp",
+  "/reference/aesthetics/thumb-refined.webp",
+  "/reference/aesthetics/thumb-street.webp",
+  "/reference/aesthetics/thumb-technical.webp",
+  "/reference/aesthetics/thumb-urban.webp",
   "/reference/aesthetics/urban-01.webp",
   "/reference/aesthetics/urban-02.webp",
   "/reference/aesthetics/urban-03.webp"

@@ -348,6 +348,10 @@ for _key, _file in COVERS.items():
         # 拼错 key 会让封面静默缺失，卡片回退成示例人像——这里直接炸掉更好。
         raise ValueError('封面指向不存在的审美方案：' + _key)
     NEW_PROFILES[_key]['cover'] = '/reference/aesthetics/' + _file
+    # §37：添置行那个 74×52 的横条放不下整张竖封面。竖封面塞进横框只会取到中间
+    # 那条带——正好是「敞开外套里一件白 T」，比整叠更像一个胸口。所以另外裁一张
+    # 鞋+裤脚的局部当缩略图（scripts/assets/crop_aesthetic_thumbs.py 生成）。
+    NEW_PROFILES[_key]['thumb'] = '/reference/aesthetics/' + _file.replace('cover-', 'thumb-', 1)
 
 ACTIVE_IDS = tuple(NEW_PROFILES)
 _missing_covers = [key for key in ACTIVE_IDS if 'cover' not in NEW_PROFILES[key]]

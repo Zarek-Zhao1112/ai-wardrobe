@@ -2,17 +2,18 @@
 import { api } from '../../core/api.js';
 import { esc,icon } from '../../core/ui.js';
 import { referencePhoto, referenceLabel } from './reference.js';
-import { coverImage } from '../outfits/aesthetic-ui.js';
+import { thumbImage } from '../outfits/aesthetic-ui.js';
 export function photo(item){const url=item&&api.presentationUrl(item);return url?`<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(item.name||item.type_label||'已有衣物')}">`:`<span class="purchase-ph">${esc(item?.type_label||'已有衣物')}</span>`;}
 const primary=(action,text,disabled=false)=>`<button type="button" class="purchase-primary primary" ${action} ${disabled?'disabled':''}>${icon('spark')}<span>${text}</span></button>`;
-/** 审美行的预览：**一张平铺封面**，与搭配页、六宫格选择面板同源。
- *  以前这里是三张 `examples[].image`（模特样图）各压成 25×52 的竖条 ——
- *  三个人同一张脸同一个站姿，看着像三条人形切片。封面是竖构图，
- *  给 36×52（0.692 ≈ 原图 0.693）刚好零裁切，整套平铺完整可见。
- *  拿不到 cover 就整块不渲染：宁可没有图，也不退回人像。 */
+/** 审美行的预览：**一张横条局部**（鞋 + 裤脚），与搭配页封面同源同一次拍摄。
+ *  这条路换过三次，每次都是"看起来像个人"：
+ *  ① 三张 `examples[].image`（模特样图）各压成 25×52 —— 三条人形切片；
+ *  ② 一张竖封面塞 36×52 —— 整叠缩到 36px，领口白 T 裤子鞋排成一条，像没头的人；
+ *  ③ 现在：封面下方鞋与裤脚的局部，74×52。静物，没有身体链条。
+ *  拿不到 thumb 就退到 cover，再拿不到整块不渲染：宁可没有图，也不退回人像。 */
 function coverPreview(profile){
- const cover=coverImage(profile);
- return cover?`<span class="style-preview-images"><img src="${esc(cover)}" alt="${esc(profile?.name||'审美方向')}封面"></span>`:'';
+ const url=thumbImage(profile);
+ return url?`<span class="style-preview-images"><img src="${esc(url)}" alt="${esc(profile?.name||'审美方向')}封面"></span>`:'';
 }
 export function initialHtml({data,profile,analyzing,preparation,photosReady=false}){
  const hero=(data?.hero||[]).slice(0,3),pending=preparation&&['running','unknown','interrupted'].includes(preparation.status)&&preparation.phase!=='finished';
