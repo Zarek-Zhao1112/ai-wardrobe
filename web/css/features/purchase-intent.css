@@ -8,8 +8,7 @@
 .purchase-intent .style-stamp{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim)}
 .purchase-intent .style-stamp>i{width:6px;height:6px;border-radius:50%;background:var(--accent);display:block}
 .purchase-intent .saved-link{display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;font-size:12px;color:var(--text-faint);padding:0 10px;background:transparent}
-.purchase-intent .saved-link .icon{width:17px;height:17px}
-.purchase-intent .home-top{display:flex;justify-content:flex-end;height:44px}
+.purchase-intent .saved-link .icon{width:17px;height:17px}.purchase-intent .home-top{display:flex;justify-content:flex-end;height:44px}
 .purchase-intent .home-layout{min-height:calc(100% - 44px);display:flex;flex-direction:column;justify-content:flex-end}
 .purchase-intent .wardrobe-motif{height:135px;position:relative;display:flex;justify-content:center;align-items:center;margin:4px 0 18px}
 .purchase-intent .wardrobe-motif>div{height:115px;width:105px;border:1px solid #fff;background:rgba(255,255,255,.88);padding:8px;border-radius:20px;box-shadow:0 10px 24px rgba(34,48,68,.045);position:absolute}
@@ -183,3 +182,29 @@
 /* 「看分析进度 / 看上次建议」那类回头入口：最多两个并排，没有就整块不出。 */
 .purchase-intent .aesthetic-home-links{flex:none;display:flex;align-items:center;justify-content:center;gap:2px;min-height:44px;flex-wrap:nowrap;overflow:hidden}
 .purchase-intent .aesthetic-home-empty{flex:none;margin:6px 0 0;text-align:center;font-size:12px;line-height:1.75}
+
+/* ---------- §42 添置首页：把首行 58px 和底栏 8px 全部让给封面 ----------
+ * 目标：图框 = 354 × 511，即 354 × 1299/900 —— 封面按宽度铺满的原始高度，
+ * 上下一个像素都不裁。高度账（390×844 实测）：
+ *   旧：view 680 = 3 + heading(44+14) + 卡 563 + dots 44 + 余量
+ *   新：删 heading(−58)、dots 44→36(−8)、卡里去掉 core 那句(−49)
+ *       → 卡 ≈ 629，face ≈ 524（比 511 多 13，左右各裁 ~4px，肉眼无感）
+ * 见 docs/design/purchase-home-redesign.html 的「卡片尺寸还能怎么动」。 */
+
+/* 底栏：44 → 36。按钮也跟着缩，否则 44 的点击区会把容器顶穿。 */
+.purchase-intent .outfit-aesthetic-dots{min-height:36px}
+/* 全局 button 有 min-height:44，光写 height:36 压不住 —— 必须把 min-height 一起写。 */
+.purchase-intent .outfit-aesthetic-dots button{width:36px;height:36px;min-height:36px}
+.purchase-intent .outfit-aesthetic-dots .label{margin-left:3px;font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+
+/* 卡片文案区：描述那句已经不在（aestheticCardHtml 传 showCore:false），
+ * 底部补 24px 留白。这 24 不是随手定的：390×844 下卡 625、copy 112 时
+ * face 正好 511 = 354 × 1299/900，封面按宽度铺满的原始高度，横向裁切只剩 0.05px。 */
+.purchase-intent .outfit-aesthetic-copy{padding-bottom:24px}
+/* 卡片上只剩标题 + chips 时，chips 和标题之间别贴死。 */
+.purchase-intent .outfit-aesthetic-copy h2{margin-bottom:2px}
+
+/* 顶栏那枚「已记下 N」。它不在 .purchase-intent 作用域里（在 #topbar-action），
+ * 所以必须单独写一份，不能靠 .saved-link 继承。 */
+.topbar-action .saved-link{display:flex;align-items:center;gap:5px;min-height:36px;font-size:12px;color:var(--text-faint);padding:0 7px;border:0;background:none;border-radius:10px}
+.topbar-action .saved-link .icon{width:16px;height:16px}

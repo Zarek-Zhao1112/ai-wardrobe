@@ -36,21 +36,28 @@ export function coverFor(profile) {
  *    data-aesthetic-guide = 「认识这个」（进 guide 帧）
  * ⚠️ 样式在 css/features/outfits-deck.css（裸类名，不挂在 .outfit-view 下），
  *    添置页直接套同一个类名即可，别复制第二份。 */
-export function aestheticCardHtml(profile, { hint = "点这里生成搭配", openLabel = "" } = {}) {
+export function aestheticCardHtml(profile, { hint = "点这里生成搭配", openLabel = "", showCore = true } = {}) {
   const cover = coverFor(profile);
   const label = openLabel || `用${profile.name}生成搭配`;
+  // showCore=false：卡片上不放那句 core。§42 添置页用它换 49px 给封面
+  //   —— 511 = 354 × 1299/900 正好是封面原比例，图框上下一个像素都不裁。
+  //   信息不丢：methodDetails()（「认识这个」点开的详情）第一行本来就是同一个 core。
+  const core = showCore ? '<p>' + esc(profile.core || profile.summary || "") + '</p>' : "";
   return `<article class="outfit-aesthetic-card" data-aesthetic-card="${esc(profile.id)}">
       <button type="button" class="outfit-aesthetic-face" data-aesthetic-open="${esc(profile.id)}" aria-label="${esc(label)}">
         ${cover ? `<img src="${esc(cover)}" alt="" decoding="async">` : `<span class="ph">暂无意向图</span>`}
         <span class="outfit-aesthetic-hint">${icon("spark")}${esc(hint)}</span>
       </button>
-      <div class="outfit-aesthetic-copy"><h2>${esc(profile.name)}</h2><p>${esc(profile.core || profile.summary || "")}</p>
+      <div class="outfit-aesthetic-copy"><h2>${esc(profile.name)}</h2>${core}
         <div class="outfit-aesthetic-row"><div class="chips">${(profile.points || []).slice(0, 3).map(point => `<span class="chip">${esc(point)}</span>`).join("")}</div><button type="button" class="outfit-aesthetic-learn" data-aesthetic-guide="${esc(profile.id)}">认识这个${icon("right")}</button></div>
       </div></article>`;
 }
-/** 圆点：44×44 的按钮包 6px 的条 —— 契约 §4 量的是按钮，不是条。 */
-export function aestheticDotsHtml(profiles, active = 0) {
-  return profiles.map((profile, index) => `<button type="button" data-aesthetic-dot="${index}" aria-pressed="${index === active}" aria-label="第 ${index + 1} 个方向：${esc(profile.name)}"><i></i></button>`).join("");
+/** 圆点：44×44 的按钮包 6px 的条 —— 契约 §4 量的是按钮，不是条。
+ *  §42 起圆点右侧可以带一枚「1/6」页码：只有添置页传 `{label:true}`，
+ *  搭配页不传就还是原来的纯圆点（那边一屏能滑好几张，页码意义不大）。 */
+export function aestheticDotsHtml(profiles, active = 0, { label = false } = {}) {
+  const dots = profiles.map((profile, index) => `<button type="button" data-aesthetic-dot="${index}" aria-pressed="${index === active}" aria-label="第 ${index + 1} 个方向：${esc(profile.name)}"><i></i></button>`).join("");
+  return label ? dots + `<span class="label" data-aesthetic-page>${active + 1}/${profiles.length}</span>` : dots;
 }
 export function rulesHtml(profile) {
   return `<dl class="aesthetic-rules">${arrangementFor(profile).map(row => `<div><dt>${esc(row.label)}</dt><dd>${esc(row.goal)}</dd></div>`).join("")}</dl>`;

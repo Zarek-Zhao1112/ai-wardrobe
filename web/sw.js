@@ -83,7 +83,7 @@ const NET_TIMEOUT_MS = 3000;
 
 // 清单由 scripts/checks/web_assets.py 生成，激活检查复用同一清单。
 // BEGIN GENERATED ASSETS
-const ASSET_REVISION = "114ca5783984698d";
+const ASSET_REVISION = "6e82cb3af5eca5d5";
 const SHELL_ASSETS = [
   "/",
   "/bind.html",
@@ -129,6 +129,7 @@ const SHELL_ASSETS = [
   "/js/features/outfits/aesthetic-sheet.js",
   "/js/features/outfits/aesthetic-ui.js",
   "/js/features/outfits/camera.js",
+  "/js/features/outfits/tight.js",
   "/js/features/outfits/tryon-sheet.js",
   "/js/features/outfits/view.js",
   "/js/features/purchase/assistant-panel.js",

@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>添置页审美选择 · 三种方案（可交互原型）</title>
+<style>
+  :root {
+    --bg: #f5f5f7; --surface: #ffffff; --surface2: #f2f2f5;
+    --border: #e0e0e0; --border2: #c9c9ce;
+    --text: #1d1d1f; --dim: #5c5c61; --faint: #6b6b70;
+    --accent: #0066cc; --accent-line: #b3d4f5; --accent-soft: #e8f2fd;
+    --danger: #c0392b; --danger-soft: #fdecea;
+    --r-sm: 8px; --r: 12px; --r-lg: 16px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 400 14px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 24px 32px; }
+
+  header .eyebrow { font-size: 12px; letter-spacing: .12em; color: var(--faint); text-transform: uppercase; }
+  header h1 { font-size: 22px; font-weight: 600; margin: 6px 0 8px; letter-spacing: -.01em; }
+  header p.lede { margin: 0; color: var(--dim); max-width: 720px; }
+
+  .tabs { display: flex; gap: 8px; margin: 22px 0 0; flex-wrap: wrap; }
+  .tab {
+    appearance: none; border: 1px solid var(--border); background: var(--surface);
+    color: var(--dim); font: inherit; font-size: 13px; padding: 9px 16px; border-radius: 999px;
+    cursor: pointer; transition: .18s;
+  }
+  .tab:hover { border-color: var(--border2); color: var(--text); }
+  .tab[aria-selected="true"] { background: var(--text); border-color: var(--text); color: #fff; }
+  .tab b { font-weight: 600; }
+
+  main { display: grid; grid-template-columns: 390px minmax(0, 1fr); gap: 40px; margin-top: 18px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
+
+  .panel { display: none; }
+  .panel.on { display: block; }
+
+  .phone {
+    position: relative; width: 390px; height: 690px; overflow: hidden;
+    background: var(--bg); border: 1px solid var(--border2); border-radius: 34px;
+    font-size: 13px;
+  }
+  .tb {
+    height: 48px; display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 600; border-bottom: 1px solid var(--border);
+    background: rgba(255,255,255,.86); backdrop-filter: blur(12px);
+  }
+  .pbody { padding: 12px; display: grid; gap: 10px; }
+
+  .picker-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    width: 100%; padding: 0 14px; height: 46px; border-radius: var(--r);
+    background: var(--surface); border: 1px solid var(--border); font: inherit; cursor: pointer;
+    transition: .16s;
+  }
+  .picker-row:hover { border-color: var(--accent-line); background: #fbfdff; }
+  .picker-row .k { font-size: 12px; color: var(--faint); }
+  .picker-row .v { font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .picker-row .v i { font-style: normal; color: var(--border2); }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 12px; }
+  .card .k { font-size: 11px; color: var(--faint); margin-bottom: 8px; }
+  .card textarea {
+    width: 100%; border: 0; outline: 0; resize: none; background: var(--surface2);
+    border-radius: var(--r-sm); padding: 9px 10px; font: inherit; font-size: 12px; color: var(--text);
+  }
+  .card textarea::placeholder { color: var(--border2); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font: inherit; font-size: 12px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--dim);
+  }
+  .chip.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+
+  .primary {
+    height: 46px; border-radius: var(--r); border: 0; background: var(--accent); color: #fff;
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer;
+  }
+  .primary:active { transform: translateY(1px); }
+
+  .tabs-bar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 62px;
+    display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; text-align: center;
+    background: rgba(255,255,255,.9); border-top: 1px solid var(--border); backdrop-filter: blur(12px); z-index: 1;
+  }
+  .tabs-bar span { font-size: 11px; color: var(--faint); display: grid; gap: 3px; justify-items: center; }
+  .tabs-bar span.on { color: var(--accent); }
+  .tabs-bar svg { width: 20px; height: 20px; }
+
+  .veil {
+    position: absolute; inset: 0; z-index: 4; background: rgba(29,29,31,.22);
+    opacity: 0; pointer-events: none; transition: opacity .3s;
+  }
+  .veil.on { opacity: 1; pointer-events: auto; }
+
+  .sheet {
+    position: absolute; z-index: 5; left: 6px; right: 6px; bottom: 6px; max-height: 82%;
+    display: flex; flex-direction: column; overflow: hidden;
+    background: rgba(255,255,255,.92); backdrop-filter: blur(28px) saturate(1.4);
+    border: 1px solid rgba(255,255,255,.95); border-radius: 26px;
+    box-shadow: 0 18px 48px rgba(20,25,40,.18), 0 1px 0 rgba(255,255,255,.9) inset;
+    transform: translateY(calc(100% + 16px)); transition: transform .4s cubic-bezier(.22,.75,.22,1);
+  }
+  .sheet.on { transform: none; }
+  .sheet-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px 10px; flex: none;
+  }
+  .sheet-head h2 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .sheet-head .back {
+    width: 28px; height: 28px; margin-left: -6px; border: 0; background: none;
+    font-size: 17px; color: var(--dim); cursor: pointer; border-radius: 50%;
+  }
+  .sheet-head .x { width: 30px; height: 30px; border: 0; background: var(--surface2); border-radius: 50%; font-size: 15px; color: var(--dim); cursor: pointer; }
+  .sheet-scroll { overflow-y: auto; padding: 0 14px 16px; -webkit-overflow-scrolling: touch; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .a-card { position: relative; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+  .a-card.is-sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .a-pick {
+    display: block; width: 100%; padding: 7px 7px 0; border: 0; background: none;
+    font: inherit; text-align: left; cursor: pointer; position: relative;
+  }
+  .a-pick .cover { display: block; height: 80px; border-radius: 9px; overflow: hidden; background: var(--surface2); }
+  .a-pick .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .a-pick .nm { display: block; font-size: 12px; font-weight: 600; margin-top: 7px; }
+  .a-pick .pt { display: block; font-size: 11px; color: var(--faint); margin-top: 2px; line-height: 1.5; }
+  .a-pick .ck {
+    position: absolute; top: 12px; right: 12px; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 11px; display: none; place-items: center;
+    border: 1.5px solid #fff;
+  }
+  .a-card.is-sel .a-pick .ck { display: grid; }
+  .a-guide {
+    display: flex; align-items: center; justify-content: space-between; width: 100%;
+    padding: 7px 10px 9px; border: 0; background: none; font: inherit; font-size: 11px;
+    color: var(--accent); cursor: pointer;
+  }
+
+  .guide-h { font-size: 17px; font-weight: 600; margin: 2px 0 6px; }
+  .guide-core { font-size: 12.5px; color: var(--dim); margin: 0 0 12px; }
+  .guide-cover { width: 100%; height: 150px; object-fit: cover; border-radius: 12px; display: block; margin-bottom: 14px; }
+  .guide-pts { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .guide-pts span { font-size: 11px; color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; }
+  dl.rules { margin: 0 0 14px; display: grid; gap: 8px; }
+  dl.rules div { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; font-size: 12px; }
+  dl.rules dt { color: var(--faint); }
+  dl.rules dd { margin: 0; color: var(--text); }
+
+  .note { padding-top: 4px; }
+  .note h3 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
+  .note .sub { font-size: 12px; color: var(--faint); margin: 0 0 16px; }
+  .note h4 { font-size: 12px; font-weight: 600; margin: 22px 0 8px; color: var(--dim); letter-spacing: .04em; }
+  .note p, .note li { font-size: 13px; color: var(--dim); margin: 0 0 6px; }
+  .note ul { margin: 0 0 6px; padding-left: 18px; }
+  .kv { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px 14px; font-size: 13px; margin: 0 0 4px; }
+  .kv dt { color: var(--faint); }
+  .kv dd { margin: 0; color: var(--text); }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--dim); }
+  .pill.ok { background: #e7f6ee; color: #1d7a4b; }
+  .pill.warn { background: var(--danger-soft); color: var(--danger); }
+
+  .flow { display: grid; gap: 10px; margin: 0 0 6px; }
+  .flow-row { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+  .flow-row .step { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; }
+  .flow-row .step.hot { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+  .flow-row .step.gone { border-color: #f0c9c4; background: var(--danger-soft); color: var(--danger); text-decoration: line-through; }
+  .flow-row .arw { color: var(--border2); }
+
+  .struct { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 620px) { .struct { grid-template-columns: 1fr; } }
+  .struct h5 { font-size: 11px; font-weight: 600; color: var(--faint); margin: 0 0 8px; letter-spacing: .06em; }
+  .st-box { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--surface); font-size: 12px; }
+  .st-box + .st-box { margin-top: 8px; }
+  .st-box.dim { background: var(--surface2); color: var(--dim); }
+  .st-box.bad { border-color: #f0c9c4; background: var(--danger-soft); color: var(--danger); }
+  .st-box.file { border-color: var(--accent-line); background: #f6fafe; }
+  .st-in { margin-top: 8px; display: grid; gap: 5px; }
+  .st-in span { font-size: 11px; border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 3px 8px; color: var(--dim); }
+  .st-in span.gone { border-color: #f0c9c4; background: #fff; color: var(--danger); text-decoration: line-through; }
+  .st-note { font-size: 11px; color: var(--faint); margin: 6px 0 0; }
+
+  .hint { font-size: 12px; color: var(--faint); margin: 10px 0 0; }
+  .hint b { color: var(--dim); font-weight: 600; }
+
+  .c-deck { padding: 12px 12px 0; }
+  .c-track {
+    display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 10px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .c-track::-webkit-scrollbar { display: none; }
+  .c-card {
+    flex: 0 0 100%; scroll-snap-align: center; position: relative;
+    height: 496px; border-radius: 18px; overflow: hidden; background: var(--surface2);
+    border: 1px solid var(--border); cursor: pointer;
+  }
+  .c-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .c-card .tag {
+    position: absolute; left: 10px; top: 10px; background: rgba(255,255,255,.92);
+    border-radius: 999px; padding: 5px 11px; font-size: 11px; color: var(--dim); backdrop-filter: blur(8px);
+  }
+  .c-card .cap {
+    position: absolute; left: 10px; right: 10px; bottom: 10px;
+    background: rgba(255,255,255,.94); border-radius: 14px; padding: 12px; backdrop-filter: blur(10px);
+  }
+  .c-card .cap b { font-size: 14px; font-weight: 600; display: block; }
+  .c-card .cap p { margin: 3px 0 0; font-size: 11.5px; color: var(--faint); }
+  .c-card .cap em { font-style: normal; font-size: 12px; color: var(--accent); display: block; margin-top: 8px; }
+  .c-card .analyzing {
+    position: absolute; inset: 0; background: rgba(255,255,255,.94); display: none;
+    flex-direction: column; justify-content: center; gap: 10px; padding: 24px;
+  }
+  .c-card.is-busy .analyzing { display: flex; }
+  .c-card .analyzing .bar { height: 10px; border-radius: 5px; background: var(--surface2); }
+  .c-card .analyzing .bar:nth-child(2) { width: 78%; }
+  .c-card .analyzing .bar:nth-child(3) { width: 54%; }
+  .c-card .analyzing .tip { font-size: 12px; color: var(--faint); margin-top: 6px; }
+  .c-dots { display: flex; justify-content: center; gap: 7px; height: 32px; align-items: center; }
+  .c-dots i { width: 6px; height: 6px; border-radius: 3px; background: var(--border2); transition: .2s; }
+  .c-dots i.on { width: 18px; background: var(--accent); }
+  .c-foot { display: flex; align-items: center; justify-content: space-between; padding: 0 14px 2px; font-size: 11px; color: var(--faint); }
+  .c-foot button { border: 0; background: none; font: inherit; font-size: 11px; color: var(--dim); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">ai-wardrobe · 设计决策</div>
+    <h1>添置页「审美方向」点不出来 —— 三种修法</h1>
+    <p class="lede">
+      根因：上一轮把搭配页改成两层时，<code>aesthetic-sheet.js</code> 里的 <code>select</code> 帧和 <code>openSelector</code>
+      被删掉，但添置页 <code>purchase/view.js:107</code> 还在调它，点击直接抛
+      <code>TypeError: sheet?.openSelector is not a function</code>。下面三个方案都可以直接点。
+    </p>
+    <nav class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-tab="a"><b>A</b> · 复原</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="b"><b>B</b> · 拆件</button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="c"><b>C</b> · 统一</button>
+    </nav>
+  </header>
+
+  <main>
+    <div>
+      <section class="panel on" data-panel="a"></section>
+      <section class="panel" data-panel="b"></section>
+      <section class="panel" data-panel="c"></section>
+    </div>
+    <aside class="note" id="note"></aside>
+  </main>
+</div>
+
+<script>
+const AESTHETICS = [
+  { id:'natural',   name:'自然日常', pt:'松弛基础 · 棉麻',     cover:'covers/demo-cover-natural.webp',
+    core:'不追求轮廓，靠面料和比例把日常穿得松。适合不想每天想穿什么的那一类。',
+    points:['面料优先','版型宽松','低对比配色'],
+    rules:[['上装','宽松棉麻衬衫、粗针织'],['下装','直筒长裤，脚口留量'],['配色','米白、浅灰、燕麦']] },
+  { id:'street',    name:'街头表达', pt:'机能叠穿 · 低饱和',   cover:'covers/demo-cover-street.webp',
+    core:'靠层次和廓形说话，颜色压到灰黑之间，让版型成为唯一的重点。',
+    points:['分层叠穿','廓形挺括','灰黑为主'],
+    rules:[['上装','宽松卫衣、机能外套'],['下装','工装长裤、束脚裤'],['配色','炭黑、中灰、暗橄榄']] },
+  { id:'urban',     name:'都市利落', pt:'结构线条 · 深色',     cover:'covers/demo-cover-urban.webp',
+    core:'上身收得干净，裤线笔直，整体只留一到两个视觉重点。',
+    points:['肩线清楚','裤线笔直','深色为主'],
+    rules:[['上装','结构感衬衫、短夹克'],['下装','直筒西裤、锥形裤'],['配色','藏蓝、黑、深灰']] },
+  { id:'refined',   name:'精致通勤', pt:'垂坠面料 · 中性色',   cover:'covers/demo-cover-refined.webp',
+    core:'靠面料的光泽和垂感取胜，颜色克制，配件只留一件。',
+    points:['垂坠感','中性色','配件克制'],
+    rules:[['上装','真丝衬衫、薄针织'],['下装','垂坠阔腿裤、半裙'],['配色','米、驼、雾蓝']] },
+  { id:'heritage',  name:'复古质感', pt:'粗花呢 · 大地色',     cover:'covers/demo-cover-heritage.webp',
+    core:'材质厚重、颜色偏暖，靠纹理和年代感建立辨识度。',
+    points:['厚重材质','暖调','有年代感'],
+    rules:[['上装','粗花呢外套、灯芯绒'],['下装','直筒牛仔裤、工装裤'],['配色','焦糖、橄榄、砖红']] },
+  { id:'technical', name:'机能运动', pt:'防泼水 · 灰黑',       cover:'covers/demo-cover-technical.webp',
+    core:'功能先行，剪裁贴身，颜色只用灰阶，靠细节和配件补齐。',
+    points:['功能面料','贴身剪裁','灰阶'],
+    rules:[['上装','冲锋衣、速干T'],['下装','运动长裤、压缩裤'],['配色','黑、深灰、银']] },
+];
+
+function tabsBar(active) {
+  const items = [['衣橱','wardrobe'],['添置','add'],['搭配','outfits']];
+  return '<div class="tabs-bar">' + items.map(([label, key]) =>
+    '<span class="' + (key === active ? 'on' : '') + '">' + icon(key) + label + '</span>').join('') + '</div>';
+}
+
+function icon(key) {
+  const paths = {
+    wardrobe: '<path d="M4 8h16v11H4z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M4 8l8-4 8 4" fill="none" stroke="currentColor" stroke-width="1.4"/>',
+    add: '<rect x="4" y="4" width="16" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12 8.5v7M8.5 12h7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>',
+    outfits: '<path d="M12 3l2.2 5.3 5.8.5-4.4 3.8 1.3 5.7L12 15.6 7.1 18.3l1.3-5.7L4 8.8l5.8-.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>',
+  };
+  return '<svg viewBox="0 0 24 24" aria-hidden="true">' + paths[key] + '</svg>';
+}
+
+function phoneShell(inner, active) {
+  return '<div class="phone">' + inner + tabsBar(active) + '</div>';
+}
+
+function pickerPage(cur) {
+  return '<div class="tb">添置</div>' +
+    '<div class="pbody">' +
+      '<button class="picker-row" data-act="open">' +
+        '<span class="k">审美方向</span>' +
+        '<span class="v"><span data-cur>' + esc(cur) + '</span><i>›</i></span>' +
+      '</button>' +
+      '<div class="card"><div class="k">想买什么</div>' +
+        '<textarea rows="2" placeholder="例如：秋天通勤的薄外套，别太正式"></textarea></div>' +
+      '<div class="card"><div class="k">可选方向 · 3 类</div>' +
+        '<div class="chips"><button class="chip on">薄外套</button><button class="chip">针织</button><button class="chip">长裤</button></div></div>' +
+      '<button class="primary">查看 3 类款式</button>' +
+    '</div>' +
+    '<div class="veil" data-act="close"></div>' +
+    '<div class="sheet" data-sheet>' +
+      '<div class="sheet-head"><h2 data-title>选择审美</h2><button class="x" data-act="close" aria-label="关闭">×</button></div>' +
+      '<div class="sheet-scroll" data-scroll></div>' +
+    '</div>';
+}
+
+function gridHTML(selId) {
+  return '<div class="grid">' + AESTHETICS.map(a =>
+    '<div class="a-card' + (a.id === selId ? ' is-sel' : '') + '" data-id="' + a.id + '">' +
+      '<button class="a-pick" data-act="pick" data-id="' + a.id + '">' +
+        '<span class="cover"><img src="' + a.cover + '" alt=""></span>' +
+        '<span class="nm">' + esc(a.name) + '</span>' +
+        '<span class="pt">' + esc(a.pt) + '</span>' +
+        '<span class="ck">✓</span>' +
+      '</button>' +
+      '<button class="a-guide" data-act="guide" data-id="' + a.id + '">看三套穿搭 <i>›</i></button>' +
+    '</div>').join('') + '</div>' +
+    '<p class="hint">点卡片＝选中并生效；点「看三套穿搭」进审美详情。</p>';
+}
+
+function guideHTML(a) {
+  return '<img class="guide-cover" src="' + a.cover + '" alt="">' +
+      '<div class="guide-h">' + esc(a.name) + '</div>' +
+      '<p class="guide-core">' + esc(a.core) + '</p>' +
+      '<div class="guide-pts">' + a.points.map(p => '<span>' + esc(p) + '</span>').join('') + '</div>' +
+      '<dl class="rules">' + a.rules.map(([k, v]) => '<div><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>').join('') + '</dl>' +
+      '<button class="primary" style="width:100%" data-act="use" data-id="' + a.id + '">按这个审美分析衣橱</button>';
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function wirePicker(phone) {
+  const sheet = phone.querySelector('[data-sheet]');
+  const veil = phone.querySelector('.veil');
+  const scroll = phone.querySelector('[data-scroll]');
+  let current = AESTHETICS.find(a => a.name === phone.querySelector('[data-cur]').textContent) || AESTHETICS[1];
+
+  const open = () => { sheet.classList.add('on'); veil.classList.add('on'); showGrid(); };
+  const close = () => { sheet.classList.remove('on'); veil.classList.remove('on'); };
+  const showGrid = () => {
+    phone.querySelector('[data-title]').textContent = '选择审美';
+    scroll.innerHTML = gridHTML(current.id);
+  };
+  const showGuide = id => {
+    const a = AESTHETICS.find(x => x.id === id) || current;
+    phone.querySelector('[data-title]').innerHTML =
+      '<button class="back" data-act="back" aria-label="返回">‹</button>认识' + esc(a.name);
+    scroll.innerHTML = guideHTML(a);
+    scroll.scrollTop = 0;
+  };
+
+  showGrid();
+
+  phone.addEventListener('click', event => {
+    const btn = event.target.closest('[data-act]');
+    if (!btn) return;
+    const act = btn.dataset.act;
+    if (act === 'open') { open(); return; }
+    if (act === 'close') { close(); return; }
+    if (act === 'pick') {
+      current = AESTHETICS.find(x => x.id === btn.dataset.id) || current;
+      phone.querySelector('[data-cur]').textContent = current.name;
+      scroll.innerHTML = gridHTML(current.id);
+      setTimeout(close, 220);
+      return;
+    }
+    if (act === 'guide') { showGuide(btn.dataset.id); return; }
+    if (act === 'back') { showGrid(); return; }
+    if (act === 'use') {
+      current = AESTHETICS.find(x => x.id === btn.dataset.id) || current;
+      phone.querySelector('[data-cur]').textContent = current.name;
+      close();
+      return;
+    }
+  });
+}
+
+function buildA() {
+  const root = document.querySelector('[data-panel="a"]');
+  root.innerHTML = phoneShell(pickerPage('街头表达'), 'add');
+  wirePicker(root.querySelector('.phone'));
+}
+
+function buildB() {
+  const root = document.querySelector('[data-panel="b"]');
+  root.innerHTML = phoneShell(pickerPage('街头表达'), 'add');
+  wirePicker(root.querySelector('.phone'));
+}
+
+function buildC() {
+  const root = document.querySelector('[data-panel="c"]');
+  const cards = AESTHETICS.map((a, i) =>
+    '<div class="c-card" data-i="' + i + '">' +
+      '<img src="' + a.cover + '" alt="">' +
+      '<span class="tag">' + esc(a.name) + '</span>' +
+      '<div class="cap"><b>' + esc(a.name) + '</b><p>' + esc(a.pt) + '</p><em>点这张卡开始分析 ›</em></div>' +
+      '<div class="analyzing"><div class="bar"></div><div class="bar"></div><div class="bar"></div>' +
+        '<div class="tip">正在按「' + esc(a.name) + '」分析该买什么…</div></div>' +
+    '</div>').join('');
+
+  root.innerHTML = '<div class="phone">' +
+    '<div class="tb">添置</div>' +
+    '<div class="c-deck"><div class="c-track" data-track>' + cards + '</div></div>' +
+    '<div class="c-dots" data-dots>' + AESTHETICS.map((_, i) => '<i class="' + (i === 0 ? 'on' : '') + '"></i>').join('') + '</div>' +
+    '<div class="c-foot"><span data-count>1 / 6 · 左右滑动换方向</span><button data-act="prefs">偏好设置 ›</button></div>' +
+    '<div class="veil" data-act="close"></div>' +
+    '<div class="sheet" data-sheet>' +
+      '<div class="sheet-head"><h2>偏好设置</h2><button class="x" data-act="close" aria-label="关闭">×</button></div>' +
+      '<div class="sheet-scroll">' +
+        '<div class="card" style="margin-bottom:10px"><div class="k">想买什么</div>' +
+          '<textarea rows="2" placeholder="例如：秋天通勤的薄外套，别太正式"></textarea></div>' +
+        '<div class="card" style="margin-bottom:12px"><div class="k">可选方向 · 3 类</div>' +
+          '<div class="chips"><button class="chip on">薄外套</button><button class="chip">针织</button><button class="chip">长裤</button></div></div>' +
+        '<button class="primary" style="width:100%" data-act="close">保存偏好</button>' +
+        '<p class="hint">这一抽屉就是 C 方案的代价：需求输入被挪到了卡片后面，得多点一次。</p>' +
+      '</div>' +
+    '</div>' + tabsBar('add') + '</div>';
+
+  const phone = root.querySelector('.phone');
+  const track = phone.querySelector('[data-track]');
+  const dots = [...phone.querySelectorAll('[data-dots] i')];
+  const count = phone.querySelector('[data-count]');
+  const sheet = phone.querySelector('[data-sheet]');
+  const veil = phone.querySelector('.veil');
+
+  track.addEventListener('scroll', () => {
+    const i = Math.round(track.scrollLeft / (track.clientWidth + 10));
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    count.textContent = (i + 1) + ' / 6 · 左右滑动换方向';
+  }, { passive: true });
+
+  phone.addEventListener('click', event => {
+    const btn = event.target.closest('[data-act]');
+    if (btn) {
+      const act = btn.dataset.act;
+      if (act === 'prefs') { sheet.classList.add('on'); veil.classList.add('on'); }
+      else if (act === 'close') { sheet.classList.remove('on'); veil.classList.remove('on'); }
+      return;
+    }
+    const card = event.target.closest('.c-card');
+    if (!card || card.classList.contains('is-busy')) return;
+    card.classList.add('is-busy');
+    setTimeout(() => {
+      card.classList.remove('is-busy');
+      const a = AESTHETICS[Number(card.dataset.i)];
+      card.querySelector('.cap').innerHTML = '<b>' + esc(a.name) + ' · 3 类款式</b>' +
+        '<p>薄外套 / 针织 / 长裤 · 已按这个方向筛过</p>' +
+        '<em style="color:var(--faint)">再点一次重新分析</em>';
+    }, 1100);
+  });
+}
+
+const NOTES = {
+  a: '<h3>A · 复原</h3><p class="sub">把删掉的 <code>select</code> 帧照原样加回去</p>' +
+     '<dl class="kv"><dt>改动量</dt><dd>约 20 行 JS，样式一条不用动（10 条 <code>.aesthetic-choice-*</code> 还在）</dd>' +
+     '<dt>风险</dt><dd><span class="pill ok">低</span> 只加代码，不碰搭配页</dd>' +
+     '<dt>耗时</dt><dd>改 15 分钟 + 重装 3 分钟</dd></dl>' +
+     '<h4>代价</h4><p><code>aesthetic-sheet.js</code> 又变回「一个组件两个用途」。下次改搭配页，仍然可能顺手把它删掉 —— 这次就是这么发生的。</p>' +
+     '<h4>左图可以点</h4><ul><li>点「审美方向」那一行 → 面板浮起</li><li>点任意卡片 → 打勾并生效</li><li>点「看三套穿搭」→ 进审美详情，可返回</li></ul>',
+  b: '<h3>B · 拆件</h3><p class="sub">界面和 A 完全一样，只是代码换了组织结构</p>' +
+     '<dl class="kv"><dt>改动量</dt><dd>约 120 行搬迁，新增 <code>aesthetic-select.js</code></dd>' +
+     '<dt>风险</dt><dd><span class="pill ok">中</span> 两边门禁都要重跑</dd></dl>' +
+     '<h4>结构对比</h4>' +
+     '<div class="struct">' +
+       '<div><h5>现在</h5>' +
+         '<div class="st-box dim">搭配页</div>' +
+         '<div class="st-box dim">添置页</div>' +
+         '<div class="st-box file">aesthetic-sheet.js' +
+           '<div class="st-in"><span>deck</span><span>more</span><span>basis</span><span class="gone">select</span></div></div>' +
+       '</div>' +
+       '<div><h5>拆开后</h5>' +
+         '<div class="st-box dim">搭配页 → aesthetic-sheet.js</div>' +
+         '<div class="st-box dim">添置页 → aesthetic-select.js</div>' +
+         '<div class="st-box file">两个组件各自独立</div>' +
+         '<div class="st-box">aesthetic-ui.js　封面 · 文案 · 规则</div>' +
+       '</div>' +
+     '</div>' +
+     '<p class="st-note">界面零差异 —— 左边这台手机和 A 是同一份标记，交互也一致。</p>' +
+     '<h4>好处</h4><p>改搭配页再也不会碰到添置页。这次的坑从结构上消失，而不是靠记性避免。</p>',
+  c: '<h3>C · 统一</h3><p class="sub">添置页也换成一屏一张的审美大卡</p>' +
+     '<dl class="kv"><dt>改动量</dt><dd>重排整个添置页</dd>' +
+     '<dt>风险</dt><dd><span class="pill warn">高</span> 表单流被打断</dd></dl>' +
+     '<h4>为什么不适合</h4>' +
+     '<p>搭配页适合一屏一张，是因为它只有一个动作：<b>选方向 → 看结果</b>。添置页是两段：</p>' +
+     '<div class="flow">' +
+       '<div class="flow-row"><span class="step hot">选方向</span><span class="arw">→</span><span class="step">填需求</span><span class="arw">→</span><span class="step">选款式</span><span class="arw">→</span><span class="step">看分析</span></div>' +
+       '<div class="flow-row"><span class="step hot">选方向</span><span class="arw">→</span><span class="step gone">填需求挪到抽屉里</span><span class="arw">→</span><span class="step">看分析</span></div>' +
+     '</div>' +
+     '<p>卡片吃满屏之后，需求输入只能塞进「偏好设置」抽屉。用户可以接受，但多了一次点击，而且「点开卡片才知道要填什么」。</p>' +
+     '<h4>左图可以点</h4><ul><li>左右拖动换方向</li><li>点卡片 → 分析中 → 出结果</li><li>点「偏好设置 ›」→ 看见被挪走的表单</li></ul>',
+};
+
+const NOTE_TAIL = '<h4>我的建议</h4><p><b>先 A 止血，B 排下一轮，C 不动。</b>如果只做一件，做 A。</p>';
+
+function show(key) {
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === key)));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('on', p.dataset.panel === key));
+  document.getElementById('note').innerHTML = NOTES[key] + NOTE_TAIL;
+}
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => show(t.dataset.tab)));
+
+buildA(); buildB(); buildC(); show('a');
+</script>
+</body>
+</html>

@@ -16,6 +16,12 @@
 /* ---------- 顶栏标题（只有手机显示） ---------- */
 .topbar-title { display: none; }
 
+/* ---------- 顶栏右侧动作槽（手机） ----------
+ * 只有添置首页往里放「已记下 N」。`.topbar-title` 是 flex:1，天然把这一格推到右边、
+ * 紧贴设置齿轮；空的时候 `:empty` 直接不进布局，其它页零影响。 */
+.topbar-action { display: none; }
+.topbar-action:empty { display: none; }
+
 /* ---------- 各页首行（§26 留下的公共壳，现在只剩添置在用） ---------- */
 .page-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--sp-2); min-height: 44px; margin: 0 0 var(--sp-4); }
 
@@ -50,6 +56,7 @@
     font-size: var(--fs-body); font-weight: 600;
     letter-spacing: var(--ls-snug); color: var(--text);
   }
+  .topbar-action { display: flex; align-items: center; gap: 4px; flex: none; }
 
   /* 设置：手机只留一枚 44px 圆钮（原来这套规则挂在每页的 .page-settings 上）。
      文字标签的隐藏仍在 style.css 的 `.status-label`（那是 §26 之前就在的规则）。 */

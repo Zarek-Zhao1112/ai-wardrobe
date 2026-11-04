@@ -41,6 +41,10 @@
          页内仍然没有 h1，这里是 48px 导航条上的一行 15px 标签。 -->
     <div id="page-title" class="topbar-title"></div>
     <nav id="nav" class="nav" aria-label="主导航"></nav>
+    <!-- 顶栏右侧动作槽：只有添置首页会往里放「已记下 N」。空的时候 :empty 不进布局，
+         所以其它页面看起来和以前完全一样。按钮的事件由 purchase/view.js 自己绑
+         （它拿得到 abort.signal），全局顶栏不感知任何业务。 -->
+    <div id="topbar-action" class="topbar-action"></div>
     <div id="status" class="status"></div>
   </header>
 

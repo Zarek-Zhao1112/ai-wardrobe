@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>添置首页改版原型 · 前 / 后对比</title>
+<style>
+/* ============================================================
+ * 添置首页改版原型（2026-11-04）
+ *
+ * 目的是把「改版前 / 改版后」放在一起看，所以手机框按 1:1 画
+ * （390×844），内部尺寸全部取自真实 DOM 实测值，不是估的：
+ *   卡 356×563   face 354×408.5   copy 152.5   dots 44   tabbar 72
+ * 改版后只动三处，其余像素保持不动 —— 对比才有意义。
+ * ============================================================ */
+:root{
+  --bg:#eceef2; --surface:#fff; --surface-2:#f4f5f7;
+  --border:#dfe2e7; --border-strong:#c8ccd4;
+  --text:#16181d; --text-dim:#5b6169; --text-faint:#8a9099;
+  --accent:#0b6bcb; --accent-soft:#e8f1fb; --accent-line:#a9cdf2;
+  --warn:#b4530a; --warn-soft:#fdf1e5;
+  --r:12px; --r-lg:18px;
+  --shadow:0 1px 2px rgba(16,20,28,.05), 0 8px 24px rgba(16,20,28,.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  padding:28px 24px 64px;
+}
+.wrap{max-width:1040px;margin:0 auto}
+h1,h2,h3,p,ul,dl,dd{margin:0}
+ul{padding:0;list-style:none}
+
+/* ---------- 页头 ---------- */
+.head{margin-bottom:26px}
+.head .eyebrow{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;letter-spacing:.04em;color:var(--text-faint);
+  text-transform:uppercase;margin-bottom:8px;
+}
+.head .eyebrow i{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
+.head h1{font-size:26px;line-height:1.3;letter-spacing:-.02em;font-weight:650}
+.head .sub{margin-top:8px;color:var(--text-dim);font-size:14px;max-width:66ch}
+
+/* ---------- 指标条 ---------- */
+.kpis{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:10px;
+  margin:20px 0 30px;
+}
+.kpi{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r);
+  padding:13px 14px;box-shadow:var(--shadow);
+}
+.kpi dt{font-size:12px;color:var(--text-faint);margin-bottom:5px}
+.kpi dd{font-size:19px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kpi dd small{font-size:12px;font-weight:400;color:var(--text-faint);margin-left:5px;letter-spacing:0}
+.kpi .from{color:var(--text-faint);font-weight:400;font-size:15px}
+
+/* ---------- 对比区 ---------- */
+.compare{
+  display:flex;justify-content:center;align-items:flex-start;gap:56px;
+  padding:4px 0 8px;
+}
+.col{width:436px;display:flex;flex-direction:column;align-items:flex-end}
+.col-title{
+  align-self:stretch;display:flex;align-items:baseline;gap:8px;
+  margin-bottom:12px;padding-left:46px;
+}
+.col-title b{font-size:15px;font-weight:600}
+.col-title span{font-size:12px;color:var(--text-faint)}
+.col-title .tag{
+  font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--border-strong);
+  color:var(--text-dim);background:var(--surface);
+}
+.col.new .tag{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+
+.phone-wrap{position:relative;margin-left:46px}
+.pins{position:absolute;left:-34px;top:0;width:26px;bottom:0}
+.pin{
+  position:absolute;left:0;width:22px;height:22px;border-radius:50%;
+  display:grid;place-items:center;font-size:11px;font-weight:600;
+  background:#fff;border:1px solid var(--border-strong);color:var(--text-dim);
+  font-style:normal;box-shadow:0 1px 3px rgba(0,0,0,.08);
+}
+.col.new .pin{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* ---------- 手机框（1:1，390×844） ---------- */
+.phone{
+  width:390px;height:844px;position:relative;
+  background:#fff;border-radius:24px;overflow:hidden;
+  box-shadow:0 0 0 1px rgba(16,20,28,.07), 0 18px 44px rgba(16,20,28,.13);
+  display:flex;flex-direction:column;
+  font-size:15px;
+  /* 真机 tabbar 顶在 y=760，下面还有 12px 安全区。不补这段，
+   * dots 与 tabbar 之间会多空 12px，看起来"下面怎么这么空"。 */
+  padding-bottom:12px;
+}
+/* 顶栏 48px（含状态条区域） */
+.appbar{
+  height:48px;flex:0 0 48px;display:flex;align-items:center;
+  padding:0 16px;gap:10px;position:relative;
+}
+.appbar .ttl{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.appbar .saved{margin-left:auto}
+
+/* 「已记下」按钮 —— 现在单独占一行，改版后并进顶栏 */
+.saved{
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:13px;color:var(--text-dim);
+  background:var(--surface-2);border:1px solid var(--border);
+  border-radius:999px;padding:6px 11px;cursor:default;
+  font-family:inherit;
+}
+.saved svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.7}
+
+.saved-row{
+  height:44px;flex:0 0 44px;display:flex;align-items:center;
+  justify-content:flex-end;padding:0 16px;
+}
+/* —— 改版：顶栏右侧的「已记下」更紧凑 —— */
+.phone.new .appbar .saved{padding:5px 10px;font-size:12.5px}
+
+.view{flex:1;padding:16px 17px 0;display:flex;flex-direction:column;overflow:hidden}
+.phone.new .view{padding-top:30px}
+
+/* 卡片：before 563 / after 617 */
+.card{
+  border:1px solid rgba(16,20,28,.08);border-radius:14px;overflow:hidden;
+  background:#fff;box-shadow:0 1px 3px rgba(16,20,28,.05);
+  display:flex;flex-direction:column;
+  height:563px;flex:0 0 auto;
+}
+.phone.new .card{height:617px}
+
+.face{
+  position:relative;display:block;width:100%;height:408px;flex:0 0 408px;
+  padding:0;border:0;background:#e7e9ec;overflow:hidden;cursor:zoom-in;
+}
+.phone.new .face{height:463px;flex-basis:463px}
+.face img{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
+/* 「显示完整封面」开关：切换成 contain，一眼看出上下被裁掉多少。
+ * 两条路径共用同一套样式：顶部复选框（整页）和点封面（单个手机）。 */
+body.show-full .face img,
+.phone.peek-all .face img{object-fit:contain;background:#15171b}
+
+.hint{
+  position:absolute;left:12px;top:12px;
+  display:inline-flex;align-items:center;gap:5px;
+  font-size:12px;color:#fff;background:rgba(18,20,26,.66);
+  backdrop-filter:blur(6px);border-radius:999px;padding:5px 10px;
+  letter-spacing:.01em;
+}
+.hint i{font-style:normal;font-size:11px;opacity:.95}
+
+.copy{padding:14px 16px 15px;display:flex;flex-direction:column;flex:1}
+.copy h2{font-size:20px;line-height:26px;font-weight:600;letter-spacing:-.015em}
+.copy p{
+  margin-top:7px;font-size:15px;line-height:21px;color:#454a52;height:42px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.copy .row{
+  margin-top:auto;height:44px;display:flex;align-items:center;gap:8px;
+}
+.chips{display:flex;gap:6px;flex-wrap:nowrap;overflow:hidden}
+.chip{
+  font-size:12px;color:#4a5057;background:#f1f2f4;border-radius:999px;
+  padding:4px 9px;white-space:nowrap;
+}
+.learn{
+  margin-left:auto;font-size:12px;color:var(--text-dim);background:none;border:0;
+  font-family:inherit;display:inline-flex;align-items:center;gap:2px;white-space:nowrap;cursor:pointer;
+}
+
+/* 方案 C：卡片上不放描述句 —— copy 不再伸缩，face 吃掉剩下的 511
+ * 511 = 354 × 1299/900，正好是封面按宽度铺满时的高度，横纵都不裁。
+ * 多出来的 5px 给 copy 的底部留白，避免图框被撑到 516 反而横裁 1%。 */
+.phone.new.c .copy{flex:none;padding-bottom:20px}
+.phone.new.c .face{height:auto;flex:1 1 auto;min-height:0}
+
+/* 圆点区：before 44 / after 36 */
+.dots{
+  height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.phone.new .dots{height:36px;flex-basis:36px;gap:7px}
+.dot{width:6px;height:6px;border-radius:50%;background:#cfd3da}
+.dot.on{background:#2b2f36;width:6px}
+.phone.new .dot{width:5px;height:5px}
+.phone.new .dot.on{width:5px;background:#2b2f36}
+.dots .label{
+  margin-left:3px;font-size:12px;color:var(--text-faint);
+  font-variant-numeric:tabular-nums;letter-spacing:.02em;
+}
+
+/* 底部导航 72 */
+.tabbar{
+  height:72px;flex:0 0 72px;display:flex;align-items:center;
+  border-top:1px solid #edeef1;padding-bottom:8px;background:#fff;
+}
+.tab{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:10.5px;color:#9aa0a8;
+}
+.tab svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.tab.on{color:#16181d}
+
+/* ---------- 手机下方的说明 ---------- */
+.notes{margin-top:16px;display:flex;flex-direction:column;gap:9px;padding-left:46px;width:100%}
+.notes li{display:flex;gap:8px;font-size:13px;line-height:1.55;color:var(--text-dim)}
+.notes b{color:var(--text);font-weight:600}
+.notes .n{
+  flex:0 0 18px;height:18px;border-radius:50%;background:#e4e6ea;color:#5b6169;
+  font-size:11px;font-weight:600;display:grid;place-items:center;margin-top:1px;
+}
+.col.new .notes .n{background:var(--accent);color:#fff}
+
+/* ---------- 通用区块 ---------- */
+section.block{margin-top:44px}
+.block-head{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
+.block-head h2{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.block-head .desc{font-size:13px;color:var(--text-faint)}
+.panel{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  padding:22px;box-shadow:var(--shadow);
+}
+
+/* 裁切示意 */
+.crops{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+.crop{width:200px}
+.crop .frame{
+  width:200px;border-radius:10px;overflow:hidden;background:#e7e9ec;
+  box-shadow:0 0 0 1px rgba(16,20,28,.08);
+}
+.crop .frame img{width:100%;height:100%;object-fit:cover;object-position:center;display:block}
+.crop.a .frame{height:288.7px}
+.crop.b .frame{height:230.8px}
+.crop.c .frame{height:261.6px}
+.crop .meta{margin-top:10px}
+.crop .meta b{font-size:13px;font-weight:600;display:block}
+.crop .meta span{font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums}
+.crop .pct{
+  display:inline-block;margin-top:6px;font-size:11px;padding:2px 7px;border-radius:999px;
+  background:#f1f2f4;color:#5b6169;font-variant-numeric:tabular-nums;
+}
+.crop.b .pct{background:var(--warn-soft);color:var(--warn)}
+.crop.c .pct{background:var(--accent-soft);color:var(--accent)}
+.crop-note{
+  margin-top:16px;padding-top:14px;border-top:1px dashed var(--border);
+  font-size:13px;color:var(--text-dim);line-height:1.7;
+}
+
+/* ---------- 图框高度试验台（拖动改 face 高度，看衣服占比怎么变） ---------- */
+.lab-wrap{
+  margin-top:18px;background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r-lg);padding:22px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;align-items:center;
+}
+.lab-head{width:100%;display:flex;align-items:baseline;gap:10px;margin-bottom:16px}
+.lab-head b{font-size:15px;font-weight:600}
+.lab-head span{font-size:12px;color:var(--text-faint)}
+.lab{width:356px;display:flex;flex-direction:column}
+.lab .card{height:586px}
+.lab .face{height:480px;flex:0 0 480px}
+.lab .copy{flex:none;padding-bottom:20px}
+.lab .dots{height:36px;flex-basis:36px;gap:7px}
+.lab .dot{width:5px;height:5px}
+.lab-slider{width:100%;max-width:480px;margin-top:16px;display:block}
+.lab-read{display:block;font-size:12.5px;color:var(--text-dim);text-align:center;font-variant-numeric:tabular-nums}
+.lab-read b{color:var(--text);font-weight:600}
+.lab-slider input[type=range]{width:100%;margin:10px 0 4px;accent-color:var(--accent)}
+.lab-scale{display:flex;justify-content:space-between;font-size:11px;color:var(--text-faint)}
+.lab-scale i{font-style:normal}
+
+/* 桌面三列 */
+.desktop-stage{
+  overflow:hidden;border-radius:12px;background:#fff;
+  border:1px solid var(--border);height:520px;
+}
+.desktop-inner{
+  width:1280px;height:722px;padding:12px 25px;
+  transform:scale(.72);transform-origin:top left;
+  background:#fff;
+}
+.d-head{height:44px;display:flex;align-items:center;font-size:15px;font-weight:600;padding-left:4px}
+.d-grid{display:grid;grid-template-columns:repeat(3,394px);gap:24px;margin-top:4px}
+.d-card{border:1px solid rgba(16,20,28,.08);border-radius:14px;overflow:hidden;background:#fff;box-shadow:0 1px 3px rgba(16,20,28,.05)}
+.d-card .face{height:569px;flex-basis:569px;cursor:default}
+.d-card .copy{padding:12px 14px 13px}
+.d-card .copy h2{font-size:17px;line-height:22px}
+.d-card .copy p{font-size:13px;line-height:18px;height:36px;margin-top:5px}
+.d-card .row{height:36px;margin-top:8px}
+
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:11px 12px;border-bottom:1px solid #eef0f3;vertical-align:top}
+th{font-size:12px;color:var(--text-faint);font-weight:500;background:#fafbfc}
+tbody tr:last-child td{border-bottom:0}
+td code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px;background:#f3f4f6;border-radius:4px;padding:1px 5px;
+}
+.ok{color:#137a4b}
+.todo{color:var(--warn)}
+
+/* 开关条 */
+.toolbar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  background:var(--surface);border:1px solid var(--border);border-radius:999px;
+  padding:9px 16px;margin:0 auto 28px;width:fit-content;box-shadow:var(--shadow);
+  font-size:13px;color:var(--text-dim);
+}
+.toolbar label{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+.toolbar input{accent-color:var(--accent);width:15px;height:15px;margin:0}
+.toolbar .sep{width:1px;height:16px;background:var(--border)}
+.toolbar .hintx{color:var(--text-faint);font-size:12px}
+
+.foot{margin-top:40px;font-size:12px;color:var(--text-faint);line-height:1.8;text-align:center}
+
+@media (max-width:460px){
+  /* 390 宽的手机框塞不进 390 的屏幕（还有左右 padding）。
+   * 用 zoom 而不是 transform：zoom 会真的改变布局尺寸，
+   * transform 只改绘制，父容器仍按 390 占位，下面会空一大块。 */
+  .phone{zoom:.82}
+  .phone-wrap{margin-left:40px}
+  .notes{padding-left:40px}
+  .col-title{padding-left:40px}
+  .kpis{grid-template-columns:1fr 1fr}
+}
+
+@media (max-width:960px){
+  body{padding:20px 14px 48px}
+  .compare{flex-direction:column;align-items:center;gap:36px}
+  .col{width:100%;max-width:436px}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .desktop-stage{height:auto}
+  .desktop-inner{transform:none;width:100%;height:auto;padding:10px}
+  .d-grid{grid-template-columns:1fr}
+  .d-card .face{height:300px;flex-basis:300px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <div class="eyebrow"><i></i>添置页 · 首页 · 手机 390×844</div>
+    <h1>添置首页改版原型</h1>
+    <p class="sub">
+      左边按线上实测尺寸重画（356×563 的卡、354×408 的图框），右边是改后的方案。
+      下面还有一版 <b>方案 C</b>：连卡片上那句描述也去掉，图框长到 511，封面 1:1 完整。
+      所有数字都从真实 DOM 量出来，封面用的是真的 <code>cover-urban.webp</code>（900×1299），不是占位图。
+    </p>
+  </header>
+
+  <dl class="kpis">
+    <div class="kpi"><dt>图框高度</dt><dd><span class="from">408</span> → 463 <small>px</small></dd></div>
+    <div class="kpi"><dt>封面可见</dt><dd><span class="from">79.9%</span> → 90.6%</dd></div>
+    <div class="kpi"><dt>顶部空行</dt><dd><span class="from">44</span> → 0 <small>px</small></dd></div>
+    <div class="kpi"><dt>卡片占屏</dt><dd><span class="from">72.6%</span> → 79.4%</dd></div>
+  </dl>
+
+  <div class="toolbar">
+    <label><input type="checkbox" id="fullToggle"> 显示完整封面（不裁切）</label>
+    <span class="sep"></span>
+    <span class="hintx">勾上看：上下一共被切掉多少</span>
+  </div>
+
+  <!-- ================= 前后对比 ================= -->
+  <div class="compare">
+
+    <!-- 现在 -->
+    <div class="col old">
+      <div class="col-title"><b>现在</b><span class="tag">线上</span><span>390×844 · 不滚动</span></div>
+      <div class="phone-wrap">
+        <div class="pins">
+          <i class="pin" style="top:59px">1</i>
+          <i class="pin" style="top:302px">2</i>
+          <i class="pin" style="top:682px">3</i>
+        </div>
+        <div class="phone">
+          <div class="appbar"><span class="ttl">添置</span></div>
+          <div class="saved-row">
+            <button class="saved" type="button">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg>已记下 0
+            </button>
+          </div>
+          <div class="view">
+            <article class="card">
+              <button class="face" type="button">
+                <img src="covers/demo-cover-urban.webp" alt="都市极简 封面">
+                <span class="hint"><i>✦</i>点这里分析衣橱</span>
+              </button>
+              <div class="copy">
+                <h2>都市极简</h2>
+                <p>用清楚的线条、利落的比例和安静的材质，让整套衣服显得有秩序。</p>
+                <div class="row">
+                  <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                  <button class="learn" type="button">认识这个 ›</button>
+                </div>
+              </div>
+            </article>
+            <div class="dots">
+              <i class="dot on"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+            </div>
+          </div>
+          <nav class="tabbar">
+            <span class="tab"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 3v18"/></svg>衣橱</span>
+            <span class="tab on"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M12 9v6M9 12h6"/></svg>添置</span>
+            <span class="tab"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="4"/><circle cx="15" cy="15" r="4"/></svg>搭配</span>
+          </nav>
+        </div>
+      </div>
+      <ul class="notes">
+        <li><span class="n">1</span><div>「已记下 0」<b>独占一行 44px</b>，左边整片空着，什么都不放。</div></li>
+        <li><span class="n">2</span><div>图框 <b>354×408</b>，封面要 511 高才铺满 → <b>上下裁掉 20%</b>，鞋尖贴着底边。</div></li>
+        <li><span class="n">3</span><div>底部 6 个点占 <b>44px</b>，只回答“第几个”，不告诉你其他 5 个是什么。</div></li>
+      </ul>
+    </div>
+
+    <!-- 改版后 -->
+    <div class="col new">
+      <div class="col-title"><b>改版后</b><span class="tag">方案</span><span>同样 390×844</span></div>
+      <div class="phone-wrap">
+        <div class="pins">
+          <i class="pin" style="top:13px">1</i>
+          <i class="pin" style="top:298px">2</i>
+          <i class="pin" style="top:702px">3</i>
+        </div>
+        <div class="phone new">
+          <div class="appbar">
+            <span class="ttl">添置</span>
+            <button class="saved" type="button">
+              <svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg>已记下 0
+            </button>
+          </div>
+          <div class="view">
+            <article class="card">
+              <button class="face" type="button">
+                <img src="covers/demo-cover-urban.webp" alt="都市极简 封面">
+                <span class="hint"><i>✦</i>点这里分析衣橱</span>
+              </button>
+              <div class="copy">
+                <h2>都市极简</h2>
+                <p>用清楚的线条、利落的比例和安静的材质，让整套衣服显得有秩序。</p>
+                <div class="row">
+                  <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                  <button class="learn" type="button">认识这个 ›</button>
+                </div>
+              </div>
+            </article>
+            <div class="dots">
+              <i class="dot on"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+              <span class="label">1/6</span>
+            </div>
+          </div>
+          <nav class="tabbar">
+            <span class="tab"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 3v18"/></svg>衣橱</span>
+            <span class="tab on"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M12 9v6M9 12h6"/></svg>添置</span>
+            <span class="tab"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="4"/><circle cx="15" cy="15" r="4"/></svg>搭配</span>
+          </nav>
+        </div>
+      </div>
+      <ul class="notes">
+        <li><span class="n">1</span><div>「已记下 0」<b>并进顶栏右侧</b>，那 44px 整行删掉，全部让给图片。</div></li>
+        <li><span class="n">2</span><div>图框 <b>354×463</b>，裁切从 20.1% 降到 <b>9.4%</b>，鞋和裤脚完整露出来。</div></li>
+        <li><span class="n">3</span><div>底栏 <b>44 → 36px</b>，圆点右边只留页码 <b>1/6</b>，高度反降 8px。</div></li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- ================= 方案 C：去掉描述 ================= -->
+  <section class="block">
+    <div class="block-head">
+      <h2>还能再长 49px</h2>
+      <span class="desc">卡片上那句描述去掉，图框刚好装下整张封面</span>
+    </div>
+    <div class="compare">
+
+      <div class="col new">
+        <div class="col-title"><b>方案 B</b><span class="tag">上面那版</span><span>图框 463 · 裁 9.4%</span></div>
+        <div class="phone-wrap">
+          <div class="phone new">
+            <div class="appbar">
+              <span class="ttl">添置</span>
+              <button class="saved" type="button"><svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg>已记下 0</button>
+            </div>
+            <div class="view">
+              <article class="card">
+                <button class="face" type="button">
+                  <img src="covers/demo-cover-urban.webp" alt="都市极简 封面">
+                  <span class="hint"><i>✦</i>点这里分析衣橱</span>
+                </button>
+                <div class="copy">
+                  <h2>都市极简</h2>
+                  <p>用清楚的线条、利落的比例和安静的材质，让整套衣服显得有秩序。</p>
+                  <div class="row">
+                    <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                    <button class="learn" type="button">认识这个 ›</button>
+                  </div>
+                </div>
+              </article>
+              <div class="dots">
+                <i class="dot on"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+                <span class="label">1/6</span>
+              </div>
+            </div>
+            <nav class="tabbar">
+              <span class="tab"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 3v18"/></svg>衣橱</span>
+              <span class="tab on"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M12 9v6M9 12h6"/></svg>添置</span>
+              <span class="tab"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="4"/><circle cx="15" cy="15" r="4"/></svg>搭配</span>
+            </nav>
+          </div>
+        </div>
+        <ul class="notes">
+          <li><span class="n">B</span><div>图框 <b>354×463</b>，上下各切 24px。描述留两行。</div></li>
+        </ul>
+      </div>
+
+      <div class="col new">
+        <div class="col-title"><b>方案 C</b><span class="tag">零裁切</span><span>图框 511 · 裁 0.0%</span></div>
+        <div class="phone-wrap">
+          <div class="phone new c">
+            <div class="appbar">
+              <span class="ttl">添置</span>
+              <button class="saved" type="button"><svg viewBox="0 0 24 24"><path d="M6 4h12v16l-6-4-6 4z"/></svg>已记下 0</button>
+            </div>
+            <div class="view">
+              <article class="card">
+                <button class="face" type="button">
+                  <img src="covers/demo-cover-urban.webp" alt="都市极简 封面">
+                  <span class="hint"><i>✦</i>点这里分析衣橱</span>
+                </button>
+                <div class="copy">
+                  <h2>都市极简</h2>
+                  <div class="row">
+                    <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                    <button class="learn" type="button">认识这个 ›</button>
+                  </div>
+                </div>
+              </article>
+              <div class="dots">
+                <i class="dot on"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+                <span class="label">1/6</span>
+              </div>
+            </div>
+            <nav class="tabbar">
+              <span class="tab"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M12 3v18"/></svg>衣橱</span>
+              <span class="tab on"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M12 9v6M9 12h6"/></svg>添置</span>
+              <span class="tab"><svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="4"/><circle cx="15" cy="15" r="4"/></svg>搭配</span>
+            </nav>
+          </div>
+        </div>
+        <ul class="notes">
+          <li><span class="n">C</span><div>图框 <b>354×511</b>，封面 <b>1:1 完整</b>。卡高还是 617，只是把 49px 从文字挪给了图。</div></li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= 尺寸决策 ================= -->
+  <section class="block">
+    <div class="block-head">
+      <h2>卡片尺寸还能怎么动</h2>
+      <span class="desc">宽决定衣服多大，高决定衣服显多满 —— 两件事分开看</span>
+    </div>
+
+    <div class="panel" style="padding:0;overflow:hidden">
+      <table>
+        <thead><tr><th style="width:14%">图框高</th><th style="width:15%">上下各裁</th><th style="width:15%">衣服占框</th><th style="width:12%">卡高</th><th style="width:12%">文案区</th><th>代价</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>463</b></td><td>4.7%</td><td>91.1%</td><td>617</td><td>152 · 两行</td>
+            <td class="todo">最饱满。但 technical 那张帽子离顶只有 5%，每边裁 4.7% 就贴边了</td>
+          </tr>
+          <tr style="background:#f7fbff">
+            <td><b>480</b> <span style="font-size:10px;color:var(--accent);border:1px solid var(--accent-line);border-radius:999px;padding:1px 6px">推荐</span></td><td>3.0%</td><td>87.9%</td><td>586</td><td>104 · 无</td>
+            <td class="ok">切的全是灰墙，六张封面最紧的那张还剩 2% 余量</td>
+          </tr>
+          <tr>
+            <td><b>511</b></td><td>0</td><td>82.6%</td><td>617</td><td>104 · 无</td>
+            <td>完整 1:1，但上下各 17% 是空的，主体显小</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="crop-note" style="margin-top:14px;padding-top:0;border:0">
+      ⚠️ 这三档里<b>衣服的绝对尺寸一模一样</b>。354 宽的框，封面缩放恒为 0.3933，
+      衣服都是 422px 高——换高度只改变"露出多少"，不改变"多大"。
+      之前说 C 会让衣服小 9%，是我算错了：那 9% 是框变高后衣服占比从 91% 掉到 82.6%，不是衣服缩了。
+    </p>
+
+    <div class="panel" style="padding:0;overflow:hidden;margin-top:18px">
+      <table>
+        <thead><tr><th style="width:14%">卡宽</th><th style="width:14%">图框宽</th><th style="width:14%">左右边距</th><th style="width:14%">衣服大小</th><th style="width:16%">裁切</th><th>风险</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>340</td><td>338</td><td>25</td><td>1.00×</td><td class="todo">左右每边 2.3%</td>
+            <td>宽不够只能裁左右，衣服一点没变小，但袖口缺一块</td>
+          </tr>
+          <tr style="background:#f7fbff">
+            <td><b>356</b></td><td>354</td><td>17</td><td>1.00×</td><td class="ok">0</td>
+            <td>现状，边距和完整度同时到位</td>
+          </tr>
+          <tr>
+            <td>366</td><td>364</td><td>12</td><td>1.03×</td><td>上下各 1.4%</td>
+            <td>只大 3%，肉眼量不出来，白搭</td>
+          </tr>
+          <tr>
+            <td>374</td><td>372</td><td>8</td><td>1.05×</td><td class="todo">上下各 2.4%</td>
+            <td>边距只剩 8px，横滑时和边缘手势打架</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="lab-wrap">
+      <div class="lab-head">
+        <b>拖一下看差别</b>
+        <span>卡宽固定 356，只改图框高度；拖到 480 是安全上限</span>
+      </div>
+      <div class="lab">
+        <article class="card">
+          <button class="face" type="button">
+            <img src="covers/demo-cover-urban.webp" alt="都市极简 封面">
+            <span class="hint"><i>✦</i>点这里分析衣橱</span>
+          </button>
+          <div class="copy">
+            <h2>都市极简</h2>
+            <div class="row">
+              <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+              <button class="learn" type="button">认识这个 ›</button>
+            </div>
+          </div>
+        </article>
+        <div class="dots">
+          <i class="dot on"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i>
+          <span class="label">1/6</span>
+        </div>
+      </div>
+      <label class="lab-slider">
+        <span class="lab-read">
+          图框 <b id="fhVal">480</b> · 卡 <b id="chVal">586</b> · 衣服占框 <b id="pctVal">87.9%</b>
+        </span>
+        <input type="range" id="fhRange" min="440" max="511" step="1" value="480">
+        <span class="lab-scale"><i>440 会切衣服</i><i>480 安全上限</i><i>511 完整</i></span>
+      </label>
+    </div>
+
+    <p class="crop-note">
+      <b>衣服大小 = 图框宽 × 0.3933。</b>卡宽不动，衣服就已经是 390 视口下的最大值。
+      想让它明显变大只有两条路：把卡贴到屏幕边（边距 8px，手势冲突），
+      或者换一张构图更满的封面（现在的封面衣服只占画面高 83%，上下本来就是留白）。
+    </p>
+  </section>
+
+  <!-- ================= 裁切机制 ================= -->
+  <section class="block">
+    <div class="block-head">
+      <h2>为什么加高 55px 就能少裁一半</h2>
+      <span class="desc">同一个 900×1299 的封面，放进三种图框</span>
+    </div>
+    <div class="panel">
+      <div class="crops">
+        <div class="crop a">
+          <div class="frame"><img src="covers/demo-cover-urban.webp" alt="完整封面"></div>
+          <div class="meta"><b>封面原图</b><span>900×1299 · 比例 0.693</span><br><span class="pct">可见 100%</span></div>
+        </div>
+        <div class="crop b">
+          <div class="frame"><img src="covers/demo-cover-urban.webp" alt="现在的图框"></div>
+          <div class="meta"><b>现在的图框</b><span>354×408 · 比例 0.867</span><br><span class="pct">可见 79.9% · 裁掉 20.1%</span></div>
+        </div>
+        <div class="crop c">
+          <div class="frame"><img src="covers/demo-cover-urban.webp" alt="改版后的图框"></div>
+          <div class="meta"><b>改版后的图框</b><span>354×463 · 比例 0.765</span><br><span class="pct">可见 90.6% · 裁掉 9.4%</span></div>
+        </div>
+      </div>
+      <p class="crop-note">
+        图框越“横”，<code>object-fit: cover</code> 就越要靠上下裁切来填满。这张封面是<b>竖着排</b>的
+        （外套在上、裤子在中、鞋在下），所以裁上下正好切在衣服上；而裁左右只会切到背景墙。
+        手机宽度锁死 390，能动的只有高度——<b>所以全部预算都花在“加高”上</b>。
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= 桌面三列 ================= -->
+  <section class="block">
+    <div class="block-head">
+      <h2>桌面端：≥900px 改 3 列</h2>
+      <span class="desc">手机不动，只加断点</span>
+    </div>
+    <div class="panel">
+      <div class="desktop-stage">
+        <div class="desktop-inner">
+          <div class="d-head">添置</div>
+          <div class="d-grid">
+            <article class="d-card">
+              <div class="face"><img src="covers/demo-cover-urban.webp" alt=""></div>
+              <div class="copy"><h2>都市极简</h2><p>用清楚的线条、利落的比例和安静的材质，让整套衣服显得有秩序。</p></div>
+            </article>
+            <article class="d-card">
+              <div class="face"><img src="covers/demo-cover-natural.webp" alt=""></div>
+              <div class="copy"><h2>自然日常</h2><p>让柔和的颜色、自然纹理和舒展的衣服线条一起产生轻松的呼吸感。</p></div>
+            </article>
+            <article class="d-card">
+              <div class="face"><img src="covers/demo-cover-street.webp" alt=""></div>
+              <div class="copy"><h2>街头表达</h2><p>用宽松的轮廓和明确的层次，让整套衣服看起来有主张。</p></div>
+            </article>
+          </div>
+        </div>
+      </div>
+      <p class="crop-note">
+        容器 1230，三列各 394，图框 394×569。算出来 <code>394 ÷ 569 = 0.6924</code>，
+        而封面是 <code>900 ÷ 1299 = 0.6928</code> —— <b>基本完全贴合，零裁切</b>。
+        这个数字不是凑的，是从“图框高 × 封面比例”反推出来的；卡宽只要偏一点，就会重新开始裁。
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= 改动清单 ================= -->
+  <section class="block">
+    <div class="block-head"><h2>要改的地方</h2><span class="desc">三处改动 + 一个断点</span></div>
+    <div class="panel" style="padding:0;overflow:hidden">
+      <table>
+        <thead><tr><th style="width:26%">改什么</th><th style="width:30%">具体值</th><th style="width:26%">文件</th><th style="width:18%">风险</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>① 顶部合并</b></td>
+            <td>删 <code>.purchase-heading</code> 这一行，把「已记下」移到顶栏右侧</td>
+            <td><code>view.js</code> 模板 + <code>purchase-intent.css</code></td>
+            <td class="ok">低 · 一处模板</td>
+          </tr>
+          <tr>
+            <td><b>② 图框加高</b></td>
+            <td>侧边留白 17 不变，<code>face</code> 408 → 463，卡 563 → 617</td>
+            <td><code>purchase-intent.css</code></td>
+            <td class="todo">中 · 只在 <code>.purchase-intent</code> 作用域内</td>
+          </tr>
+          <tr>
+            <td><b>③ 底栏加页码</b></td>
+            <td>44 → 36，圆点右侧只显示 <code>1/6</code>；<code>aestheticDotsHtml</code> 加可选参数</td>
+            <td><code>aesthetic-ui.js</code> + CSS</td>
+            <td class="todo">中 · 搭配页共用，不传就不渲染</td>
+          </tr>
+          <tr>
+            <td><b>④ 桌面三列</b></td>
+            <td><code>@media (min-width:900px)</code>：容器 1230，<code>grid-template-columns:repeat(3,394px)</code></td>
+            <td><code>purchase-intent.css</code></td>
+            <td class="ok">低 · 不带前缀会影响搭配页</td>
+          </tr>
+          <tr>
+            <td><b>⑤ 去掉描述（=C）</b></td>
+            <td><code>aestheticCardHtml</code> 里删掉 <code>&lt;p&gt;${esc(profile.core)}&lt;/p&gt;</code>，图框自然长到 511</td>
+            <td><code>aesthetic-ui.js</code></td>
+            <td class="todo">中 · 搭配页共用这张卡，会一起变</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 待定 ================= -->
+  <section class="block">
+    <div class="block-head"><h2>还没定的两件事</h2></div>
+    <div class="panel">
+      <ul class="notes" style="padding-left:0">
+        <li><span class="n">?</span><div><b>主按钮位置。</b>现在「✦ 点这里分析衣橱」浮在图片左上，右下还有「认识这个 ›」。一张卡两个可点区，横滑时容易误触分析。要不要改成“卡片只负责浏览，底部固定一个『用这个方向分析』”？</div></li>
+        <li><span class="n">?</span><div><b>描述句要不要留。</b>就是上面 B / C 的取舍。C 的论据不是“图更大”，而是 <code>profile.core</code> 在「认识这个」的详情里<b>本来就完整显示一遍</b>（<code>methodDetails()</code> 第一行），卡片上那句是重复的。删掉不丢信息，只是不再说两遍。</div></li>
+      </ul>
+    </div>
+  </section>
+
+  <p class="foot">
+    静态原型 · 2026-11-04 · 尺寸取自 <code>home_audit.js</code> 在 390×844 / 1280×720 / 1440×900 三档的实测<br>
+    封面图 <code>covers/demo-cover-urban.webp</code> 与线上 <code>web/reference/aesthetics/cover-urban.webp</code> 完全一致（md5 相同）
+  </p>
+
+</div>
+
+<script>
+  // 「显示完整封面」：切 object-fit，直接看出上下被裁掉多少。
+  // 不做成默认，因为默认状态应该和用户真实看到的一致。
+  const t = document.getElementById("fullToggle");
+  t.addEventListener("change", () => {
+    document.body.classList.toggle("show-full", t.checked);
+  });
+
+  // 点封面临时看完整图 —— 和 App 里“点图片看大图”的习惯一致。
+  document.querySelectorAll(".face").forEach((el) => {
+    el.addEventListener("click", () => {
+      el.closest(".phone")?.classList.toggle("peek-all");
+    });
+  });
+
+  // 图框高度试验台：只动 face 高度，卡高 = face + copy(104) + border(2)。
+  // 衣服渲染高恒为 422（354 × 1299/900 × 0.827），所以"占框"就是 422/faceH。
+  const range = document.getElementById("fhRange");
+  const lab = document.querySelector(".lab");
+  if (range && lab) {
+    const faceEl = lab.querySelector(".face");
+    const cardEl = lab.querySelector(".card");
+    const fhVal = document.getElementById("fhVal");
+    const chVal = document.getElementById("chVal");
+    const pctVal = document.getElementById("pctVal");
+    const apply = () => {
+      const h = +range.value;
+      faceEl.style.height = h + "px";
+      faceEl.style.flexBasis = h + "px";
+      cardEl.style.height = h + 106 + "px";
+      fhVal.textContent = h;
+      chVal.textContent = h + 106;
+      pctVal.textContent = ((422 / h) * 100).toFixed(1) + "%";
+    };
+    range.addEventListener("input", apply);
+    apply();
+  }
+</script>
+</body>
+</html>

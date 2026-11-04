@@ -51,17 +51,31 @@ export async function mount(root,ctx){
   if(mode==='saved'){const rows=(data?.saved||[]).flatMap(plan=>plan.directions.filter(d=>purchaseReference(d)).map(d=>({plan,d})));return `<h2 class="screen-title">记下的方向</h2><p class="result-description">挑选时再慢慢比较。</p>${rows.length?rows.map(({plan,d},i)=>productCardHtml(plan,d,i,data.items)).join(''):'<p class="saved-empty">暂时没有可显示的款式参考，记录仍然保留。</p>'}`}
   return resultsHtml(fullPlan(),data?.items||{});
  }
+/** 顶栏右侧的「已记下 N」。它原来独占首页首行（min-height 44 + margin 14），
+ *  §42 把那 58px 整条删掉让给封面，按钮搬到顶栏的 #topbar-action。
+ *  只在首页（mode==='home'）出现；进助手/结果帧就清空，顶栏回到「标题 + 齿轮」。
+ *  ⚠️ 按钮不在 #view 里，本模块绑在 root 上的 click 委托收不到 ——
+ *     要在 bind 那一段给 #topbar-action 单独挂同一个 click。 */
+function syncTopbar(){
+ const slot=document.getElementById('topbar-action');
+ if(!slot)return;
+ if(!alive()||mode!=='home'){if(slot.innerHTML)slot.innerHTML='';return}
+ const html=`<button type="button" class="purchase-saved-button saved-link" data-purchase-saved>${icon('bookmark')}已记下 ${savedIds().size}</button>`;
+ if(slot.innerHTML!==html)slot.innerHTML=html;
+}
  function renderHome(){
   const focus=root.contains(document.activeElement),data=session.data;
   const content=ready?initialHtml({data,profiles,analyzing:session.analyzing,preparation:data?.preparation,photosReady:readyPreparation()}):'<p class="faint">正在读取添置建议…</p><button type="button" class="quiet blue" data-purchase-query>重新读取</button>';
-  const html=`<section class="purchase-view purchase-intent" data-purchase-page="home"><div class="purchase-heading page-actions"><div class="intent-heading-right"><button type="button" class="purchase-saved-button saved-link" data-purchase-saved>${icon('bookmark')}已记下 ${savedIds().size}</button></div></div><div class="purchase-content is-aesthetic-home">${session.message?`<p class="global-notice" role="status">${esc(session.message)}</p>`:''}${content}</div></section>`;
-  if(homeHtml!==html){root.innerHTML=html;homeHtml=html;restoreDeck();if(focus)root.querySelector('[data-aesthetic-open],[data-purchase-query]')?.focus({preventScroll:true})}
+  const html=`<section class="purchase-view purchase-intent" data-purchase-page="home"><div class="purchase-content is-aesthetic-home">${session.message?`<p class="global-notice" role="status">${esc(session.message)}</p>`:''}${content}</div></section>`;
+  if(homeHtml!==html){root.innerHTML=html;homeHtml=html;syncTopbar();restoreDeck();if(focus)root.querySelector('[data-aesthetic-open],[data-purchase-query]')?.focus({preventScroll:true})}
  }
  /** 圆点与 deck 的当前页对齐。index 越界会被夹住 —— profiles 是异步来的，可能比上次少。 */
  function syncAesthetic(index){
   aestheticIndex=Math.max(0,Math.min(index,Math.max(0,profiles.length-1)));
   const dots=root.querySelector('[data-aesthetic-dots]');if(!dots)return;
-  [...dots.children].forEach((dot,i)=>dot.setAttribute('aria-pressed',String(i===aestheticIndex)));
+  [...dots.querySelectorAll('[data-aesthetic-dot]')].forEach((dot,i)=>dot.setAttribute('aria-pressed',String(i===aestheticIndex)));
+  // 页码跟着圆点走。没有这枚 span（搭配页、或 profiles 还没来）就跳过。
+  const page=dots.querySelector('[data-aesthetic-page]');if(page)page.textContent=(aestheticIndex+1)+'/'+Math.max(1,profiles.length);
  }
  /** 重建首页后把横滑位置还回去。同步落一次、rAF 再对一次（首帧常常还没布局完）。 */
  function restoreDeck(){
@@ -71,6 +85,7 @@ export async function mount(root,ctx){
  }
  function paint({animate=false,position}={}){
   if(!alive())return;if(blocked()||composing||editing()||panel.dragging){defer();return}clearTimeout(timer);dirty=false;acceptRefs();
+  syncTopbar();
   if(mode==='home'){if(panel.open){void panel.close().then(()=>{if(alive()&&mode==='home')paint()});return}renderHome();return}
   const content=body(),head=header();
   if(!panel.open){const faces=root.querySelectorAll('[data-aesthetic-open]');panel.show({header:head,content,anchor:faces[aestheticIndex]||faces[0]||root.querySelector('[data-purchase-query]')});bind(panel.content)}
@@ -142,6 +157,9 @@ export async function mount(root,ctx){
  };
  function bind(container){container.addEventListener('click',click,{signal:abort.signal});container.addEventListener('input',event=>{if(event.target.matches('[data-intent-note]')&&currentDraft()){session.setNote(currentDraft().id,event.target.value);const button=panel.content?.querySelector('[data-purchase-prepare] span');if(button)button.textContent=event.target.value.trim()?'按补充偏好重新分析':`查看 ${selection().ids.length} 类款式`}},{signal:abort.signal});container.addEventListener('toggle',event=>{if(event.target.matches('[data-intent-extra]')&&currentDraft())session.setExpanded(currentDraft().id,event.target.open)},{capture:true,signal:abort.signal});container.addEventListener('compositionstart',()=>composing=true,{signal:abort.signal});container.addEventListener('compositionend',()=>{composing=false},{signal:abort.signal});container.addEventListener('focusout',()=>{if(dirty){clearTimeout(timer);timer=setTimeout(changed,160)}},{signal:abort.signal})}
  bind(root);
+ // 顶栏那枚「已记下」在 #view 外面，root 的委托收不到，这里补一份同样的 click。
+ const topbarSlot=document.getElementById('topbar-action');
+ if(topbarSlot)topbarSlot.addEventListener('click',click,{signal:abort.signal});
  // scroll 不冒泡，但 capture 能在 root 上收到子元素的滚动 —— 首页整块会被重建，
  // 绑在 deck 元素上会随重建丢掉，绑在 capture 上不会。
  root.addEventListener('scroll',event=>{
@@ -151,7 +169,7 @@ export async function mount(root,ctx){
  },{capture:true,passive:true,signal:abort.signal});
  window.addEventListener('popstate',()=>void syncHistory(),{signal:abort.signal});
  const unsubscribe=session.subscribe(changed),unmedia=subscribeReferenceMedia(()=>{if(!alive())return;if(document.querySelector('.purchase-layer')){refreshPurchaseSheetReferences();defer()}else changed()});
- active={root,dispose(){disposed=true;abort.abort();unsubscribe();unmedia();sheet?.dispose();panel.dispose();clearTimeout(timer)}};paint();
+ active={root,dispose(){disposed=true;abort.abort();document.getElementById('topbar-action')?.replaceChildren();unsubscribe();unmedia();sheet?.dispose();panel.dispose();clearTimeout(timer)}};paint();
  const responses=await Promise.allSettled([api.aesthetics(),session.refresh()]);if(!alive())return;if(responses[0].status==='fulfilled')profiles=responses[0].value.aesthetics;ready=Boolean(session.data);draftId=history.state?.purchaseDraft||session.data?.analysis?.id||null;
  // §41：sheet 只剩「认识这个」一种用途了。选择帧（openSelector / onSelect / onGenerate）
  //   在 §40 收窄签名时被删掉，但这里的调用没跟着改 → 点「审美方向」报
