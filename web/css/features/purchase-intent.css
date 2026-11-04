@@ -153,7 +153,7 @@
 .purchase-intent .detail-title{font-size:24px}.purchase-intent .detail-actions{margin-top:18px}.purchase-intent .detail-actions .primary{width:auto;flex:1.2;font-size:12px;min-height:50px}.purchase-intent .detail-actions .secondary{font-size:12px;min-height:50px;border:1px solid var(--glass-edge);color:var(--text-dim)}
 .purchase-intent .owned-piece>div{height:100px}.purchase-intent .global-notice.is-error{color:var(--text-dim);border-color:var(--border)}
 @keyframes pi-breathe{0%{transform:scale(.94);opacity:.85}80%,100%{transform:scale(1.15);opacity:0}}@keyframes pi-spin{to{transform:rotate(360deg)}}
-@media(max-width:640px){.purchase-view.purchase-intent{height:calc(100vh - var(--topbar-h-sm) - env(safe-area-inset-top,0px) - var(--sp-4) - var(--tabbar-h) - var(--tabbar-gap) - var(--sp-4) - env(safe-area-inset-bottom,0px));min-height:0}.purchase-intent .home-title{font-size:29px}.purchase-intent .screen-title{font-size:24px}.purchase-intent .purchase-heading{gap:8px}.purchase-intent .purchase-heading .style-stamp{font-size:11px}.purchase-intent .intent-heading-right{gap:4px}.purchase-intent .saved-link{font-size:10px}.purchase-intent .product-media{height:250px}}
+@media(max-width:640px){.purchase-view.purchase-intent{height:calc(100vh - var(--topbar-h-sm) - env(safe-area-inset-top,0px) - var(--sp-4) - var(--tabbar-h) - var(--tabbar-gap) - env(safe-area-inset-bottom,0px));min-height:0}.purchase-intent .home-title{font-size:29px}.purchase-intent .screen-title{font-size:24px}.purchase-intent .purchase-heading{gap:8px}.purchase-intent .purchase-heading .style-stamp{font-size:11px}.purchase-intent .intent-heading-right{gap:4px}.purchase-intent .saved-link{font-size:10px}.purchase-intent .product-media{height:250px}}
 @media(max-width:360px){.purchase-intent .screen-title{font-size:22px}.purchase-intent .home-title{font-size:27px}.purchase-intent .proposal{padding:13px 10px;gap:9px}.purchase-intent .proposal-title strong{font-size:13px}.purchase-intent .saved-link{padding:0 3px!important}.purchase-intent .intent-heading-right .quiet{padding:0 3px;font-size:11px}}
 @media(prefers-reduced-motion:reduce){.purchase-intent *, .purchase-intent *:before,.purchase-intent *:after{animation:none!important;transition:none!important}}
 
@@ -179,8 +179,8 @@
   overflow-y:hidden;padding:3px 1px 0;
 }
 .purchase-intent .aesthetic-home{flex:1;min-height:0;display:flex;flex-direction:column}
-/* 「看分析进度 / 看上次建议」那类回头入口：最多两个并排，没有就整块不出。 */
-.purchase-intent .aesthetic-home-links{flex:none;display:flex;align-items:center;justify-content:center;gap:2px;min-height:44px;flex-wrap:nowrap;overflow:hidden}
+/* §44：「看分析进度 / 看上次建议」那类回头入口搬进卡面操作条，圆点下面那行 49px 不再存在。
+ *   （原 .aesthetic-home-links 规则已删；再出现就是回退，别加回来。） */
 .purchase-intent .aesthetic-home-empty{flex:none;margin:6px 0 0;text-align:center;font-size:12px;line-height:1.75}
 
 /* ---------- §42 添置首页：把首行 58px 和底栏 8px 全部让给封面 ----------
@@ -191,16 +191,34 @@
  *       → 卡 ≈ 629，face ≈ 524（比 511 多 13，左右各裁 ~4px，肉眼无感）
  * 见 docs/design/purchase-home-redesign.html 的「卡片尺寸还能怎么动」。 */
 
+/* §44 又往前推了一步（真机 393×819 实测）：
+ *   437（有 links）→ 藏 links(−49) + 去掉 copy 底部 24 → 510 → 再去掉 view 底下那 16 → 526
+ *   526 = 零裁切的 515 再多 11px，封面按高度铺满、左右各裁 3.7px，鞋底不裁。
+ *   对照页 docs/design/purchase-bplus-chips.html（三张都是真机截图）。 */
+
 /* 底栏：44 → 36。按钮也跟着缩，否则 44 的点击区会把容器顶穿。 */
 .purchase-intent .outfit-aesthetic-dots{min-height:36px}
 /* 全局 button 有 min-height:44，光写 height:36 压不住 —— 必须把 min-height 一起写。 */
 .purchase-intent .outfit-aesthetic-dots button{width:36px;height:36px;min-height:36px}
 .purchase-intent .outfit-aesthetic-dots .label{margin-left:3px;font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums;letter-spacing:.02em}
 
+/* §44 卡面操作条：压在封面底部的一条，**不占卡片高度**（绝对定位），所以封面能一直长到原图比例。
+ * 两个按钮各占一半；没有历史建议时只产出「认识这个」，它自动铺满整条。
+ * 底必须是半透明压暗 + blur：底下是随机的一张平铺图，浅色封面上纯白字会飘。
+ * ⚠️ 操作条是 .outfit-aesthetic-face 的兄弟（face 自己就是 <button>，按钮不能套按钮）。 */
+.purchase-intent .outfit-aesthetic-stage{position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
+.purchase-intent .outfit-aesthetic-actions{position:absolute;left:8px;right:8px;bottom:8px;z-index:2;display:flex;gap:6px}
+.purchase-intent .outfit-aesthetic-actions button{flex:1;height:34px;min-height:34px;border:1px solid rgba(255,255,255,.28);border-radius:11px;background:rgba(20,18,22,.5);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:#fff;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;gap:4px}
+.purchase-intent .outfit-aesthetic-actions button:active{background:rgba(20,18,22,.68)}
+/* 只有一枚按钮时（还没有历史建议）不要拉满一整条：右对齐一个小胶囊，别把封面压成一条横杠。 */
+.purchase-intent .outfit-aesthetic-actions button:only-child{flex:0 0 auto;margin-left:auto;padding:0 18px}
+
 /* 卡片文案区：描述那句已经不在（aestheticCardHtml 传 showCore:false），
- * 底部补 24px 留白。这 24 不是随手定的：390×844 下卡 625、copy 112 时
- * face 正好 511 = 354 × 1299/900，封面按宽度铺满的原始高度，横向裁切只剩 0.05px。 */
-.purchase-intent .outfit-aesthetic-copy{padding-bottom:24px}
+ * 「认识这个」也搬去卡面操作条（showLearn:false），文案区只剩标题 + chips。
+ * §44 起底部留白 24 → 0：真机 393×819 实测，卡 616、copy 88 时
+ * face 正好 526 = 357 × 1299/900 + 11，封面按高度铺满、左右各裁 ~3.7px，
+ * 鞋底完整露在操作条上方。这 24px 不许加回来，加了 face 就掉回 502。 */
+.purchase-intent .outfit-aesthetic-copy{padding-bottom:0}
 /* 卡片上只剩标题 + chips 时，chips 和标题之间别贴死。 */
 .purchase-intent .outfit-aesthetic-copy h2{margin-bottom:2px}
 

@@ -11,13 +11,17 @@ const primary=(action,text,disabled=false)=>`<button type="button" class="purcha
  * 卡片本身与搭配页共用（aesthetic-ui.js 的 aestheticCardHtml + outfits-deck.css）。 */
 export function initialHtml({data,profiles=[],analyzing,preparation,photosReady=false}){
  const pending=preparation&&['running','unknown','interrupted'].includes(preparation.status)&&preparation.phase!=='finished';
- const resume=analyzing?'<button type="button" class="quiet blue home-return" data-open-analysis>看分析进度 →</button>':'';
- const next=pending?'<button type="button" class="quiet blue home-return" data-open-preparation>看本次准备 →</button>':data?.result?'<button type="button" class="quiet blue home-return" data-purchase-last>看上次建议 →</button>':'';
- // 「继续查看」那类入口只占一行 44px，跟圆点分开；没有任何入口时整块不出，卡片就能多长一点。
- const links=resume||next?`<div class="aesthetic-home-links">${resume}${next}</div>`:'';
+ const resume=analyzing;
+ const next=pending?'preparation':data?.result?'last':'';
+ /* §44：两个回头入口从圆点下面那行（49px）搬进卡面操作条 —— 那 49px 直接还给封面。
+  * 卡上只放得下两枚按钮，第二枚按状态轮替：分析中 > 准备中 > 看上次建议；都没有就只出「认识这个」。
+  * 事件不用在这里绑：这几枚 data- 属性 view.js 的 click 委托本来就认。 */
+ const back=resume?'<button type="button" data-open-analysis>看分析进度</button>'
+  :next==='preparation'?'<button type="button" data-open-preparation>看本次准备</button>'
+  :next==='last'?'<button type="button" data-purchase-last>看上次建议</button>':'';
  const empty=!data?.total?'<p class="selection-note aesthetic-home-empty">先录入几件已有衣物，建议才更有依据。<br><a href="#add">去录入衣物</a></p>':'';
  if(!profiles.length)return `<div class="aesthetic-home">${data?.total?'<p class="faint aesthetic-home-empty">审美方向读取中…</p>':empty}</div>`;
- return `<div class="aesthetic-home"><div class="outfit-aesthetic-deck" data-aesthetic-deck aria-label="审美方向，左右滑动切换">${profiles.map(row=>aestheticCardHtml(row,{hint:'点这里分析衣橱',openLabel:`用${row.name}分析衣橱`,showCore:false})).join('')}</div><div class="outfit-aesthetic-dots" data-aesthetic-dots role="group" aria-label="切换审美方向">${aestheticDotsHtml(profiles,0,{label:true})}</div>${links}${empty}</div>`;
+ return `<div class="aesthetic-home"><div class="outfit-aesthetic-deck" data-aesthetic-deck aria-label="审美方向，左右滑动切换">${profiles.map(row=>aestheticCardHtml(row,{hint:'点这里分析衣橱',openLabel:`用${row.name}分析衣橱`,showCore:false,showLearn:false,actions:`<button type="button" data-aesthetic-guide="${esc(row.id)}">认识这个</button>${back}`})).join('')}</div><div class="outfit-aesthetic-dots" data-aesthetic-dots role="group" aria-label="切换审美方向">${aestheticDotsHtml(profiles,0,{label:true})}</div>${empty}</div>`;
 }
 function proposal(draft,direction,index,selection,items){return `<button type="button" class="proposal" role="checkbox" aria-checked="${selection.ids.includes(direction.id)}" data-intent-direction="${esc(direction.id)}"><span class="pi-direction-photo">${referencePhoto(direction)}</span><span class="proposal-body"><span class="proposal-title"><strong>${esc(direction.title)}</strong></span><span class="proposal-description">${esc(direction.reason)}</span><span class="proposal-match">${direction.owned.slice(0,2).map(id=>`<span class="intent-owned-mini">${photo(items[id])}</span>`).join('')}<span>和已有衣物一起搭</span></span></span><span class="choice-mark">${icon('check')}</span></button>`;}
 export function assistantHtml({draft,selection,items,preparing}){
