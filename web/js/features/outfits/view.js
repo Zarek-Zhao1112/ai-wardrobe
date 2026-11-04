@@ -13,6 +13,7 @@ import { esc, icon, fmtDateTime, itemChipsHtml, toast } from "../../core/ui.js";
 import { openTryonSheet } from "./tryon-sheet.js";
 import { createAestheticSheet } from "./aesthetic-sheet.js";
 import { aestheticCardHtml, aestheticDotsHtml, methodDetails } from "./aesthetic-ui.js";
+import { tighten } from "./tight.js";
 
 export const label = "搭配";
 
@@ -201,12 +202,14 @@ export async function mount(root, ctx, arg = "", restore = null) {
     const title = labels.length ? `${labels.slice(0, 2).join("与")}，${profile?.name || "自然搭配"}。` : (profile?.name || "这套搭配");
     const pieces = items.slice(0, 6).map(item => {
       const url = api.presentationUrl(item), name = item.name || item.type_label || "未命名";
-      return `<a class="outfit-stack-piece" href="#item/${esc(item.id)}" aria-label="查看${esc(name)}">${url ? `<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="${esc(name)}" loading="lazy">` : `<span class="ph">${esc(item.type_label || "无照片")}</span>`}${item.id === anchorId ? '<span class="outfit-piece-anchor">必选</span>' : ""}</a>`;
+      return `<a class="outfit-stack-piece" href="#item/${esc(item.id)}" aria-label="查看${esc(name)}">${url ? `<img src="${esc(url)}" data-tighten data-flatlay-source="${esc(url)}" alt="${esc(name)}" loading="lazy">` : `<span class="ph">${esc(item.type_label || "无照片")}</span>`}${item.id === anchorId ? '<span class="outfit-piece-anchor">必选</span>' : ""}</a>`;
     }).join("");
-    // 3 件排一行、4 件排 2×2。固定 2 列时 3 件会空出第 4 格，卡片中部显空。
-    const cols = items.length <= 3 ? Math.max(1, items.length) : 2;
+    // 排法随件数变（§43）：1 铺满 / 2 并排 / 3 主副（主件贯穿两行）/ 4 两行两列 /
+    // 5 件 3+2 / 6 件 3+3。图区已经是白底，件数决定形状，不再靠 --cols 调列数。
+    const n = items.length;
+    const shape = n <= 1 ? 1 : n === 2 ? 2 : n === 3 ? 3 : n === 4 ? 4 : n === 5 ? 5 : 6;
     return `<article class="outfit-stack-card is-top" data-k="${k}" data-outfit-card="${esc(outfit.id)}" style="--k:${k};z-index:${20 - k}">
-      <div class="outfit-stack-grid" style="--cols:${cols}">${pieces}</div>
+      <div class="outfit-stack-grid" data-shape="${shape}">${pieces}</div>
       <div class="outfit-stack-meta"><div class="outfit-stack-copy"><div class="outfit-stack-k"><span>${total > 1 ? `${position + 1} / ${total} 套` : ""}</span><span>${items.length} 件</span></div>
         <h3>${esc(title)}</h3><p>${esc(outfit.reason || `按${profile?.name || "当前审美"}从已有衣物里挑的。`)}</p>
         <div class="outfit-color-row">${colors.map(color => `<i style="background:${PALETTE[color]}"></i>`).join("")}<span>${esc(labels.join(" × "))}</span></div></div>
@@ -243,11 +246,19 @@ export async function mount(root, ctx, arg = "", restore = null) {
         : `<button type="button" class="outfit-deck-foot" data-deck-action="regenerate">${icon("replay")}用这个审美再生成 ${state.limit} 套</button>`;
     return { title, body: `<p class="outfit-deck-sub">${sub}</p>${body}`, foot };
   }
+  /** 重画面板并顺手把卡里的展示图换成裁紧版（§43）。
+   * 所有 `sheet.refresh("deck")` 都必须走这里 —— refresh 是同步换 innerHTML，
+   * 之后再调 tighten 才能拿到新的 img 节点。单独调 refresh 会跳过裁图。 */
+  function refreshDeck() {
+    sheet.refresh("deck");
+    tighten(root.querySelector(".outfit-stack"));
+  }
+
   function step(direction) {
     const next = deckIndex + direction;
     if (next < 0 || next >= deck.length) return;
     deckIndex = next;
-    sheet.refresh("deck");
+    refreshDeck();
   }
   let dragUntil = 0;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -299,7 +310,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
     if (action === "shuffle") { errorText = ""; void generate(deckProfile, deck[deckIndex]?.item_ids || []); return; }
     if (action === "tryon") {
       const trialDeck = deck;
-      openTryonSheet({ root, anchor: node, outfits: trialDeck, index: deckIndex, onSelect: index => { if (alive() && deck === trialDeck) { deckIndex = index; sheet.refresh("deck"); } } });
+      openTryonSheet({ root, anchor: node, outfits: trialDeck, index: deckIndex, onSelect: index => { if (alive() && deck === trialDeck) { deckIndex = index; refreshDeck(); } } });
       return;
     }
     if (action === "basis") sheet.openBasis(deck[deckIndex], node);
@@ -308,7 +319,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
   async function generate(profile, excludeIds) {
     if (busy || inFlight || !profile) return;
     busy = true; errorText = "";
-    sheet.refresh("deck");
+    refreshDeck();
     const requested = { aesthetic: profile.id, limit: state.limit, useLlm: state.useLlm, anchorId };
     // 单套模式：「换一套」把当前这套的单品带上去，服务端会避开它们重新挑。
     const exclude = (excludeIds || []).filter(Boolean);
@@ -333,7 +344,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
     } finally {
       if (inFlight === pending) { inFlight = null; inFlightRequested = null; }
       busy = false;
-      if (alive()) sheet.refresh("deck");
+      if (alive()) refreshDeck();
       void loadHistory();
     }
   }
@@ -432,11 +443,11 @@ export async function mount(root, ctx, arg = "", restore = null) {
       showSeason(response);
       deck = (response.outfits || []).filter(usableOutfit); deckIndex = 0;
       if (!deck.length) errorText = response.note || "这次没配出能用的组合。";
-      sheet.refresh("deck");
+      refreshDeck();
     }).catch(() => {
       if (!alive() || deckProfile?.id !== requested.aesthetic) return;
       errorText = "上一轮生成未成功，再试一次。";
-      sheet.refresh("deck");
+      refreshDeck();
     });
   }
   await loadHistory();

@@ -85,18 +85,56 @@
 .outfit-stack-card.is-dragging { transition: none; }
 /* 后卡只是厚度：不接手势，也不进无障碍树。 */
 .outfit-stack-card.is-ghost { pointer-events: none; }
-.outfit-stack-grid { flex: 0 0 54%; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 6px; padding: 8px; background: var(--surface-2); }
-.outfit-stack-piece { position: relative; display: block; min-width: 0; min-height: 0; }
+/* ---------- 图区：无底 + 主件贯穿 ----------
+ * §43（2026-11-04）：展示图的底色是纯白 #FFFFFF，而图区原来铺 --surface-2(#F2F2F5)，
+ * 白图压在灰格上就是一块突兀的白方块。改成与卡片同色后，图片边界完全消失，
+ * 衣服直接浮在卡片上 —— **图片一个像素都不用动**，只改这一行背景。
+ *
+ * ⚠️ 灰底一撤，卡片下半截会显空（灰底其实一直在兜着空），所以图区同时从 54%
+ *    提到 64%、结构改「主件贯穿两行 + 副件竖排」：3 件时主图 ~192px 宽（原 58px）。
+ *    别再改回 --surface-2，那等于把白方块放回来。
+ */
+.outfit-stack-grid { flex: 0 0 64%; min-height: 0; display: grid; grid-template-columns: 1.6fr 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 10px 12px 0; background: var(--surface); }
+/* 件数不同，排法不同：1 件铺满 / 2 件并排 / 3 件主副（默认）/ 4 件 2×2 /
+ * 5 件 3+2 / 6 件 3+3。5、6 件用 6 列再 span —— 直接用 2 列会让最后一件落单，右边空一格。 */
+.outfit-stack-grid[data-shape="1"] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.outfit-stack-grid[data-shape="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: 1fr; }
+.outfit-stack-grid[data-shape="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.outfit-stack-grid[data-shape="5"],
+.outfit-stack-grid[data-shape="6"] { grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+.outfit-stack-grid[data-shape="5"] > *,
+.outfit-stack-grid[data-shape="6"] > * { grid-column: span 2; }
+.outfit-stack-grid[data-shape="5"] > :nth-child(n+4) { grid-column: span 3; }
+/* 格子按图片自身的 3:4 收缩并居中 —— 这样「必选」角标才贴得住图，不会飘在格子底边。
+ * ⚠️ 约束方向要随形状换：格子**偏高**（2/3 件）时用宽度定尺寸，格子**偏矮**（1/4/5 件）
+ *    时用高度定尺寸。反了就会溢出到下一行，或者把图片压成一条。
+ * ⚠️ 只有 3 件（默认形状）时主件跨两行，其余形状都平铺。 */
+.outfit-stack-piece { position: relative; display: block; min-width: 0; min-height: 0; aspect-ratio: 3 / 4; }
+.outfit-stack-piece:first-child { grid-row: 1 / -1; }
+/* 主件贴顶：横宽的衣物（毛衣、外套）在 3:4 画布里上下本就留白，再垂直居中会让
+ * 卡片顶部空出一大块。贴顶后顶部只留 padding，留白全落到下方，读起来像杂志版式。 */
+.outfit-stack-grid[data-shape="3"] .outfit-stack-piece:first-child { align-self: start; }
+.outfit-stack-grid[data-shape="2"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="3"] .outfit-stack-piece { width: 100%; height: auto; align-self: center; }
+.outfit-stack-grid[data-shape="1"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="2"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="4"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="5"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="6"] .outfit-stack-piece { grid-row: auto; }
+.outfit-stack-grid[data-shape="1"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="4"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="5"] .outfit-stack-piece,
+.outfit-stack-grid[data-shape="6"] .outfit-stack-piece { width: auto; height: 100%; justify-self: center; align-self: center; }
 .outfit-stack-piece img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .outfit-stack-piece .ph { display: grid; place-items: center; height: 100%; color: var(--text-faint); font-size: 11px; }
-.outfit-stack-piece .outfit-piece-anchor { position: absolute; left: 4px; bottom: 4px; padding: 1px 5px; border: 1px solid var(--accent-line); border-radius: 7px; background: var(--accent-soft); color: var(--accent); font-size: 9px; }
-.outfit-stack-meta { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 16px; }
+.outfit-stack-piece .outfit-piece-anchor { position: absolute; left: 2px; bottom: 2px; padding: 1px 5px; border: 1px solid var(--accent-line); border-radius: 7px; background: var(--accent-soft); color: var(--accent); font-size: 9px; }
+.outfit-stack-meta { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 14px 16px; }
 /* 文字贴住图区下沿、按钮压到卡片底边 —— 卡片高度富余时，多出来的空间集中在
    文字与按钮之间这一段，而不是把文字块吊在正中（那样上下各一个洞，读起来像断成两截）。 */
 .outfit-stack-copy { margin: 0; min-height: 0; }
 .outfit-stack-k { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--text-faint); }
 .outfit-stack-meta h3 { margin: 5px 0 0; font-size: 16px; font-weight: 600; letter-spacing: var(--ls-tight); line-height: 1.35; }
-.outfit-stack-meta p { margin: 7px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.outfit-stack-meta p { margin: 7px 0 0; font-size: 12.5px; line-height: 1.65; color: var(--text-dim); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .outfit-stack-meta .outfit-color-row { margin-top: 9px; }
 /* 按钮贴住卡片底边 —— 富余的空间落在文字与按钮之间那一段。 */
 .outfit-stack-acts { display: flex; gap: 8px; padding-top: 11px; margin-top: auto; }
@@ -108,9 +146,11 @@
 .outfit-deck-foot .icon { width: 14px; height: 14px; }
 
 .outfit-deck-skel { position: absolute; left: 0; right: 0; top: 0; bottom: 28px; display: flex; flex-direction: column; padding: 8px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow-card); overflow: hidden; }
-.outfit-deck-skel .g { flex: 0 0 54%; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; }
+/* 骨架跟真卡同结构：白底 + 主副，第一块跨两行 —— 否则加载态和出图后跳一下 */
+.outfit-deck-skel .g { flex: 0 0 64%; display: grid; grid-template-columns: 1.6fr 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 4px 8px; padding: 10px 12px 0; }
 .outfit-deck-skel .g i { display: block; border-radius: 10px; background: var(--surface-2); animation: outfit-pulse 1.6s ease-in-out infinite; }
-.outfit-deck-skel .t { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 16px 8px 8px; }
+.outfit-deck-skel .g i:first-child { grid-row: 1 / -1; }
+.outfit-deck-skel .t { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 14px 8px 8px; }
 .outfit-deck-skel .t i { display: block; height: 11px; border-radius: 6px; background: var(--surface-2); animation: outfit-pulse 1.6s ease-in-out infinite; }
 .outfit-deck-skel .t i:first-child { width: 56%; height: 15px; }
 .outfit-deck-skel .t i:nth-child(3) { width: 72%; }
