@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>「看上次建议」挪进圆点行 · 前后对比</title>
+<style>
+/* ============================================================
+ * 添置首页，真机图框高度 437 → 486（2026-11-04）
+ *
+ * 所有尺寸取自真机 CDP 实测（M2101K9C，视口 393×819）：
+ *   顶栏 48 · #view padding-top 16 · 卡顶 67 · 卡宽 359 · face 宽 357
+ *   改前：aesthetic-home 636 = deck 551 + dots 36 + links 49
+ *         face 437 = 551 − copy 112 − border 2
+ *   改后：links 并进 dots 行，deck 600，face 486
+ *   零裁切需 face 515（= 357 × 1299 ÷ 900），放不下
+ * ============================================================ */
+:root{
+  --bg:#eceef2; --surface:#fff; --surface-2:#f4f5f7;
+  --border:#dfe2e7; --border-strong:#c8ccd4;
+  --text:#16181d; --text-dim:#5b6169; --text-faint:#8a9099;
+  --accent:#0b6bcb; --accent-soft:#e8f1fb; --accent-line:#a9cdf2;
+  --warn:#b4530a; --warn-soft:#fdf1e5; --warn-line:#e8c9a8;
+  --ok:#1a7f4b; --ok-soft:#e8f5ee; --ok-line:#a9d8bf;
+  --r:12px; --r-lg:18px;
+  --shadow:0 1px 2px rgba(16,20,28,.05), 0 8px 24px rgba(16,20,28,.06);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  padding:28px 24px 64px;
+}
+.wrap{max-width:1060px;margin:0 auto}
+h1,h2,h3,h4,p,ul,dl,dd,figure{margin:0}
+ul{padding:0;list-style:none}
+code{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#e6e9ee;padding:1px 5px;border-radius:4px}
+
+/* ---------- 页头 ---------- */
+.head{margin-bottom:26px}
+.head .eyebrow{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:12px;letter-spacing:.04em;color:var(--text-faint);
+  text-transform:uppercase;margin-bottom:8px;
+}
+.head .eyebrow i{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block}
+.head h1{font-size:26px;line-height:1.3;letter-spacing:-.02em;font-weight:650}
+.head .sub{margin-top:10px;font-size:14px;color:var(--text-dim);max-width:760px;line-height:1.7}
+
+/* ---------- 区块 ---------- */
+section.block{margin-top:38px}
+section.block > h2{
+  font-size:16px;font-weight:650;letter-spacing:-.01em;
+  display:flex;align-items:baseline;gap:9px;margin-bottom:6px;
+}
+section.block > h2 .idx{
+  font:11px/1 ui-monospace,monospace;color:var(--accent);
+  background:var(--accent-soft);border:1px solid var(--accent-line);
+  border-radius:5px;padding:3px 6px;position:relative;top:-1px;
+}
+section.block > p.lead{font-size:13.5px;color:var(--text-dim);margin-bottom:18px;max-width:780px}
+
+/* ---------- 手机框 ---------- */
+.phones{display:flex;gap:46px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+.phone-col{display:flex;flex-direction:column;align-items:center;gap:0}
+.col-title{
+  display:flex;align-items:center;gap:7px;margin-bottom:12px;
+  font-size:13px;font-weight:600;
+}
+.col-title .tag{
+  font-size:10.5px;font-weight:600;letter-spacing:.02em;
+  padding:2px 7px;border-radius:999px;
+}
+.col-title .tag.bad{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line)}
+.col-title .tag.good{background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok-line)}
+.col-title .tag.n{background:#eceef2;color:var(--text-dim);border:1px solid var(--border-strong)}
+
+.phone{
+  width:393px;height:819px;background:#fff;position:relative;overflow:hidden;
+  border-radius:20px;box-shadow:0 0 0 1px var(--border-strong), 0 14px 40px rgba(16,20,28,.13);
+  zoom:.78;
+}
+/* 顶栏 48 */
+.ph-top{
+  height:48px;display:flex;align-items:center;gap:8px;
+  padding:0 12px 0 16px;border-bottom:1px solid #eceef2;
+}
+.ph-title{font-size:16px;font-weight:600;letter-spacing:-.01em;flex:1}
+.ph-act{
+  display:flex;align-items:center;gap:4px;height:36px;padding:0 6px;
+  font-size:12px;color:var(--text-faint);
+}
+.ph-gear{width:32px;height:36px;display:grid;place-items:center;color:var(--text-faint);font-size:15px}
+/* 内容区 687 = 819 − 48 − 84 */
+.ph-body{height:687px;padding:19px 17px 0;overflow:hidden}
+
+.card{
+  border:1px solid #e3e6ea;border-radius:22px;overflow:hidden;
+  display:flex;flex-direction:column;box-shadow:0 1px 2px rgba(16,20,28,.04);
+}
+.face{overflow:hidden;background:var(--surface-2);position:relative}
+.face img{display:block;width:100%;height:100%;object-fit:cover}
+/* 封面就是真实渲染（object-fit:cover 居中裁），不叠任何标记 ——
+ * 叠橙条是错的：cover 已经把看不到的部分裁掉了，再叠只会盖住「能看见的内容」。
+ * 裁切量交给下方数字和 01 节的三框图。 */
+
+.copy{padding:13px 17px 0;display:flex;flex-direction:column;gap:10px;background:#fff}
+.copy h3{font-size:19px;font-weight:650;letter-spacing:-.01em;line-height:1.2}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{
+  font-size:11px;color:var(--text-dim);background:#f3f4f6;
+  border:1px solid #e8eaee;border-radius:999px;padding:3px 9px;line-height:1.4;
+}
+.learn{
+  display:flex;align-items:center;gap:3px;font-size:12px;color:var(--accent);
+  margin-top:2px;padding-bottom:2px;
+}
+
+/* 圆点行 36 */
+.dots{
+  height:36px;display:flex;align-items:center;justify-content:center;gap:0;
+  position:relative;
+}
+.dots .dot{
+  width:36px;height:36px;display:grid;place-items:center;flex:none;
+}
+.dots .dot i{width:6px;height:6px;border-radius:50%;background:#cbd0d7;display:block}
+.dots .dot[aria-current="true"] i{background:#2a3038;width:7px;height:7px}
+.dots .page{
+  position:absolute;right:0;top:50%;transform:translateY(-50%);
+  font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums;
+}
+.dots .prev{
+  position:absolute;left:0;top:50%;transform:translateY(-50%);
+  font-size:11px;color:var(--accent);display:flex;align-items:center;gap:2px;
+  white-space:nowrap;
+}
+
+/* 「看上次建议」单独一行 49（改前） */
+.links{
+  height:49px;display:flex;align-items:center;justify-content:center;gap:10px;
+  font-size:12px;color:var(--text-dim);
+}
+.links b{color:var(--accent);font-weight:500}
+
+/* tabbar */
+.ph-tab{
+  position:absolute;left:0;right:0;bottom:0;height:84px;
+  padding-bottom:12px;display:flex;align-items:center;
+  border-top:1px solid #eceef2;background:#fff;
+}
+.ph-tab span{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  font-size:10px;color:var(--text-faint);
+}
+.ph-tab span.on{color:var(--text)}
+.ph-tab span i{font-size:16px;font-style:normal;line-height:1}
+
+/* 改前 / 改后 差异：只动 face 高度与 links 位置 */
+.phone.before .face{height:437px;--cut:39px}
+.phone.after .face{height:486px;--cut:14.5px}
+.phone.after .links{display:none}
+
+.under{
+  margin-top:14px;display:flex;flex-direction:column;gap:4px;
+  font-size:12.5px;color:var(--text-dim);text-align:center;
+}
+.under b{color:var(--text);font-variant-numeric:tabular-nums}
+.under .cut{color:var(--warn)}
+
+/* ---------- 裁切示意 ---------- */
+.cropgrid{display:flex;gap:34px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+.cropgrid figure{width:200px;display:flex;flex-direction:column;gap:10px}
+.cbox{
+  position:relative;width:200px;height:289px;overflow:hidden;border-radius:10px;
+  background:var(--surface-2);
+}
+.cbox img{width:100%;height:100%;object-fit:cover;display:block}
+.cwin{
+  position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);
+  box-shadow:0 0 0 9999px rgba(14,18,24,.55);
+  outline:2px solid rgba(255,255,255,.9);outline-offset:-1px;
+}
+.cwin .lbl{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(255,255,255,.94);color:#16181d;
+  font:600 11px/1 ui-monospace,monospace;padding:3px 7px;border-radius:4px;
+  white-space:nowrap;
+}
+.cwin.none{height:100%;top:0;transform:none;box-shadow:none;outline:2px dashed rgba(255,255,255,.85)}
+.cropgrid figcaption{font-size:12.5px;color:var(--text-dim);text-align:center;line-height:1.5}
+.cropgrid figcaption b{color:var(--text)}
+.cropgrid figcaption .warn{color:var(--warn);font-weight:600}
+
+/* ---------- 圆点行放大 ---------- */
+.zoomrow{
+  border:1px solid var(--border);border-radius:var(--r);background:var(--surface);
+  padding:13px 16px;display:flex;flex-direction:column;gap:0;
+}
+.zoomrow .zlabel{
+  font-size:11px;color:var(--text-faint);letter-spacing:.03em;margin-bottom:9px;
+}
+.dotsbar{
+  width:357px;height:36px;position:relative;background:#fff;
+  border:1px dashed var(--border-strong);border-radius:6px;
+  display:flex;align-items:center;justify-content:center;zoom:1.9;
+}
+.dotsbar .dot{width:36px;height:36px;display:grid;place-items:center;flex:none}
+.dotsbar .dot i{width:6px;height:6px;border-radius:50%;background:#cbd0d7;display:block}
+.dotsbar .dot[aria-current="true"] i{background:#2a3038;width:7px;height:7px}
+.dotsbar .page{position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums}
+.dotsbar .prev{position:absolute;left:0;top:50%;transform:translateY(-50%);font-size:11px;color:var(--accent);white-space:nowrap}
+.zoomrow .note{font-size:12px;color:var(--text-dim);margin-top:9px}
+
+/* ---------- 六张封面 ---------- */
+.covergrid{display:flex;gap:14px;flex-wrap:wrap;justify-content:center}
+.covergrid figure{width:118px;display:flex;flex-direction:column;gap:7px}
+.covergrid .cf{
+  width:118px;height:161px;overflow:hidden;border-radius:8px;background:var(--surface-2);
+  box-shadow:0 0 0 1px var(--border);
+}
+.covergrid .cf img{width:100%;height:100%;object-fit:cover;display:block}
+.covergrid figcaption{font-size:11px;color:var(--text-dim);text-align:center;line-height:1.4}
+.covergrid figcaption b{display:block;color:var(--text);font-size:11.5px;font-weight:600}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;background:var(--surface);border-radius:var(--r);overflow:hidden;box-shadow:0 0 0 1px var(--border)}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:#f6f7f9;font-weight:600;font-size:12px;color:var(--text-dim);letter-spacing:.01em}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums}
+td.ok{color:var(--ok);font-weight:600}
+td.bad{color:var(--warn);font-weight:600}
+td.mid{color:var(--text-dim)}
+
+/* ---------- 说明块 ---------- */
+.notes{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.note-item{
+  display:flex;gap:11px;padding:13px 15px;border-radius:var(--r);
+  background:var(--surface);box-shadow:0 0 0 1px var(--border);
+  font-size:13px;line-height:1.7;
+}
+.note-item .n{
+  flex:none;width:20px;height:20px;border-radius:50%;
+  display:grid;place-items:center;font:600 11px/1 ui-monospace,monospace;
+  background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line);
+  margin-top:2px;
+}
+.note-item.warn .n{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+.note-item.ok .n{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-line)}
+.note-item b{font-weight:600}
+
+.verdict{
+  margin-top:26px;padding:18px 20px;border-radius:var(--r-lg);
+  background:linear-gradient(180deg,#f7fafd,#eef4fb);
+  box-shadow:0 0 0 1px var(--accent-line);
+  font-size:13.5px;line-height:1.8;
+}
+.verdict h3{font-size:14px;font-weight:650;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+.verdict h3 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="eyebrow"><i></i>添置首页 · 图框高度</div>
+    <h1>「看上次建议」挪进圆点行，封面少切 10%</h1>
+    <p class="sub">
+      左边是手机上现在的样子，右边是把底部那行「看上次建议」并进圆点行之后。
+      两台都按真机 1:1 画（393×819，M2101K9C 实测），封面是真的
+      <code>cover-urban.webp</code>，按真实方式居中裁切 —— 不是示意图。
+      往下第 <b>01</b> 节会标出具体切掉了哪一段。
+    </p>
+  </div>
+
+  <!-- ============ 1. 手机对比 ============ -->
+  <section class="block">
+    <div class="phones">
+
+      <!-- 改前 -->
+      <div class="phone-col">
+        <div class="col-title"><span class="tag bad">现在</span> 图框 437</div>
+        <div class="phone before">
+          <div class="ph-top">
+            <span class="ph-title">添置</span>
+            <span class="ph-act"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M19 21l-7-5-7 5V3h14z"/></svg> 已记下 0</span>
+            <span class="ph-gear">⚙</span>
+          </div>
+          <div class="ph-body">
+            <div class="card">
+              <div class="face"><img src="covers/demo-cover-urban.webp" alt="都市极简封面"></div>
+              <div class="copy">
+                <h3>都市极简</h3>
+                <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                <div class="learn">认识这个 ›</div>
+              </div>
+            </div>
+            <div class="dots">
+              <span class="dot" aria-current="true"><i></i></span>
+              <span class="dot"><i></i></span><span class="dot"><i></i></span>
+              <span class="dot"><i></i></span><span class="dot"><i></i></span>
+              <span class="dot"><i></i></span>
+              <span class="page">1/6</span>
+            </div>
+            <div class="links">看上次建议 <b>›</b></div>
+          </div>
+          <div class="ph-tab">
+            <span><i>◨</i>衣橱</span><span class="on"><i>✦</i>添置</span>
+            <span><i>◍</i>搭配</span><span><i>···</i>更多</span>
+          </div>
+        </div>
+        <div class="under">
+          <span>上下一共切掉 <b class="cut">78px</b>（15.2%）</span>
+          <span>每边 <b class="cut">39px</b></span>
+        </div>
+      </div>
+
+      <!-- 改后 -->
+      <div class="phone-col">
+        <div class="col-title"><span class="tag good">改后</span> 图框 486</div>
+        <div class="phone after">
+          <div class="ph-top">
+            <span class="ph-title">添置</span>
+            <span class="ph-act"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M19 21l-7-5-7 5V3h14z"/></svg> 已记下 0</span>
+            <span class="ph-gear">⚙</span>
+          </div>
+          <div class="ph-body">
+            <div class="card">
+              <div class="face"><img src="covers/demo-cover-urban.webp" alt="都市极简封面"></div>
+              <div class="copy">
+                <h3>都市极简</h3>
+                <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                <div class="learn">认识这个 ›</div>
+              </div>
+            </div>
+            <div class="dots">
+              <span class="prev">上次建议 ›</span>
+              <span class="dot" aria-current="true"><i></i></span>
+              <span class="dot"><i></i></span><span class="dot"><i></i></span>
+              <span class="dot"><i></i></span><span class="dot"><i></i></span>
+              <span class="dot"><i></i></span>
+              <span class="page">1/6</span>
+            </div>
+            <div class="links">看上次建议 <b>›</b></div>
+          </div>
+          <div class="ph-tab">
+            <span><i>◨</i>衣橱</span><span class="on"><i>✦</i>添置</span>
+            <span><i>◍</i>搭配</span><span><i>···</i>更多</span>
+          </div>
+        </div>
+        <div class="under">
+          <span>上下一共切掉 <b>29px</b>（5.6%）</span>
+          <span>每边 <b>14.5px</b></span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ============ 2. 裁切示意 ============ -->
+  <section class="block">
+    <h2><span class="idx">01</span>到底切掉了哪一块</h2>
+    <p class="lead">
+      同一张封面（900×1299）。白框是图框能看到的部分，框外压暗的就是被切掉的。
+      右边两张是同一张图，只是图框变高了。
+    </p>
+    <div class="cropgrid">
+      <figure>
+        <div class="cbox">
+          <img src="covers/demo-cover-urban.webp" alt="">
+          <div class="cwin none"><span class="lbl">完整 515</span></div>
+        </div>
+        <figcaption><b>原始比例</b><br>900×1299，一个像素不切</figcaption>
+      </figure>
+      <figure>
+        <div class="cbox">
+          <img src="covers/demo-cover-urban.webp" alt="">
+          <div class="cwin" style="height:245px"><span class="lbl">改后 486</span></div>
+        </div>
+        <figcaption><b>改后 486</b><br>切 5.6%，每边 14.5px</figcaption>
+      </figure>
+      <figure>
+        <div class="cbox">
+          <img src="covers/demo-cover-urban.webp" alt="">
+          <div class="cwin" style="height:221px"><span class="lbl">现在 437</span></div>
+        </div>
+        <figcaption><b>现在 437</b><br><span class="warn">切 15.2%，每边 39px</span></figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ============ 3. 圆点行放大 ============ -->
+  <section class="block">
+    <h2><span class="idx">02</span>圆点行会挤吗</h2>
+    <p class="lead">
+      一行 357px 宽，放三样东西：左边「上次建议 ›」、中间六个圆点、右边「1/6」。
+      下面是放大 1.9 倍的真实排布。
+    </p>
+    <div class="zoomrow">
+      <div class="zlabel">现在 —— 圆点居中，右边只有页码</div>
+      <div class="dotsbar">
+        <span class="dot" aria-current="true"><i></i></span>
+        <span class="dot"><i></i></span><span class="dot"><i></i></span>
+        <span class="dot"><i></i></span><span class="dot"><i></i></span>
+        <span class="dot"><i></i></span>
+        <span class="page">1/6</span>
+      </div>
+    </div>
+    <div class="zoomrow" style="margin-top:12px">
+      <div class="zlabel">改后 —— 左边多一个入口</div>
+      <div class="dotsbar">
+        <span class="prev">上次建议 ›</span>
+        <span class="dot" aria-current="true"><i></i></span>
+        <span class="dot"><i></i></span><span class="dot"><i></i></span>
+        <span class="dot"><i></i></span><span class="dot"><i></i></span>
+        <span class="dot"><i></i></span>
+        <span class="page">1/6</span>
+      </div>
+      <div class="note">左边入口约 57px，六个圆点 216px，页码 22px —— 加起来 295px，还剩 62px 余量，不挤。</div>
+    </div>
+  </section>
+
+  <!-- ============ 4. 六张封面 ============ -->
+  <section class="block">
+    <h2><span class="idx">03</span>六张封面在 486 下都安全吗</h2>
+    <p class="lead">
+      每边切 14.5px，等于封面高度的 2.8%。最紧的是 technical（连帽衫，帽子离图顶约 5%）和
+      street（夹克，约 6%）—— 5% 余量大于 2.8%，都不会切到衣服。
+    </p>
+    <div class="covergrid">
+      <figure><div class="cf"><img src="covers/demo-cover-urban.webp" alt=""></div><figcaption><b>都市极简</b>余量充足</figcaption></figure>
+      <figure><div class="cf"><img src="covers/demo-cover-heritage.webp" alt=""></div><figcaption><b>复古学院</b>余量充足</figcaption></figure>
+      <figure><div class="cf"><img src="covers/demo-cover-natural.webp" alt=""></div><figcaption><b>自然松弛</b>余量充足</figcaption></figure>
+      <figure><div class="cf"><img src="covers/demo-cover-refined.webp" alt=""></div><figcaption><b>精致通勤</b>余量充足</figcaption></figure>
+      <figure><div class="cf"><img src="covers/demo-cover-street.webp" alt=""></div><figcaption><b>街头机能</b>余量 6%</figcaption></figure>
+      <figure><div class="cf"><img src="covers/demo-cover-technical.webp" alt=""></div><figcaption><b>技术户外</b>余量 5%，最紧</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ============ 5. 数字 ============ -->
+  <section class="block">
+    <h2><span class="idx">04</span>数字账</h2>
+    <table>
+      <thead>
+        <tr><th>项目</th><th>现在</th><th>改后</th><th>差</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>图框高度</td><td class="num bad">437</td><td class="num ok">486</td><td class="num">+49</td></tr>
+        <tr><td>上下裁切</td><td class="num bad">15.2%</td><td class="num ok">5.6%</td><td class="num">−9.6pp</td></tr>
+        <tr><td>每边裁</td><td class="num bad">39px</td><td class="num ok">14.5px</td><td class="num">−24.5</td></tr>
+        <tr><td>卡片高度</td><td class="num">551</td><td class="num">600</td><td class="num">+49</td></tr>
+        <tr><td>圆点行</td><td class="num">36</td><td class="num">36</td><td class="num">0</td></tr>
+        <tr><td>「看上次建议」行</td><td class="num">49</td><td class="num ok">0（并进圆点行）</td><td class="num">−49</td></tr>
+        <tr><td>整块内容高度</td><td class="num">636</td><td class="num">636</td><td class="num mid">不变</td></tr>
+        <tr><td>入口数量</td><td class="num">3</td><td class="num">3</td><td class="num mid">一个没少</td></tr>
+      </tbody>
+    </table>
+    <div class="notes">
+      <div class="note-item ok">
+        <span class="n">✓</span>
+        <div><b>整块高度一分没变。</b>只是把 49px 从「单独一行」挪进「本来就空着两边的圆点行」，卡片就向上多长了 49px。</div>
+      </div>
+      <div class="note-item warn">
+        <span class="n">!</span>
+        <div><b>为什么不到 515（零裁切）。</b>零裁切要卡片 629 + 圆点 36 = 665，加上顶部 67 和 tabbar 上方，真机只有 687 可用 —— 差 30px。除非再删掉圆点行或文案区，那就不是「微调」了。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 结论 ============ -->
+  <div class="verdict">
+    <h3><span class="dot"></span>要你定的一句话</h3>
+    <p>
+      <b>改：</b>图框 437 → 486，裁切 15.2% → 5.6%，六张封面全都不会切到衣服，功能一个不少。<br>
+      <b>不改：</b>城市极简这张看着还行（切的全是墙），但换到 technical 那张连帽衫，帽顶会被削掉一截。
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

@@ -128,6 +128,8 @@ export const api = {
   //   本机回环正常时是 10ms 级，6 秒已经极宽松；超时就当"没起"，立刻给指引。
   health: () => request("GET", "/health", { timeoutMs: 6000 }),
   configureBridge: (settings) => request("PUT", "/settings/desktop-bridge", { json: settings, timeoutMs: 12000 }),
+  repairBridge: (candidate) => request("POST", "/settings/desktop-bridge/repair", { json: { candidate }, timeoutMs: 28000 }),
+  setEngine: (engine) => request("PUT", "/settings/engine", { json: { engine }, timeoutMs: 12000 }),
   taxonomy: () => request("GET", "/taxonomy", { timeoutMs: 10000 }),
 
   // 单品
@@ -158,14 +160,6 @@ export const api = {
     request("PATCH", `/items/${encodeURIComponent(id)}`, { json: payload }),
   deleteItem: (id) => request("DELETE", `/items/${encodeURIComponent(id)}`),
   bulkItems: (payload) => request("POST", "/items/bulk", { json: payload }),
-  /** 解析粘贴来的商品文案。**只解析，不入库** —— 用户确认后再 `bulkItems`。
-   *
-   * ★ 超时单独设短一点（15s）：实测只要 0.1s（纯本地解析，不调模型）。
-   * 45s 的默认值对这个动作等于"点了按钮要干等 45 秒"，体验上像卡死。
-   * 真卡住时 15 秒就给结论，比 45 秒人道。
-   */
-  parseItems: (text) =>
-    request("POST", "/items/parse", { json: { text }, timeoutMs: 15000 }),
   uploadImage: (id, file, context) => {
     const form = imageForm(file, context);
     return request("POST", `/items/${encodeURIComponent(id)}/image`, { form, timeoutMs: 100000 });
@@ -197,6 +191,11 @@ export const api = {
   purchaseState: () => request("GET", "/wardrobe/purchase", { timeoutMs: 10000 }),
   purchaseGenerate: (payload) => request("POST", "/wardrobe/purchase", { json: payload, timeoutMs: 110000 }),
   purchaseIntentState: () => request("GET", "/wardrobe/purchase/intent", { timeoutMs: 15000 }),
+  purchaseBuilderState: (inventory = false) => request("GET", "/wardrobe/purchase/builder", { params: { inventory } }),
+  purchaseBuilderStart: payload => request("POST", "/wardrobe/purchase/builder", { json: payload, timeoutMs: 15000 }),
+  purchaseBuilderRequest: id => request("GET", "/wardrobe/purchase/builder/" + encodeURIComponent(id)),
+  purchaseBuilderQuery: id => request("POST", "/wardrobe/purchase/builder/" + encodeURIComponent(id) + "/query", { timeoutMs: 75000 }),
+  purchaseBuilderSave: (id, reference_ids) => request("PUT", "/wardrobe/purchase/builder/" + encodeURIComponent(id) + "/wanted", { json: { reference_ids } }),
   purchaseIntentRequest: id => request("GET", "/wardrobe/purchase/intent/request/" + encodeURIComponent(id), { timeoutMs: 12000 }),
   purchaseAnalyze: payload => request("POST", "/wardrobe/purchase/intent/analyze", { json: payload, timeoutMs: 110000 }),
   purchaseAnalysis: id => request("GET", "/wardrobe/purchase/intent/analysis/" + encodeURIComponent(id), { timeoutMs: 15000 }),

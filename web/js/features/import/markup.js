@@ -6,39 +6,36 @@ export function importMarkup(taxonomy) {
     <div class="view-head"><h1>录入</h1></div>
     <p class="view-subtitle">给衣橱添一件</p>
 
-    <details class="panel paste-panel">
-      <summary>粘贴商品文案录入</summary>
-      <p class="faint">
-        在淘宝点「复制链接」拿到的那<strong>整段文案</strong>，直接粘进来即可 ——
-        可以一次粘好几件。我只读你粘的这段文字，不会去打开那个网页。
-      </p>
-      <label class="field field-wide"><span>商品文案</span>
-        <textarea id="paste-text" rows="3"
-          placeholder="【淘宝】7天无理由退货 https://… 「宽松直筒牛仔裤 深灰」"></textarea>
-      </label>
-      <div class="form-actions">
-        <button type="button" class="primary" id="paste-btn">识别</button>
-        <span class="faint">认不出的品类会让你在下面选，不会硬猜。</span>
-      </div>
-    </details>
-
-    <div id="paste-result"></div>
-
     <form id="add-form" class="panel photo-form" novalidate>
       <div class="field field-wide photo-field"><span class="sr-only">照片（可选）</span>
-        <!-- 原生 input 藏起来（.sr-only 类），只留下面那个按钮当入口 ——
-             它俩现在做的是同一件事，摆两个一模一样的按钮只会让人犹豫点哪个。
-             tabindex="-1"：藏起来的控件不该占 Tab 停点，否则键盘用户会聚焦到
-             一个看不见的东西上（真正的键盘路径是那个 button）。
-             ⚠️ 这段在模板字符串里，注释里**不能写反引号**，会截断字符串。 -->
         <input type="file" id="add-image" accept="image/*" multiple class="sr-only" tabindex="-1">
+        <input type="file" id="add-camera-image" accept="image/*" capture="environment" class="sr-only" tabindex="-1">
         <div class="album-picked" id="add-album-picked" hidden></div>
         <div class="add-shot" id="add-shot" hidden><img id="add-shot-img" alt=""></div>
-        <button type="button" class="photo-picker" id="add-album" aria-label="选择照片，可多选">${icon("photo")}<strong>把衣服放进衣橱</strong><span class="faint">一次选择多张照片，自动识别属性并生成白底平铺图。</span><span class="photo-select-cta">＋ 选择照片</span></button>
+        <div class="photo-picker import-source-card" data-import-source>
+          ${icon("photo")}<strong>把衣服放进衣橱</strong>
+          <span class="faint">可连续拍摄或选择多张照片，自动识别属性并生成白底平铺图。</span>
+          <div class="import-source-actions">
+            <button type="button" class="primary" data-take-photo aria-label="拍照">${icon("camera")}</button>
+            <button type="button" data-pick-photos aria-label="从相册选择，可多选">${icon("photo")}</button>
+          </div>
+        </div>
+        <section class="import-selection" data-import-selection aria-label="待识别照片" hidden>
+          <div class="import-batch-top"><span data-selection-count aria-live="polite"></span><span class="faint">待识别</span></div>
+          <div class="import-batch-track" aria-hidden="true"></div>
+          <div class="import-batch-thumbs" data-selection-thumbs role="group" aria-label="已选照片"></div>
+          <p class="import-position" data-selection-position></p>
+          <div class="import-photo"><img data-selection-preview alt=""></div>
+          <div class="import-selection-remove"><button type="button" class="ghost danger" data-remove-photo>移除这张</button></div>
+          <div class="import-selection-actions">
+            <button type="button" data-take-photo>${icon("camera")}再拍一件</button>
+            <button type="button" data-pick-photos>${icon("photo")}从相册添加</button>
+            <button type="button" class="primary" data-start-recognition>开始识别</button>
+          </div>
+        </section>
         <div class="photo-tools">
           <button type="button" class="ghost" id="add-crop" hidden>裁剪商品图</button>
         </div>
-        <small class="faint">电脑上可以直接 Ctrl+V 粘贴截图，或把图片拖进页面</small>
       </div>
       ${formHtml(taxonomy)}
       <div class="form-actions">

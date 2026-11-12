@@ -28,6 +28,25 @@ export function thumbImage(profile) {
 export function coverFor(profile) {
   return coverImage(profile) || examplesFor(profile)[0]?.image || "";
 }
+/** §45、§55：搭配与添置共用图片整卡，按页面选择说明标签和风格入口位置。 */
+export function outfitCoverCardHtml(profile, profiles, position, {
+  openLabel = "按这个风格搭配", showSummary = true, showLabel = true, guideAtTop = false, presentation = null,
+} = {}) {
+  const cover = coverImage(profile);
+  const dots = profiles.map((_, index) => `<i class="${index === position ? "is-active" : ""}" aria-hidden="true"></i>`).join("");
+  const guide = `<button type="button" class="outfit-cover-action${guideAtTop ? " outfit-cover-guide" : ""}" data-aesthetic-guide="${esc(profile.id)}" aria-label="认识这种风格：${esc(profile.name)}">${icon("book")}</button>`;
+  return `<article class="outfit-aesthetic-card outfit-cover-card" data-aesthetic-card="${esc(profile.id)}" aria-label="${esc(profile.name)}">
+    <div class="outfit-cover-photo"${presentation ? ` role="img" aria-label="${esc(profile.name)}整套穿搭示意"` : ""}>${cover ? `<div class="outfit-cover-image"><img src="${esc(cover)}" alt="${esc(profile.name)}服装平铺示意" decoding="async" draggable="false"></div>` : '<span class="ph">暂无平铺示意</span>'}${presentation?.photos || ""}</div>
+    ${showLabel ? '<span class="outfit-cover-label">AI 服装平铺示意</span>' : ""}
+    ${guideAtTop ? guide : ""}
+    <div class="outfit-cover-caption"><h2>${esc(profile.name)}</h2>${showSummary ? `<p>${esc(profile.summary || profile.core || "")}</p>` : ""}</div>
+    <div class="outfit-cover-controls">
+      ${guideAtTop ? "" : guide}
+      <button type="button" class="outfit-cover-action" data-aesthetic-open="${esc(profile.id)}" aria-label="${esc(openLabel)}：${esc(profile.name)}">${icon("spark")}</button>
+    </div>
+    ${presentation?.dots || `<div class="outfit-cover-dots" role="img" aria-label="第 ${position + 1} / ${profiles.length} 个方向">${dots}</div>`}
+  </article>`;
+}
 /* ---------- 一屏一张的审美卡：搭配页与添置页共用 ----------
  * 两个页面的**主动作不同**（搭配页＝生成搭配，添置页＝按它分析衣橱），
  * 但卡长一样，所以只把文案参数化，结构与样式共用一份。
@@ -67,8 +86,8 @@ export function aestheticDotsHtml(profiles, active = 0, { label = false } = {}) 
   const dots = profiles.map((profile, index) => `<button type="button" data-aesthetic-dot="${index}" aria-pressed="${index === active}" aria-label="第 ${index + 1} 个方向：${esc(profile.name)}"><i></i></button>`).join("");
   return label ? dots + `<span class="label" data-aesthetic-page>${active + 1}/${profiles.length}</span>` : dots;
 }
-export function rulesHtml(profile) {
-  return `<dl class="aesthetic-rules">${arrangementFor(profile).map(row => `<div><dt>${esc(row.label)}</dt><dd>${esc(row.goal)}</dd></div>`).join("")}</dl>`;
+export function rulesHtml(rows) {
+  return `<dl class="aesthetic-rules">${rows.map(row => `<div><dt>${esc(row.label)}</dt><dd>${esc(row.goal)}</dd></div>`).join("")}</dl>`;
 }
 /* §40 起没有「当前审美」大卡了：第一层是一屏一张的审美卡，点开是堆叠结果，
  * 所以原来的 profileCardHtml 已删除。它当初撤掉配色条的理由仍然成立，记在这里：
@@ -76,7 +95,7 @@ export function rulesHtml(profile) {
  * 两者没有任何连接，摆出来等于承诺一个不存在的功能。封面色调本身已经在图里。 */
 export function methodDetails(profile, assessment = null, opened = false) {
   if (!profile) return '<p class="faint">旧版搭配，未记录审美方案。</p>';
-  return `<details class="aesthetic-details" ${opened ? "open" : ""}><summary>${assessment ? "查看搭配依据" : "查看完整审美方案"}</summary>
+  return `<details class="aesthetic-details" data-fold="1" ${opened ? "open" : ""}><summary>${assessment ? "查看搭配依据" : "查看完整审美方案"}</summary>
     <p>${esc(profile.core)}</p><dl>${(profile.dimensions || []).map(dimension => {
       const actual = assessment?.dimensions?.find(row => row.key === dimension.key);
       return `<div><dt>${esc(dimension.label)}${actual ? `<span class="chip">${esc(STATUS[actual.status] || "待确认")}</span>` : ""}</dt><dd>${esc(dimension.goal)}${actual ? `<p>${esc(actual.evidence)}</p>` : ""}</dd></div>`;

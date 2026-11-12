@@ -100,10 +100,13 @@ export async function openItemSheet(ctx, id, base) {
   };
   entry.onKey = event => {
     if (active !== entry || document.querySelector(".bridge-modal,.import-modal")) return;
-    if (event.key === "Escape") { event.preventDefault(); requestClose(); }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (entry.content.deleteDialog || !entry.content.flipDetailBack?.()) requestClose();
+    }
     if (event.key === "Tab") {
       const scope = entry.content.deleteDialog || entry.panel;
-      const nodes = [...scope.querySelectorAll(focusSelector)].filter(n => n.getClientRects().length && !n.disabled && n.tabIndex >= 0);
+      const nodes = [...scope.querySelectorAll(focusSelector)].filter(n => n.getClientRects().length && !n.disabled && n.tabIndex >= 0 && !n.closest('[aria-hidden="true"]'));
       if (!nodes.length) { event.preventDefault(); scope.focus(); return; }
       if (event.shiftKey && (document.activeElement === nodes[0] || document.activeElement === scope)) { event.preventDefault(); nodes[nodes.length - 1].focus(); }
       else if (!event.shiftKey && document.activeElement === nodes[nodes.length - 1]) { event.preventDefault(); nodes[0].focus(); }
@@ -145,7 +148,7 @@ export async function openItemSheet(ctx, id, base) {
   animate(entry, entry.veil, [{ opacity: 0 }, { opacity: 1 }], duration);
   animate(entry, entry.panel, [{ opacity: 0, offset: 0 }, { opacity: 0, offset: .35 }, { opacity: 1, offset: 1 }], duration);
   for (const { node } of entry.background) animate(entry, node, [{ filter: "blur(0px)" }, { filter: "blur(8px)" }], duration);
-  if (entry.sourcePhoto && target && sourceImage?.naturalWidth) {
+  if (entry.sourcePhoto && target && sourceImage?.naturalWidth && !hero?.closest('[aria-hidden="true"]')) {
     entry.fly.style.visibility = "visible"; if (hero) hero.style.visibility = "hidden";
     animate(entry, entry.fly, [{ ...entry.sourcePhoto, borderRadius: 16 }, { ...target, borderRadius: 20 }], duration);
   }
@@ -166,7 +169,9 @@ export async function closeItemSheet() {
     const anchor = findAnchor(entry), targetPhoto = rect(anchor?.querySelector("img")), target = rect(anchor);
     const shell = rect(entry.shell), panelOpacity = getComputedStyle(entry.panel).opacity, opacity = getComputedStyle(entry.veil).opacity;
     const flying = entry.phase === "opening" && entry.fly.style.visibility === "visible";
-    const hero = entry.content.querySelector(".detail-media img"), imageRect = flying ? rect(entry.fly) : rect(hero);
+    const hero = entry.content.querySelector(".detail-media img");
+    const flipInProgress = hero?.closest(".item-detail-stack")?.getAnimations?.().some(animation => animation.playState === "running");
+    const imageRect = flying ? rect(entry.fly) : hero && !hero.closest('[aria-hidden="true"]') && !flipInProgress ? rect(hero) : null;
     const imageSrc = flying ? entry.fly.src : hero?.currentSrc || hero?.src;
     const filters = entry.background.map(({ node }) => getComputedStyle(node).filter);
     cancel(entry); entry.phase = "closing";

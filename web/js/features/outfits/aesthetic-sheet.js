@@ -7,11 +7,11 @@
  *  这里只负责"什么时候重画"。这样滑走一套之后不会出现两份真值。
  */
 import { esc, icon } from "../../core/ui.js";
-import { examplesFor, rulesHtml, methodDetails, coverFor } from "./aesthetic-ui.js";
+import { arrangementFor, examplesFor, rulesHtml, methodDetails, coverImage } from "./aesthetic-ui.js";
 const FOCUSABLE = "button,a[href],input,select,summary,[tabindex]";
 const FEEDBACK = { like: "喜欢这套", dislike: "不喜欢", swap: "先不选" };
 let nextId = 0;
-export function createAestheticSheet({ root, profiles, getSettings, onSettings, onUseProfile = () => {}, onFeedback, isFeedbackPending = () => false, useLabel = '用这个审美搭配', getBackground, deck = null, getHistoryHtml = () => "", onRestore = () => {}, onMore = () => {} }) {
+export function createAestheticSheet({ root, profiles, getSettings, onSettings, onUseProfile, onFeedback, isFeedbackPending = () => false, useLabel, getBackground, deck = null, getHistoryHtml = () => "", onRestore = () => {}, onMore = () => {} }) {
   let entry = null, disposed = false;
   const reduced = matchMedia("(prefers-reduced-motion: reduce)");
   const alive = e => !disposed && entry === e && root.isConnected;
@@ -90,22 +90,28 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
     const isDeck = frame.kind === "deck";
     e.layer.classList.toggle("is-deck", isDeck);
     e.panel.classList.toggle("is-deck", isDeck);
+    e.panel.classList.toggle("is-guide", frame.kind === "guide");
     if (isDeck) { renderDeck(e, focus); return; }
-    const titles = { guide: "认识" + (profile?.name || "这个审美"), options: "搭配设置", more: "更多", basis: "这套为什么这样搭" };
+    const titles = { guide: profile?.name || "认识这个风格", options: "搭配设置", more: "更多", basis: "这套为什么这样搭" };
     e.panel.setAttribute("aria-label", titles[frame.kind]);
     e.head.innerHTML = `<div class="aesthetic-sheet-title">${e.index ? `<button type="button" data-sheet-back class="aesthetic-back" aria-label="返回上一层">${icon("back")}</button>` : icon("spark")}<h2>${esc(titles[frame.kind])}</h2></div><button type="button" class="aesthetic-glass" data-sheet-close aria-label="关闭面板">${icon("close")}</button>`;
     let body = "", footer = "";
     if (frame.kind === "guide") {
-      // 视觉只留一张平铺静物（与卡片同一张、同一比例），不再放模特上身照 ——
-      // 两者是两套视觉语言，点进来会像换了个页面。三套具体穿法改成文字条，
-      // 每条可展开看五条安排要点，信息一条没少。
-      const cover = coverFor(profile), plans = examplesFor(profile);
-      body = `<h3 class="aesthetic-guide-name">${esc(profile.name)}</h3><p class="aesthetic-sheet-intro">${esc(profile.core || profile.summary)}</p>
-        ${cover ? `<div class="aesthetic-guide-cover"><img src="${esc(cover)}" alt="${esc(profile.name)}质感示意" decoding="async"></div>` : ""}
-        ${plans.length ? `<h3 class="aesthetic-rule-heading">三套具体穿法</h3><div class="aesthetic-plans">${plans.map((plan, index) => `<details class="aesthetic-plan"><summary><span class="aesthetic-plan-index">${index + 1}</span><span class="aesthetic-plan-text"><strong>${esc(plan.title)}</strong><small>${esc(plan.items)}</small></span>${icon("chevron")}</summary><dl class="aesthetic-plan-notes">${Object.entries(plan.notes || {}).map(([label, value]) => `<dt>${esc(label)}</dt><dd>${esc(value)}</dd>`).join("")}</dl></details>`).join("")}</div>` : ""}
-        <h3 class="aesthetic-rule-heading">三套变化，共同的审美安排</h3>
-        ${rulesHtml(profile)}<p class="aesthetic-example-note">${esc(profile.example_note || profile.flexible)}</p>`;
-      if (profiles.some(p => p.id === profile.id && p.version === profile.version)) footer = `<button type="button" class="primary" data-sheet-use="${esc(profile.id)}">${icon("spark")}${esc(useLabel)}</button>`;
+      const cover = coverImage(profile);
+      const plans = examplesFor(profile);
+      const rules = arrangementFor(profile);
+      const summary = rules.filter(row => ["配色", "轮廓", "材质"].includes(row.label));
+      const extra = rules.filter(row => !summary.includes(row));
+      body = `<div class="aesthetic-guide-intro">
+          <p>${esc(profile.core || profile.summary)}</p>
+          ${cover ? `<figure class="aesthetic-guide-cover"><img src="${esc(cover)}" alt="${esc(profile.name)}服装平铺示意" decoding="async"><figcaption>AI 平铺示意</figcaption></figure>` : ""}
+        </div>
+        ${rulesHtml(summary)}
+        ${plans.length ? `<details class="aesthetic-guide-more" data-fold="1"><summary>三套具体穿法${icon("chevron")}</summary><ol class="aesthetic-guide-examples">${plans.map(plan => `<li><strong>${esc(plan.title)}</strong><span>${esc(plan.items)}</span></li>`).join("")}</ol></details>` : ""}
+        ${extra.length ? `<details class="aesthetic-guide-more" data-fold="1"><summary>更多风格特点${icon("chevron")}</summary>${rulesHtml(extra)}</details>` : ""}`;
+      if (useLabel && onUseProfile && profiles.some(p => p.id === profile.id && p.version === profile.version)) {
+        footer = `<button type="button" class="primary" data-sheet-use="${esc(profile.id)}">${esc(useLabel)}${icon("right")}</button>`;
+      }
     } else if (frame.kind === "options") {
       body = optionsHtml();
       footer = '<button type="button" class="primary" data-sheet-close>好，就这样</button>';
@@ -180,7 +186,7 @@ export function createAestheticSheet({ root, profiles, getSettings, onSettings, 
       }
       if ("sheetUse" in data) {
         const profile = profiles.find(p => p.id === data.sheetUse); if (!profile) return;
-        onUseProfile(profile); return;
+        requestClose(() => onUseProfile?.(profile)); return;
       }
       if ("sheetCount" in data) { onSettings({ limit: Number(data.sheetCount) }); render(e, false); e.scroll.querySelector(`[data-sheet-count="${data.sheetCount}"]`)?.focus({ preventScroll: true }); return; }
       if ("sheetAi" in data) { onSettings({ useLlm: !getSettings().useLlm }); render(e, false); e.scroll.querySelector("[data-sheet-ai]").focus({ preventScroll: true }); return; }

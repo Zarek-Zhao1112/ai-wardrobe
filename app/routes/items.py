@@ -5,14 +5,13 @@ from __future__ import annotations
 import base64
 import logging
 import os
-import re
 import sqlite3
 from pathlib import Path
 
 from fastapi import APIRouter, Body, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from .. import db, taxonomy
+from .. import db
 from ..models import (
     BulkItemsIn,
     BulkItemsOut,
@@ -20,9 +19,7 @@ from ..models import (
     ItemCreateOut,
     ItemListOut,
     ItemOut,
-    ItemParseIn,
     ItemUpdate,
-    ItemsParseOut,
     OkOut,
     WearEventOut,
     WearLogIn,
@@ -30,7 +27,6 @@ from ..models import (
 from ..services import images as image_svc
 from ..services import photo_import
 from ..services import presentation
-from ..services import ingest as ingest_svc
 from ..services import items as svc
 from ..services import tagging as tagging_svc
 from ..services import wardrobe
@@ -150,76 +146,6 @@ def create_items_bulk(payload: BulkItemsIn) -> dict:
         "combination_delta": {"before": before, "after": after},
         "message": message,
     }
-
-
-@router.post("/parse", response_model=ItemsParseOut)
-def parse_pasted_items(payload: ItemParseIn) -> dict:
-    """解析粘贴来的商品文案。**只解析，不落库、不写会话状态**（§11.3）。
-
-    待确认清单由**前端**持有：用户在页面上勾选/改完，一次性提交 `/items/bulk`。
-    好处是**不用动 `conversation_state`、也不用动 `schema.py`**（两者都在
-    Do-Not-Modify 清单里）。代价是刷新页面清单会丢，可以接受。
-
-    ⚠️ 声明在 `/{item_id}` **之前**：否则 `POST /items/parse` 会被
-    `/{item_id}` 当成品单 id 吃掉（跟 `/bulk` 同一个理由）。
-    """
-    uid = _uid()
-    candidates = ingest_svc.build_candidates(payload.text)
-    if not candidates:
-        # ⚠️ 失败提示要**说清为什么、下一步做什么**（2026-10-20 用户反馈：
-        #    粘了个商品链接，只看到"没读出商品名"，不知道是坏了还是自己用错）。
-        #
-        # 两种最常见的情况分开说：
-        #   ① 只粘了链接 → 用户以为"粘链接就能录"（这是很自然的预期）。
-        #      必须讲明**不抓网页**是刻意的（淘宝无登录态读不到，实测 6 条入口全被挡），
-        #      否则他会反复试、以为是 bug。
-        #   ② 文字里没标题 → 给个能直接照抄的例子。
-        text = (payload.text or "").strip()
-        has_url = "http://" in text or "https://" in text
-        has_cjk = bool(re.search(r"[\u4e00-\u9fff]", text))
-        example = "例如：宽松直筒牛仔裤 深灰"
-        if has_url and not has_cjk:
-            message = (
-                "这是个商品链接，但我读不到链接里的内容 —— 我不会去打开那个网页"
-                "（淘宝等平台在没登录时读不到）。把商品标题一起粘进来就行，" + example
-            )
-        elif has_url:
-            message = "这段里有链接，但没读出能当标题的文字 —— 补一句商品标题就行，" + example
-        else:
-            message = "这段我没读出商品名 —— 直接粘商品标题就行，" + example
-        return {"total": 0, "items": [], "message": message}
-
-    # 疑似重复只看"归一化标题完全一致"。**只提示，不阻止** ——
-    # 用户确实可能买了两件一样的（§11.3 失败语义）。
-    seen = {
-        ingest_svc.normalize_title(it.get("name") or "")
-        for it in svc.iter_all_items(uid)
-    }
-    seen.discard("")
-
-    items = []
-    for idx, c in enumerate(candidates):
-        key = str(c.fields.get("type") or "other")
-        items.append(
-            {
-                "index": idx,
-                "title": c.title,
-                "url": c.url or None,
-                "code": c.code or None,
-                "platform": c.platform or None,
-                "fields": c.fields,
-                "unresolved": c.unresolved,
-                "type_key": key,
-                "type_label": taxonomy.label_of(key),
-                "needs_type": c.needs_type,
-                "duplicate_hint": (
-                    "你已经有一件同名的了" if ingest_svc.normalize_title(c.title) in seen else None
-                ),
-                "used_llm": c.pick.used_llm,
-                "llm_error": c.pick.error or None,
-            }
-        )
-    return {"total": len(items), "items": items, "message": None}
 
 
 @router.post("/import-photo")

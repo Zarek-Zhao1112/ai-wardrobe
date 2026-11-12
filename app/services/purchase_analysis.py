@@ -79,7 +79,10 @@ def start(uid, request_id, aesthetic, *, preference='', source_draft_id=None, di
 def _run(uid, rid, pool, profile, client):
     try:
         value = record(uid, rid)
-        if value['preference']:
+        if value.get('builder'):
+            from . import purchase_builder
+            value.update(purchase_builder.model_plan(uid, value, pool, profile, client))
+        elif value['preference']:
             intent._refine(uid, value, client, persist=False)
         else:
             choices = purchase._read(uid, 'choices', {'dismissed': []})
@@ -127,6 +130,9 @@ def _finish(uid, rid, *, allow_partial=False):
         ready = [d for d in value['directions'] if (snapshots.get(d['id']) or {}).get('status') == 'complete' and refs._cache_usable(snapshots[d['id']].get('references'))]
         value['completed'] = len(ready)
         pending = any(d['id'] not in snapshots or snapshots[d['id']]['status'] in refs.PENDING for d in value['directions'])
+        if value.get('builder'):
+            from . import purchase_builder
+            return purchase_builder.finish(uid, value, ready, pending)
         if pending and (not allow_partial or not ready):
             intent._write(uid, 'request:' + rid, value)
             return False
@@ -162,9 +168,11 @@ def query(uid, request_id):
         intent._fail(uid, rid, '上次分析已中断，请明确重新开始。', status='interrupted')
         return intent._response(uid, rid)
     missing = set(value.get('jobs', {})) != {d['id'] for d in value.get('directions', [])} or 'decision' not in value
+    query_error = ""
     for job in value['jobs'].values():
         try:
-            refs.status(uid, job)
+            snapshot = refs.status(uid, job)
+            query_error = query_error or snapshot.get('query_error', '')
         except purchase.PurchaseError as error:
             if error.status != 404:
                 raise
@@ -173,4 +181,7 @@ def query(uid, request_id):
         intent._fail(uid, rid, '上次分析未完整提交，未自动重发，请重新分析。', status='interrupted')
     else:
         _finish(uid, rid)
-    return intent._response(uid, rid)
+    response = intent._response(uid, rid)
+    if query_error:
+        response['query_error'] = query_error
+    return response

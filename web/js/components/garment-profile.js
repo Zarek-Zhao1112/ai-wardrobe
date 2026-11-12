@@ -58,7 +58,7 @@ export function garmentName(item, taxonomy = {}) {
   return item.name || [vocab.color?.[item.primary_color],item.type_label || taxonomy.types?.[item.type]?.label].filter(Boolean).join("") || "这件衣服";
 }
 
-export function garmentProfileHtml(item, taxonomy = {}, {mode="import",open=false} = {}) {
+export function garmentProfileHtml(item, taxonomy = {}, {mode="import",open=false,disclosure=true} = {}) {
   const vocab = taxonomy.vocabularies || {}, profile = profileOf(item,taxonomy), attrs = profile?.attributes || {};
   const value = key => attrs[key]?.value;
   const label = key => {const v=value(key);return Array.isArray(v)?v.map(x=>PROFILE_LABELS[key][x]).join(" / "):PROFILE_LABELS[key]?.[v] || "";};
@@ -76,17 +76,19 @@ export function garmentProfileHtml(item, taxonomy = {}, {mode="import",open=fals
   if (["top","outer"].includes(item.slot || taxonomy.types?.[item.type]?.slot) && !label("body_length")) unknown.push("实际衣长");
   unknown.push("实际尺寸","厚薄与垂坠");
   const extras = rows([["品牌",item.brand],["材质成分",basic("material",item.material)],["裤长",basic("length",item.length)],["季节",(Array.isArray(item.season)?item.season:[]).map(v=>basic("season",v)).filter(Boolean).join("、")]]);
-  return `<section class="garment-profile" data-garment-profile>
-    <div class="gp-card"><div class="gp-card-head"><span>${icon("spark")}${mode==="detail"?"搭配信息":"搭配特征"}</span><small>${profile?"AI 已整理":"已有基础信息"}</small></div><dl class="gp-summary">${summary.map(([k,v])=>`<div><dt>${k}</dt><dd>${esc(v || "暂未确认")}</dd></div>`).join("")}</dl></div>
-    <details class="gp-more more-fields${mode==="detail"?" item-more":""}" data-garment-more ${open?"open":""}><summary><span>${mode==="detail"?"查看全部搭配信息":"查看 AI 整理的搭配信息"}</span>${icon("chevron")}</summary><div class="gp-full">
+  const full = `<div class="gp-full">
       ${section("配色线索",[["主色 / 辅色",colors.join(" / ")],["明暗线索",label("tone")],["鲜艳程度",label("chroma")]],"颜色为照片中的近似表现，会受光线影响。")}
       ${section("轮廓与结构",[["松紧线索",label("volume") || basic("fit",item.fit)],["轮廓线索",label("silhouette")],["衣身长短",label("body_length")],["领口 / 袖长",[label("neckline"),label("sleeve_length")].filter(Boolean).join(" / ")],["开合方式",label("closure")]])}
       ${section("图案表现",[["图案形式",basic("pattern",item.pattern)],["图案大小",label("pattern_scale")],["图案密度",label("pattern_density")]])}
       ${section("表面外观",[["可见表面",label("surface")],["光泽线索",label("sheen")]],"可见外观不能证明具体成分、触感或功能。")}
       <section class="gp-section"><h3>可尝试的穿法</h3><div class="gp-role-tags">${wearing.length?wearing.map(v=>`<span>${PROFILE_LABELS.wearing_options[v]}</span>`).join(""):'<span class="is-unknown">暂未确认</span>'}</div><p class="gp-note">穿法为条件性建议，内外层余量与实际效果仍需试穿确认。</p></section>
-      ${extras?`<section class="gp-section"><h3>已有属性</h3>${extras}</section>`:""}
+      ${disclosure&&extras?`<section class="gp-section"><h3>已有属性</h3>${extras}</section>`:""}
       <div class="gp-pending"><strong>暂未确认，先留空</strong><p>${esc(unknown.join("、"))}。</p></div>
       <div data-import-recheck hidden></div>
-    </div></details><p class="gp-caption">没有确认的信息不会当作已知搭配条件。</p>
+    </div>`;
+  return `<section class="garment-profile" data-garment-profile>
+    <div class="gp-card"><div class="gp-card-head"><span>${icon("spark")}${mode==="detail"?"搭配信息":"搭配特征"}</span><small>${profile?"AI 已整理":"已有基础信息"}</small></div><dl class="gp-summary">${summary.map(([k,v])=>`<div><dt>${k}</dt><dd>${esc(v || "暂未确认")}</dd></div>`).join("")}</dl></div>
+    ${disclosure ? `<details class="gp-more more-fields${mode==="detail"?" item-more":""}" data-fold="1" data-garment-more ${open?"open":""}><summary><span>${mode==="detail"?"查看全部搭配信息":"查看 AI 整理的搭配信息"}</span>${icon("chevron")}</summary>${full}</details>` : full}
+    <p class="gp-caption">没有确认的信息不会当作已知搭配条件。</p>
   </section>`;
 }

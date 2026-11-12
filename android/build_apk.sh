@@ -76,10 +76,26 @@ if [ ! -x "$HOST_PY" ]; then HOST_PY=python3; fi
 
 # .env：APK 里也要有，否则视觉打标和 LLM 排序全哑，而且**报错很不像配置问题**。
 # 这一步之前是手工 cp 的 —— 构建目录一丢就打不出能用的包，所以写进脚本。
-# ⚠️ 这会把 API key 打进 APK。自己的手机自己用可以接受；
-#    要给别人装，先想清楚这件事（见 android/README.md）。
+# ⚠️ 复制过去之后会**把模型 key 剥空**：手机走 8891 中转用不到 key，
+#    而安装包一旦外流就等于把 key 送人。确实需要 APK 直连模型的例外场景，
+#    构建时显式 KEEP_LLM_KEY=1（见 android/README.md）。
 if [ -f "$REPO/.env" ]; then
   cp "$REPO/.env" "$PY/.env"
+  if [ "${KEEP_LLM_KEY:-0}" != "1" ]; then
+    "$HOST_PY" - "$PY/.env" <<'STRIP_KEY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = []
+for line in path.read_text(encoding="utf-8").splitlines():
+    lines.append("LLM_API_KEY=" if line.startswith("LLM_API_KEY=") else line)
+path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
+STRIP_KEY
+    echo "  ✓ 已剥空 APK 内的 LLM_API_KEY（要走直连请用 KEEP_LLM_KEY=1 构建）"
+  else
+    echo "  ! KEEP_LLM_KEY=1：key 会随安装包一起分发"
+  fi
 else
   "$HOST_PY" "$HERE/tools/sync_sources.py" "$REPO" "$PROJ" --clear-env
   echo "  ! 仓库根没有 .env —— 打出来的包不会有模型配置"
@@ -102,6 +118,7 @@ echo "  ✓ app/ 逐字节一致"
 # Java / Gradle 骨架也要确认真的铺过去了（cp 成功但内容旧 = 同样的坑）
 for f in \
   app/src/main/java/com/zarek/wardrobe/MainActivity.java \
+  app/src/main/java/com/zarek/wardrobe/CapturePhotoProvider.java \
   app/src/main/java/com/zarek/wardrobe/WardrobeApp.java \
   app/src/main/java/com/zarek/wardrobe/WardrobeService.java \
   app/src/main/AndroidManifest.xml \

@@ -6,6 +6,7 @@ import { layoutMessage } from "../../components/flatlay-display.js";
 
 const tasks = new Map();
 export const flatlayBusy = state => state?.state === "starting" || state?.state === "running";
+export const flatlayPreparing = state => flatlayBusy(state) && state.phase === "preparing";
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export async function sourceHash(file) {
   const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
@@ -15,7 +16,7 @@ export async function sourceHash(file) {
 export function controls(state = {}, { disabled = false, configured = false, hasImage = false, needsApply = false } = {}) {
   const busy = flatlayBusy(state), locked = disabled || busy;
   return `<div class="flatlay-head"><strong>衣物平铺图</strong><span class="faint">使用 WorkBuddy 积分</span></div>
-    <p class="faint" role="status">${esc(busy ? "正在生成平铺图，可收起后继续。" : state.error || (hasImage ? "衣橱与详情统一展示平铺图。" : "去除模特和购物文字，生成单独衣物图。"))}</p>
+    <p class="faint" role="status">${esc(busy ? flatlayPreparing(state) ? "正在准备照片…" : "正在生成平铺图，可收起后继续。" : state.error || (hasImage ? "衣橱与详情统一展示平铺图。" : "去除模特和购物文字，生成单独衣物图。"))}</p>
     <div class="flatlay-actions"><button type="button" class="ghost ai" data-flatlay="${needsApply && !busy ? "apply" : "generate"}" ${locked || (!needsApply && !configured) ? "disabled" : ""}>${busy ? "生成中…" : needsApply ? "保存此平铺图" : state.state === "waiting" ? "查看生成结果" : hasImage ? "重新生成平铺图" : "生成平铺图"}</button>
     ${state.state === "waiting" ? `<button type="button" class="ghost" data-flatlay="restart" ${locked ? "disabled" : ""}>重新生成（另计积分）</button>` : ""}
     ${hasImage ? `<button type="button" class="ghost" data-flatlay="full" ${locked ? "disabled" : ""}>${state.view === "full" ? "返回平铺展示" : "查看完整生成图"}</button>` : ""}
@@ -37,6 +38,7 @@ export async function generate({ state, file, kind, changed, valid, completed, d
   if (!resume) {
     if (flatlayBusy(state)) return;
     state.id = newToken(); state.state = "starting"; state.error = ""; state.code="";
+    state.phase = "preparing";
     try { state.sourceHash = await sourceHash(file); await changed(); }
     catch (error) { state.state = "failed"; state.error = error.message || "源图未能读取，尚未开始生成。"; await changed(); return; }
     if (!durable()) { state.state = "failed"; state.error = "任务标识未能保存到本机，暂未开始生成。请保持应用打开后重试。"; await changed(); return; }
@@ -58,12 +60,18 @@ export async function generate({ state, file, kind, changed, valid, completed, d
       let response = resume ? await api.flatlayStatus(id) : await api.startFlatlay(id, file, kind);
       const started = Date.now();
       while (current() && response.state === "running" && Date.now() - started < 240000) {
+        const phase = response.phase === "preparing" ? "preparing" : "generating";
+        if (state.phase !== phase) {
+          state.phase = phase;
+          await changed();
+        }
         await sleep(1300);
         if (!current()) return;
         response = await api.flatlayStatus(id);
       }
       if (!current()) return;
       if (response.source_hash !== hash || response.id !== id) throw Error("生成结果与当前裁剪来源不一致，请保留源图并重做");
+      delete state.phase;
       if (response.state === "completed") {
         const result = fileFromResult(response.image);
         state.state = "completed"; state.selected = false; state.view = "display"; state.error = "";
@@ -75,6 +83,7 @@ export async function generate({ state, file, kind, changed, valid, completed, d
       } else throw Error("结果仍未确认，点击查看生成结果不会重新扣一次生图积分。");
     } catch (error) {
       if (!current()) return;
+      delete state.phase;
       state.state = "waiting";state.code=error.code||error.payload?.detail?.code||"flatlay_unknown";
       state.error = `${error.message || "暂时无法确认生成结果。"} 源图和填写内容已保留；先查询原任务，重新生成会另计积分。`;
       await changed();

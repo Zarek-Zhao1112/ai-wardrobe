@@ -30,8 +30,13 @@ def _signature(spec, origin='product_photo'):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
-def _read(uid, key):
-    value = db.get_meta('purchase-ref:v1:'+uid+':'+key)
+def _read(uid, key, *, connection=None):
+    key = 'purchase-ref:v1:'+uid+':'+key
+    if connection is None:
+        value = db.get_meta(key)
+    else:
+        row = connection.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        value = row["value"] if row else None
     return json.loads(value) if value else None
 
 
@@ -69,6 +74,20 @@ def snapshots(uid, plans):
             record = _read(uid, 'job:'+key) if key else None
             if record: result[direction['id']] = _public(record)
     return result
+
+
+def wanted_reference(uid, plan_id, direction_id, reference_id, connection):
+    """§57：从同一事务内的任务记录取出用户实际看到的参考图。"""
+    job_id = _read(uid, _pointer(plan_id, direction_id), connection=connection)
+    record = _read(uid, 'job:'+job_id, connection=connection) if job_id else None
+    if record and record.get('plan_id') == plan_id and record.get('direction_id') == direction_id:
+        rows = record.get('references', [])
+        photo = next((row for row in rows if reference_id is None or row['id'] == reference_id), None)
+        if photo and _cache_usable([photo]):
+            return photo
+    if reference_id is not None:
+        raise purchase.PurchaseError('款式图片已更新或暂时无法读取，请重新打开建议。', 409)
+    return None
 
 
 def _source_url(value):
@@ -272,6 +291,7 @@ def status(uid, job_id):
         if not record: raise purchase.PurchaseError('没有找到这次搜图记录。', 404)
         if record['status'] not in PENDING or (uid, job_id) in _posting or (uid, job_id) in _polling: return _public(record)
         _polling.add((uid, job_id))
+    query_error = ""
     try:
         settings = load_settings()
         if not settings: raise LLMError('电脑搜图尚未连接。', code='reference_not_configured')
@@ -282,7 +302,12 @@ def status(uid, job_id):
         # 查询失败继续保留原任务号与已有图，不因断网新建收费任务。
         if not isinstance(error, LLMError): record['status'] = 'failed'
         record['error'] = (str(error).replace('电脑识别', '电脑搜图') if isinstance(error, LLMError) else '这次照片暂时读不到，可以重新寻找。')[:120]
+        if isinstance(error, LLMError):
+            query_error = record['error']
         with _lock: _write(uid, 'job:'+job_id, record)
     finally:
         with _lock: _polling.discard((uid, job_id))
-    return _public(record)
+    result = _public(record)
+    if query_error:
+        result['query_error'] = query_error
+    return result

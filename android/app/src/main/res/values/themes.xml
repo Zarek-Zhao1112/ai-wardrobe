@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- §49：对齐网页的页面底色和正文颜色。 -->
+    <color name="wardrobe_page_background">#f5f5f7</color>
+    <color name="wardrobe_page_text">#1d1d1f</color>
+
+    <style name="Theme.Wardrobe.Main" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/wardrobe_page_background</item>
+        <item name="android:statusBarColor">@color/wardrobe_page_background</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

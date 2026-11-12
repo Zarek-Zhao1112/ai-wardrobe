@@ -15,7 +15,7 @@
 
 import { api } from "../../core/api.js";
 import { bindClipboardOnce, isImageFile } from "./clipboard.js";
-import { mountTextImport } from "./text-input.js";
+import { syncPickers } from "../../components/picker.js";
 import { importMarkup } from "./markup.js";
 import { attachImport, disposeImport, importSaving, checkpointImport } from "./photo-import.js";
 import { openCropper } from "./crop.js";
@@ -66,8 +66,9 @@ export async function mount(root, ctx, options = {}) {
   disposeImport();
   activeAdd?.dispose();
   const taxonomy = ctx.taxonomy || {};
-  let disposeText = () => {};
+  const photoOnly = root.dataset.embedded === "true";
   let saving = false, manualSaved = false, lockedControls = [], manualReady = Promise.resolve();
+  let disposeSelection = () => {};
   function beginSave() {
     saving = true;
     lockedControls = [...root.querySelectorAll("button,input,select,textarea")].map(node => [node, node.disabled]);
@@ -82,10 +83,6 @@ export async function mount(root, ctx, options = {}) {
 
   root.innerHTML = importMarkup(taxonomy);
 
-  const pasteText = root.querySelector("#paste-text");
-  root.append(root.querySelector('.paste-panel'));
-  const pasteBtn = root.querySelector("#paste-btn");
-  const pasteResult = root.querySelector("#paste-result");
   const form = root.querySelector("#add-form");
   const fileEl = root.querySelector("#add-image");
   const addResult = root.querySelector("#add-result");
@@ -105,6 +102,7 @@ export async function mount(root, ctx, options = {}) {
       }
     }
     aiFields.clear();
+    syncPickers(form);   // 上面是直接写 value，替身按钮要跟着改
   }
   function applyRecognition(tags) {
     clearAiFields();
@@ -117,32 +115,23 @@ export async function mount(root, ctx, options = {}) {
     if (ev.target.name) aiFields.delete(ev.target.name);
   });
 
-  // §11：照片是主入口；文案功能移到表单后方，已有节点与事件逻辑不变。
-  form.after(root.querySelector(".paste-panel"), pasteResult);
-
-  /** 把粘贴 / 拖拽来的图片塞进 file input，之后走的还是原来那条路：
-   *  `change` → 保存时上传 → 后端自动打标。**不另开一条上传链路**，
-   *  否则两条路早晚会走岔（一条有打标、一条没有）。
+  /** 把粘贴 / 拖拽来的图片送给与相册共用的 change 处理。
    *
    *  `fromCrop`：这次替换是**裁剪流程自己**干的（把裁好的图塞回来）。
    *  「换了张新图就忘记裁剪记录」那条逻辑必须能把它和"用户真的换了图"
    *  区分开 —— 不然每裁一次就把原图记录清掉，等于没法再调。 */
-  function acceptImage(file, { quiet = false, fromCrop = false } = {}) {
+  function acceptImage(file, { fromCrop = false } = {}) {
     try {
       // `input.files` 是只读的，只能整个换掉（DataTransfer 是标准做法）
       const dt = new DataTransfer();
       dt.items.add(file);
       fileEl.files = dt.files;
       fileEl.dispatchEvent(new CustomEvent("change", { bubbles: true, detail: { fromCrop } }));
-      if (!quiet) {
-        const kb = Math.max(1, Math.round(file.size / 1024));
-        toast(`已接住图片（${kb} KB）—— 保存时自动识别属性`, "ok");
-      }
       return true;
     } catch (err) {
       // 极老的浏览器不给 `input.files` 赋值。裁剪完走这里说明**白裁了**，
       // 必须说出来：静默失败的话用户会以为存的是裁好的图。
-      toast("这张图接不住，请点「选一张照片」再试一次", "error");
+      toast("这张图接不住，请从相册选择再试一次", "error");
       return false;
     }
   }
@@ -155,9 +144,9 @@ export async function mount(root, ctx, options = {}) {
 
   async function checkpoint() {
     await manualReady;
-    if (manualSaved || !fileEl.isConnected) return;
+    if (photoOnly || manualSaved || !fileEl.isConnected) return;
     try {
-      await saveManualDraft({ version: 1, fields: readForm(form), text: pasteText.value,
+      await saveManualDraft({ version: 1, fields: readForm(form),
         more: form.querySelector(".more-fields")?.open || false });
     } catch {}
     if (!manualStorageAvailable()) toast("本次填写暂未保存到本机，请保持应用打开。", "error", 6000);
@@ -166,23 +155,23 @@ export async function mount(root, ctx, options = {}) {
   const editedManual = new Set();
   const remember = event => {
     if (event.target?.name) { editedManual.add(event.target.name); manualSaved = false; if (!saving) root.querySelector("#add-submit").disabled = false; }
-    else editedManual.add(event.target === pasteText ? "$text" : "$more");
+    else editedManual.add("$more");
     void checkpoint();
   };
   form.addEventListener("input", remember); form.addEventListener("change", remember);
-  pasteText.addEventListener("input", remember);
   form.querySelector(".more-fields")?.addEventListener("toggle", remember);
-  manualReady = loadManualDraft().then(draft => {
-    if (!draft || !fileEl.isConnected) return;
-    const toRestore = Object.fromEntries(Object.entries(draft.fields || {}).filter(([name]) => !editedManual.has(name)));
-    fillForm(form, toRestore, { names: Object.keys(toRestore) });
-    if (!editedManual.has("$text")) pasteText.value = draft.text || "";
-    const more = form.querySelector(".more-fields"); if (more && !editedManual.has("$more")) more.open = !!draft.more;
-  });
+  if (!photoOnly) {
+    manualReady = loadManualDraft().then(draft => {
+      if (!draft || !fileEl.isConnected) return;
+      const toRestore = Object.fromEntries(Object.entries(draft.fields || {}).filter(([name]) => !editedManual.has(name)));
+      fillForm(form, toRestore, { names: Object.keys(toRestore) });
+      const more = form.querySelector(".more-fields"); if (more && !editedManual.has("$more")) more.open = !!draft.more;
+    });
+  }
   bindClipboardOnce(() => activeAdd);
 
   // ------------------------------------------------------------------
-  // 照片：只有一条路 —— `<input type=file>`（2026-10-22 收口）
+  // §47：相机和相册各用一个原生文件控件，交由 attachImport 汇合。
   //
   // 历史：2026-10-21 发现小米浏览器的 PWA 壳 `PWAActivity` 没实现
   // WebView 的 `onShowFileChooser`，点 `<input type=file>` 毫无反应，
@@ -194,10 +183,8 @@ export async function mount(root, ctx, options = {}) {
   // 兜底那条反而更慢（拉 36 张原图当缩略图，服务端没有 Pillow 出不了
   // 小图）。于是收口成一条：按钮只是 `.click()` 那个藏起来的 input。
   //
-  // 当前通过原生多选录入；旧相册服务API保留兼容，旧页面已移除。
-  // 历史实现位于796678c:web/js/view-add.js，不作为当前恢复入口。
+  // 旧相册服务 API 保留兼容，旧页面已移除。
   // ------------------------------------------------------------------
-  const albumBtn = root.querySelector("#add-album");
   const albumPicked = root.querySelector("#add-album-picked");
   /** 相册里选中的那张 `{id, name}`。与 `fileEl.files` **互斥**，后选的赢。
    *  ⚠️ 2026-10-22 起没有 UI 入口，恒为 `null` —— 见上面那段说明。 */
@@ -290,7 +277,7 @@ export async function mount(root, ctx, options = {}) {
   let shotUrl = null;
 
   function dispose() {
-    disposeText();
+    disposeSelection();
     dropCropSource();
     if (shotUrl) URL.revokeObjectURL(shotUrl);
     shotUrl = null;
@@ -318,11 +305,6 @@ export async function mount(root, ctx, options = {}) {
       shot.hidden = true;
     }
     cropBtn.hidden = !(file || pickedPhoto);
-    const hasPhoto = !!(file || pickedPhoto);
-    albumBtn.classList.toggle("has-photo", hasPhoto);
-    albumBtn.innerHTML = hasPhoto
-      ? `${icon("photo")}<span>更换照片</span>`
-      : `${icon("photo")}<strong>选一张照片</strong><span class="faint">拍下衣服，或从相册中选择</span>`;
   }
 
   /** 正在裁剪。互斥位——两个浮层同时开着会互相覆盖结果：识别流程自动弹一个、
@@ -370,7 +352,7 @@ export async function mount(root, ctx, options = {}) {
       //   上面那个 `fileEl.addEventListener("change")` 会处理（`files[0] &&
       //   pickedPhoto` → 清掉 + 重画预览）。提前清的话，万一 `acceptImage`
       //   在极老浏览器上赋值失败，两条通道就都空了 —— 用户刚选的相册图直接消失。
-      if (!acceptImage(file, { quiet: true, fromCrop: true })) return false;
+      if (!acceptImage(file, { fromCrop: true })) return false;
 
       // 记下**原图 + 这次的框**：下次点「裁剪商品图」能接着调，而不是
       // 在当前这张裁图上再裁一刀。
@@ -399,12 +381,6 @@ export async function mount(root, ctx, options = {}) {
     }
   }
 
-  // 按钮就是那个藏起来的 input —— 点它等于点 input 本身。
-  // 必须在用户手势里**同步**调 `.click()`（异步之后再调，浏览器会当自动弹出拦掉）。
-  albumBtn.addEventListener("click", () => {
-    fileEl.click();
-  });
-
   // 用 input 选文件 / 粘贴 / 拖拽 → 都说明用户走的是另一条路
   fileEl.addEventListener("change", (ev) => {
     const picked = fileEl.files && fileEl.files[0];
@@ -428,13 +404,6 @@ export async function mount(root, ctx, options = {}) {
 
   // 独立的裁剪入口：不识别也能裁（用户可能只想修一下图）
   cropBtn.addEventListener("click", () => cropImage(null));
-
-  // ------------------------------------------------------------------
-  // ① 粘贴 → 解析 → 预览 → 批量提交
-  // ------------------------------------------------------------------
-
-  disposeText = mountTextImport({ root, taxonomy, pasteText, pasteBtn, pasteResult,
-    isSaving: () => saving, beginSave, endSave, scrollTop, isCurrent: () => fileEl.isConnected });
 
 
   // ------------------------------------------------------------------
@@ -784,7 +753,7 @@ export async function mount(root, ctx, options = {}) {
       submitBtn.textContent = "保存到衣橱";
     }
   });
-  attachImport(root, ctx, { fileEl, ready: () => manualReady, isSaving: () => saving, onPreparing: value => value ? beginSave() : endSave(),
-    onStart: ({ consumeManual = false } = {}) => { if (consumeManual) void saveManualDraft(pasteText.value ? { version: 1, fields: {}, text: pasteText.value } : null).catch(() => {}); dispose(); },
-    onExit: () => mount(root, ctx, options), initialFields: () => readForm(form) });
+  disposeSelection = attachImport(root, ctx, { fileEl, ready: () => manualReady, isSaving: () => saving, onPreparing: value => value ? beginSave() : endSave(),
+    onStart: ({ consumeManual = false } = {}) => { if (consumeManual && !photoOnly) void saveManualDraft(null).catch(() => {}); dispose(); },
+    onExit: () => mount(root, ctx, options), initialFields: () => photoOnly ? {} : readForm(form) });
 }

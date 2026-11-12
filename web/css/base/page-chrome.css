@@ -5,16 +5,28 @@
  * 底部 tabbar 保留（导航只有一处，两边不重复）。
  *
  * 于是这个文件从"藏顶栏"变成"手机顶栏 + 各页操作行的收尾"：
- *   · 顶栏标题        .topbar-title（桌面 display:none）
+ *   · 顶栏标题        .topbar-title（桌面在今日、衣橱显示）
  *   · 设置齿轮        #status 在手机只留图标，桌面仍是「AI 已就绪 + 齿轮」
- *   · 三页首行的补偿  件数挪进分类条、已记下靠右、审美选择器占满整行
+ *   · 添置顶栏动作    已记下靠右
  *
  * ⚠️ 加载顺序在 style.css 之后、各 features/*.css 之前（见 index.html），
  *    所以这里能盖掉 style.css 的移动端默认值，也能被 features 里的细则再盖。
  */
 
-/* ---------- 顶栏标题（只有手机显示） ---------- */
+/* ---------- 顶栏标题 ---------- */
 .topbar-title { display: none; }
+.topbar-caption {
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--text-dim);
+}
+@media (min-width: 641px) {
+  .topbar:is([data-page="today"], [data-page="wardrobe"]) .topbar-title {
+    display: grid; gap: 2px; font-weight: 600; white-space: nowrap;
+  }
+}
+.topbar[data-page="wardrobe"] .topbar-caption { min-height: 1.35em; }
 
 /* ---------- 顶栏右侧动作槽（手机） ----------
  * 只有添置首页往里放「已记下 N」。`.topbar-title` 是 flex:1，天然把这一格推到右边、
@@ -24,11 +36,6 @@
 
 /* ---------- 各页首行（§26 留下的公共壳，现在只剩添置在用） ---------- */
 .page-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: var(--sp-2); min-height: 44px; margin: 0 0 var(--sp-4); }
-
-/* 衣橱：件数钉在分类条右端，分类条自己横滑。 */
-.wardrobe-categories { display: flex; align-items: center; gap: var(--sp-2); }
-.wardrobe-categories .category-nav { flex: 1; min-width: 0; }
-.wardrobe-count { flex: 0 0 auto; font-size: 11px; white-space: nowrap; }
 
 /* 搭配：审美选择器吃满整行（原来右侧要给设置钮让 44px）。 */
 .outfit-top-row { display: flex; align-items: flex-start; gap: var(--sp-2); margin-bottom: var(--sp-3); }
@@ -46,6 +53,12 @@
 .purchase-hero-copy h2 { font-size: 22px; }
 
 @media (max-width: 640px) {
+  .has-page-caption { --topbar-h-sm: 84px; }
+  .has-page-caption .topbar { box-shadow: none; }
+  .has-page-caption .topbar-title {
+    display: grid; gap: var(--sp-1); font-size: var(--fs-hero); line-height: 1.1; letter-spacing: var(--ls-tight);
+  }
+  .has-page-caption .topbar-caption { letter-spacing: normal; }
   /* 顶栏：48px 内容高 + 状态栏安全区，吸顶。下面垫一条 1px 发丝线
      —— ⚠️ 用 box-shadow 不用 border：border 进盒模型会把 48 变成 47，
      而 box-shadow 不占布局，滚动时内容从它底下过也不会跳。 */
@@ -68,6 +81,12 @@
   }
   .status-menu > summary .icon { width: 18px; height: 18px; }
   .status-menu[open] { z-index: 40; }
+
+  /* §48：底栏统一使用图标，文字仍作为链接的可访问名称。 */
+  .tabbar .tab > span {
+    position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
+    clip: rect(0, 0, 0, 0); white-space: nowrap;
+  }
 
   .view[data-view="gaps"] { padding-bottom: 0; }
   /* 搭配页要「一屏一张」：高度自己算（见 features/outfits-deck.css）。

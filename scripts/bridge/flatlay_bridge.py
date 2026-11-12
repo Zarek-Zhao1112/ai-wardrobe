@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -14,11 +15,45 @@ import threading
 import time
 
 from fastapi import HTTPException
+from scripts.bridge.tty_runner import account_source_ok, run_cli
 
 MODEL = "deepseek-v4.1-flash"
 IMAGE_MODEL = "hunyuan-image-alpha-edit"
 MAX_IMAGE = 10 * 1024 * 1024
+MAX_WORKBUDDY_INPUT = 9 * 1024 * 1024 // 2  # 4.5 MiB，为工具的 5 MiB 上限留余量
 TTL = 24 * 60 * 60
+
+
+class ImagePreparationError(ValueError):
+    pass
+
+
+def compress_input(source: Path, target: Path) -> None:
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as error:
+        raise ImagePreparationError("电脑中转缺少照片压缩组件，原图已保留。本次尚未开始生成。") from error
+
+    try:
+        with Image.open(source) as original:
+            original.draft("RGB", (3072, 3072))
+            image = ImageOps.exif_transpose(original)
+        if "A" in image.getbands() or "transparency" in image.info:
+            rgba = image.convert("RGBA")
+            image = Image.new("RGB", rgba.size, "white")
+            image.paste(rgba, mask=rgba.getchannel("A"))
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+        for edge in (3072, 2560, 2048, 1600):
+            image.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+            with BytesIO() as encoded:
+                image.save(encoded, format="JPEG", quality=90, optimize=True)
+                if encoded.tell() <= MAX_WORKBUDDY_INPUT:
+                    target.write_bytes(encoded.getbuffer())
+                    return
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        raise ImagePreparationError("这张照片暂时无法压缩，原图已保留。本次尚未开始生成。") from error
+    raise ImagePreparationError("这张照片压缩后仍过大，原图已保留。本次尚未开始生成。")
 
 
 def image_type(data):
@@ -70,8 +105,9 @@ def run_image(executable, entry, directory, source, kind, environment):
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings", json.dumps(settings, ensure_ascii=False),
             "--system-prompt", "只按用户参数调用一次ImageGen图生图，不用其他工具。参数不得更改，失败不重试、不换模型，完成后只回答完成。"]
     message = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "严格使用下列参数：" + json.dumps(request, ensure_ascii=False)}]}}
-    result = subprocess.run(args, cwd=directory, env=environment(), input=(json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"),
-                            capture_output=True, timeout=210, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+    # §19.4：CLI 必须跑在真 TTY 才能拿账号凭据，故走 tty_runner（mintty 隐藏终端）。
+    result = run_cli(args, cwd=directory, env=environment(), stdin_bytes=(json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"),
+                     timeout=210)
     init, tool_paths, credit = {}, [], None
     diagnostics = ""
     for line in result.stdout.decode("utf-8", errors="replace").splitlines():
@@ -92,7 +128,7 @@ def run_image(executable, entry, directory, source, kind, environment):
             elif isinstance(value, list):
                 for field in value: collect(field)
         collect(event)
-    if init.get("apiKeySource") != "copilot.tencent.com" or init.get("model") != MODEL:
+    if not account_source_ok(init.get("apiKeySource")) or init.get("model") != MODEL:
         raise ValueError("个人CLI登录来源未通过校验，请重新登录。")
     candidates = []
     for name in dict.fromkeys(tool_paths):
@@ -161,6 +197,8 @@ class FlatlayJobs:
                 source = folder / ("input" + sniffed[1])
                 source.write_bytes(data)
                 state = {"id": token, "state": "running", "source_hash": source_hash, "fingerprint": fingerprint, "created": time.time(), "image_model": IMAGE_MODEL}
+                if len(data) > MAX_WORKBUDDY_INPUT:
+                    state["phase"] = "preparing"
                 _write(folder / "state.json", state)
                 self.running.add(token)
                 thread = threading.Thread(target=self._run, args=(token, source, kind), daemon=True)
@@ -172,8 +210,17 @@ class FlatlayJobs:
 
     def _run(self, token, source, kind):
         folder = self._directory(token)
+        prepared = folder / "input.workbuddy.jpg"
         try:
-            data, credit = self.runner(self.executable, self.entry, folder, source, kind, self.environment)
+            tool_source = source
+            if source.stat().st_size > MAX_WORKBUDDY_INPUT:
+                compress_input(source, prepared)
+                tool_source = prepared
+                with self.lock:
+                    state = self._read(token)
+                    state.pop("phase", None)
+                    _write(folder / "state.json", state)
+            data, credit = self.runner(self.executable, self.entry, folder, tool_source, kind, self.environment)
             sniffed = image_type(data)
             if not sniffed or not 0 < len(data) <= MAX_IMAGE: raise ValueError("生成图片格式无效")
             result = folder / ("result" + sniffed[1])
@@ -182,15 +229,21 @@ class FlatlayJobs:
                 state = self._read(token)
                 state.update(state="completed", result=result.name, mime=sniffed[0], credit=credit)
                 _write(folder / "state.json", state)
-        except Exception:
+        except Exception as error:
             with self.lock:
                 state = self._read(token)
-                state.update(state="failed", error="本次生成未能确认成功，源图和填写内容已保留。请先查看WorkBuddy用量，再决定是否重做。")
+                state.pop("phase", None)
+                message = (
+                    str(error) if isinstance(error, ImagePreparationError) else
+                    "本次生成未能确认成功，源图和填写内容已保留。请先查看WorkBuddy用量，再决定是否重做。"
+                )
+                state.update(state="failed", error=message)
                 _write(folder / "state.json", state)
         finally:
             try:
-                try: source.unlink(missing_ok=True)
-                except OSError: pass
+                for temporary in (source, prepared):
+                    try: temporary.unlink(missing_ok=True)
+                    except OSError: pass
                 shutil.rmtree(folder / "output", ignore_errors=True)
             finally:
                 with self.lock: self.running.discard(token)
@@ -201,6 +254,8 @@ class FlatlayJobs:
             self.cleanup()
             state = self._read(token)
             result = {key: state[key] for key in ("id", "state", "source_hash", "image_model", "credit", "error") if key in state}
+            if state["state"] == "running" and state.get("phase") == "preparing":
+                result["phase"] = "preparing"
             result["model"] = MODEL
             if state.get("state") == "completed":
                 name = state.get("result", "")

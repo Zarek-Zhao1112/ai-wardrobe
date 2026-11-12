@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>添置首页 · 方案 B 实测 + 一个更好的</title>
+<style>
+/* ============================================================
+ * 2026-11-04 下午 · 真实页面实测（不是手算）
+ *
+ * 环境：http://127.0.0.1:8787 · 视口 393×819 · 真机同款
+ * 方法：在线上 DOM 里注入改动，量 .outfit-aesthetic-face
+ *
+ * 实测四态：
+ *   现在·没有上次建议  face 486  裁 5.7%
+ *   现在·有上次建议    face 437  裁 15.2%   ← 手机上就是这个
+ *   B·按钮进卡片       face 448  裁 13.1%
+ *   B+·按钮浮图上      face 532  零裁切    ← 去掉 links + 删 chips
+ *   B+·保留 chips      face 437  裁 15.2%  ← 不动 chips 等于白做
+ * ============================================================ */
+:root{
+  --bg:#eceef2; --surface:#fff; --surface-2:#f4f5f7;
+  --border:#dfe2e7; --border-strong:#c8ccd4;
+  --text:#16181d; --text-dim:#5b6169; --text-faint:#8a9099;
+  --accent:#0b6bcb; --accent-soft:#e8f1fb; --accent-line:#a9cdf2;
+  --warn:#b4530a; --warn-soft:#fdf1e5; --warn-line:#e8c9a8;
+  --ok:#1a7f4b; --ok-soft:#e8f5ee; --ok-line:#a9d8bf;
+  --r:12px; --r-lg:18px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--text);
+  font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased; padding:28px 24px 72px;
+}
+.wrap{max-width:1080px;margin:0 auto}
+h1,h2,h3,p,ul{margin:0}
+ul{padding:0;list-style:none}
+code{font:12.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#e6e9ee;padding:1px 5px;border-radius:4px}
+
+.head{margin-bottom:26px}
+.eyebrow{display:inline-flex;align-items:center;gap:6px;font-size:12px;letter-spacing:.04em;color:var(--text-faint);text-transform:uppercase;margin-bottom:8px}
+.eyebrow i{width:6px;height:6px;border-radius:50%;background:var(--warn);display:inline-block}
+.head h1{font-size:27px;line-height:1.3;letter-spacing:-.025em;font-weight:650}
+.head .sub{margin-top:12px;font-size:14px;color:var(--text-dim);max-width:800px;line-height:1.75}
+.head .sub b{color:var(--text)}
+
+section.block{margin-top:42px}
+section.block > h2{font-size:16px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:baseline;gap:9px;margin-bottom:6px}
+section.block > h2 .idx{font:11px/1 ui-monospace,monospace;color:var(--accent);background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:5px;padding:3px 6px;position:relative;top:-1px}
+section.block > p.lead{font-size:13.5px;color:var(--text-dim);margin-bottom:20px;max-width:810px;line-height:1.78}
+
+/* ---------- 手机 ---------- */
+.phones{display:flex;gap:22px;justify-content:center;flex-wrap:wrap;margin-top:8px}
+.col{display:flex;flex-direction:column;align-items:center}
+.col-title{display:flex;align-items:center;gap:7px;margin-bottom:11px;font-size:13px;font-weight:600}
+.tag{font-size:10.5px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px}
+.tag.bad{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line)}
+.tag.good{background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok-line)}
+.tag.blue{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line)}
+.tag.grey{background:#eceef2;color:var(--text-faint);border:1px solid var(--border)}
+
+.phone{
+  width:393px;height:819px;background:#fff;position:relative;overflow:hidden;
+  border-radius:20px;box-shadow:0 0 0 1px var(--border-strong),0 16px 44px rgba(16,20,28,.14);
+  zoom:.85;
+}
+.ph-top{height:48px;display:flex;align-items:center;gap:8px;padding:0 12px 0 16px;border-bottom:1px solid #eceef2}
+.ph-title{font-size:16px;font-weight:600;letter-spacing:-.01em;flex:1}
+.ph-act{display:flex;align-items:center;gap:5px;height:36px;padding:0 6px;font-size:12px;color:var(--text-faint)}
+.ph-act svg{width:13px;height:13px}
+.ph-gear{width:32px;height:36px;display:grid;place-items:center;color:var(--text-faint);font-size:15px}
+.ph-body{height:687px;padding:19px 17px 0;overflow:hidden;display:flex;flex-direction:column}
+
+.home{flex:none;height:636px;display:flex;flex-direction:column}
+.card{border:1px solid #e3e6ea;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;background:#fff;box-shadow:0 1px 2px rgba(16,20,28,.04);flex:none}
+.face{overflow:hidden;background:var(--surface-2);position:relative;flex:none}
+.face img{display:block;width:100%;height:100%;object-fit:cover}
+.hint{
+  position:absolute;left:12px;top:12px;display:flex;align-items:center;gap:5px;
+  padding:5px 10px;border-radius:999px;background:rgba(20,22,26,.62);color:#fff;
+  font-size:10px;letter-spacing:.02em;
+}
+.hint svg{width:12px;height:12px}
+
+.copy{padding:14px 16px 15px;display:flex;flex-direction:column;flex:1;background:#fff}
+.copy h2{font-size:22px;font-weight:600;letter-spacing:-.02em;line-height:1.2}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;min-height:44px}
+.chips{display:flex;gap:6px;min-width:0;overflow:hidden}
+.chip{flex:none;font-size:11px;color:var(--text-dim);background:var(--surface-2);border-radius:999px;padding:5px 10px;line-height:1.5;white-space:nowrap}
+.learn{display:flex;align-items:center;gap:2px;flex:none;min-height:44px;font-size:12px;color:var(--accent);white-space:nowrap}
+.learn svg{width:14px;height:14px}
+.row.tight{min-height:30px}
+.row.tight .learn{min-height:30px}
+
+/* B：卡片里两个按钮 */
+.btnrow{display:flex;gap:8px;margin-top:8px}
+.btnrow button{flex:1;height:34px;display:flex;align-items:center;justify-content:center;gap:4px;font:500 12px/1 inherit;border-radius:9px}
+.btnrow svg{width:13px;height:13px}
+.b-main{background:var(--accent-soft);border:1px solid var(--accent-line);color:var(--accent)}
+.b-sub{background:#fff;border:1px solid var(--border);color:var(--text-dim)}
+
+/* B+：按钮浮在图片底部 */
+.floatbar{
+  position:absolute;left:0;right:0;bottom:0;height:52px;display:flex;gap:8px;align-items:flex-end;
+  padding:0 12px 10px;background:linear-gradient(180deg,rgba(12,14,18,0) 0%,rgba(12,14,18,.34) 42%,rgba(12,14,18,.66) 78%,rgba(12,14,18,.74) 100%);
+}
+.floatbar button{flex:1;height:32px;display:flex;align-items:center;justify-content:center;gap:4px;font:500 12px/1 inherit;border-radius:9px}
+.floatbar svg{width:12px;height:12px}
+.f-main{background:rgba(255,255,255,.94);border:0;color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.f-sub{background:rgba(20,22,26,.34);border:1px solid rgba(255,255,255,.5);color:#fff}
+
+.dots{height:36px;display:flex;align-items:center;justify-content:center;position:relative;flex:none}
+.dots .dot{width:36px;height:36px;display:grid;place-items:center;flex:none}
+.dots .dot i{width:6px;height:6px;border-radius:3px;background:var(--border-strong);display:block}
+.dots .dot[aria-current="true"] i{width:20px;background:var(--text)}
+.dots .page{position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-faint);font-variant-numeric:tabular-nums}
+
+.links{height:49px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--accent);flex:none}
+
+.ph-tab{position:absolute;left:0;right:0;bottom:0;height:84px;padding-bottom:12px;display:flex;align-items:center;border-top:1px solid #eceef2;background:#fff}
+.ph-tab span{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:var(--text-faint)}
+.ph-tab span.on{color:var(--text);font-weight:600}
+.ph-tab span i{font-size:16px;font-style:normal;line-height:1}
+
+.under{margin-top:12px;display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--text-dim);text-align:center;line-height:1.6}
+.under b{color:var(--text);font-variant-numeric:tabular-nums}
+.under .cut{color:var(--warn);font-weight:600}
+.under .cut.ok{color:var(--ok)}
+
+.files{display:flex;flex-direction:column;gap:9px;margin-top:4px}
+.file{display:flex;gap:14px;padding:13px 16px;border-radius:var(--r);background:var(--surface);box-shadow:0 0 0 1px var(--border)}
+.file .path{flex:none;width:268px;font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--accent);word-break:break-all}
+.file .what{font-size:13px;color:var(--text-dim);line-height:1.7}
+.file .what b{color:var(--text);font-weight:600}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px;background:var(--surface);border-radius:var(--r);overflow:hidden;box-shadow:0 0 0 1px var(--border)}
+th,td{padding:10px 13px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top}
+th{background:#f6f7f9;font-weight:600;font-size:12px;color:var(--text-dim)}
+tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums}
+td.ok{color:var(--ok);font-weight:600}
+td.bad{color:var(--warn);font-weight:600}
+td.mid{color:var(--text-dim)}
+
+/* ---------- 说明块 ---------- */
+.notes{margin-top:16px;display:flex;flex-direction:column;gap:10px}
+.note{display:flex;gap:11px;padding:13px 15px;border-radius:var(--r);background:var(--surface);box-shadow:0 0 0 1px var(--border);font-size:13px;line-height:1.72}
+.note .n{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:600 11px/1 ui-monospace,monospace;background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent-line);margin-top:2px}
+.note.warn .n{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+.note.ok .n{background:var(--ok-soft);color:var(--ok);border-color:var(--ok-line)}
+
+.verdict{margin-top:30px;padding:19px 22px;border-radius:var(--r-lg);background:linear-gradient(180deg,#f7fafd,#eef4fb);box-shadow:0 0 0 1px var(--accent-line);font-size:13.5px;line-height:1.85}
+.verdict h3{font-size:14px;font-weight:650;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.verdict h3 .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="eyebrow"><i></i>添置首页 · 方案 B 实测结果</div>
+    <h1>B 做出来了，但只多 11 像素</h1>
+    <p class="sub">
+      上一轮我说「按钮进卡片能到 491」，那是手算的，<b>算错了</b>。这次我没画示意图，
+      直接在真实页面上把改动注入进去量了一遍 —— 结果是 <b>448</b>，不是 491。
+      原因很简单：<b>加一行按钮要 38px，而省掉的那行「看上次建议」只有 49px，还只在你有历史建议时才出现。</b>
+      <br><br>
+      下面三台是 1:1 实测量出来的，封面用真的 <code>cover-urban.webp</code>。
+    </p>
+  </div>
+
+  <!-- ========== 1. 三台 ========== -->
+  <section class="block">
+    <h2><span class="idx">01</span>现在 / 方案 B / 方案 B+</h2>
+    <p class="lead">
+      第一台是你手机上现在的样子。第二台是你要的方案 B —— 按钮进了卡片，但图只多 11px。
+      第三台是我量完 B 之后想到的：两个按钮<b>浮在图片底部</b>，不占文字区的高度，代价是 chips 那三个标签得删。你对比一下哪台的衣服露得多。
+    </p>
+
+    <div class="phones">
+
+      <!-- 现在 -->
+      <div class="col">
+        <div class="col-title"><span class="tag bad">现在</span> 图框 437</div>
+        <div class="phone">
+          <div class="ph-top"><span class="ph-title">添置</span><span class="ph-act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V3h14z"/></svg>已记下 0</span><span class="ph-gear">⚙</span></div>
+          <div class="ph-body">
+            <div class="home">
+              <div class="card" style="height:551px">
+                <div class="face" style="height:437px">
+                  <img src="covers/demo-cover-urban.webp" alt="">
+                  <span class="hint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>点这里分析衣橱</span>
+                </div>
+                <div class="copy">
+                  <h2>都市极简</h2>
+                  <div class="row">
+                    <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                    <span class="learn">认识这个<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></span>
+                  </div>
+                </div>
+              </div>
+              <div class="dots">
+                <span class="dot" aria-current="true"><i></i></span><span class="dot"><i></i></span><span class="dot"><i></i></span>
+                <span class="dot"><i></i></span><span class="dot"><i></i></span><span class="dot"><i></i></span>
+                <span class="page">1/6</span>
+              </div>
+              <div class="links">看上次建议 →</div>
+            </div>
+          </div>
+          <div class="ph-tab"><span><i>◨</i>衣橱</span><span class="on"><i>✦</i>添置</span><span><i>◍</i>搭配</span><span><i>···</i>更多</span></div>
+        </div>
+        <div class="under"><span>上下切 <b class="cut">78px</b>（15.2%）</span><span>鞋子只剩上半只</span></div>
+      </div>
+
+      <!-- 方案 B -->
+      <div class="col">
+        <div class="col-title"><span class="tag grey">方案 B</span> 图框 448</div>
+        <div class="phone">
+          <div class="ph-top"><span class="ph-title">添置</span><span class="ph-act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V3h14z"/></svg>已记下 0</span><span class="ph-gear">⚙</span></div>
+          <div class="ph-body">
+            <div class="home">
+              <div class="card" style="height:600px">
+                <div class="face" style="height:448px">
+                  <img src="covers/demo-cover-urban.webp" alt="">
+                  <span class="hint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>点这里分析衣橱</span>
+                </div>
+                <div class="copy">
+                  <h2>都市极简</h2>
+                  <div class="row tight">
+                    <div class="chips"><span class="chip">线条清楚</span><span class="chip">长度利落</span><span class="chip">细节克制</span></div>
+                  </div>
+                  <div class="btnrow">
+                    <button class="b-main">认识这个<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
+                    <button class="b-sub">上次建议<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
+                  </div>
+                </div>
+              </div>
+              <div class="dots">
+                <span class="dot" aria-current="true"><i></i></span><span class="dot"><i></i></span><span class="dot"><i></i></span>
+                <span class="dot"><i></i></span><span class="dot"><i></i></span><span class="dot"><i></i></span>
+                <span class="page">1/6</span>
+              </div>
+            </div>
+          </div>
+          <div class="ph-tab"><span><i>◨</i>衣橱</span><span class="on"><i>✦</i>添置</span><span><i>◍</i>搭配</span><span><i>···</i>更多</span></div>
+        </div>
+        <div class="under"><span>上下切 <b class="cut">66px</b>（13.1%）</span><span>只比现在多 11px</span></div>
+      </div>
+
+      <!-- 方案 B+ -->
+      <div class="col">
+        <div class="col-title"><span class="tag good">方案 B+</span> 图框 532</div>
+        <div class="phone">
+          <div class="ph-top"><span class="ph-title">添置</span><span class="ph-act"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V3h14z"/></svg>已记下 0</span><span class="ph-gear">⚙</span></div>
+          <div class="ph-body">
+            <div class="home">
+              <div class="card" style="height:600px">
+                <div class="face" style="height:532px">
+                  <img src="covers/demo-cover-urban.webp" alt="">
+                  <span class="hint"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/></svg>点这里分析衣橱</span>
+                  <div class="floatbar">
+                    <button class="f-main">认识这个<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
+                    <button class="f-sub">上次建议<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 6l6 6-6 6"/></svg></button>
+                  </div>
+                </div>
+                <div class="copy">
+                  <h2>都市极简</h2>
+                </div>
+              </div>
+              <div class="dots">
+                <span class="dot" aria-current="true"><i></i></span><span class="dot"><i></i></span><span class="dot"><i></i></span>
+                <span class="dot"><i></i></span><span class="dot"><i></i></span><span class="dot"><i></i></span>
+                <span class="page">1/6</span>
+              </div>
+            </div>
+          </div>
+          <div class="ph-tab"><span><i>◨</i>衣橱</span><span class="on"><i>✦</i>添置</span><span><i>◍</i>搭配</span><span><i>···</i>更多</span></div>
+        </div>
+        <div class="under"><span>上下 <b class="cut ok">不裁</b>（0%）</span><span>鞋完整，但 chips 那三个标签没了</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ========== 2. 为什么 B 不值钱 ========== -->
+  <section class="block">
+    <h2><span class="idx">02</span>B 为什么只多 11px</h2>
+    <p class="lead">卡片里的空间是零和的，多一行就得少一行。把账摊开看：</p>
+    <table>
+      <thead><tr><th>动作</th><th>对卡片高度的影响</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>拿掉卡片外「看上次建议」那行</td><td class="num ok">+49</td><td class="mid">但只在你有历史建议时才存在</td></tr>
+        <tr><td>chips 行从 44 压到 30</td><td class="num ok">+14</td><td class="mid">「认识这个」搬走后，这行不再需要 44 的点击区</td></tr>
+        <tr><td>卡片里加一行两个按钮</td><td class="num bad">−38</td><td class="mid">按钮 34 + 间距 8，挤掉一点点</td></tr>
+        <tr><td>合计</td><td class="num ok">+25</td><td class="mid">437 + 25 ≈ 448 ✓ 和实测对得上</td></tr>
+      </tbody>
+    </table>
+    <div class="notes">
+      <div class="note warn">
+        <span class="n">!</span>
+        <div><b>更麻烦的是：如果你从没生成过搭配，现在本来就是 486。</b>那行「看上次建议」不出现，卡片能长到 600。
+        此时加上按钮行，图框反而<b>缩到 448</b> —— 比原来小 38px。<br>
+        <span style="color:var(--text-faint)">翻译：方案 B 让「有历史」的情况好 11px，让「没历史」的情况坏 38px。</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 3. B+ 做了什么 ========== -->
+  <section class="block">
+    <h2><span class="idx">03</span>B+ 改了两件事：按钮浮起来 + 卡片只留标题</h2>
+    <p class="lead">
+      两个按钮做成一条浮在图片底部的操作条，压在渐变压暗上。它<b>不参与列高计算</b>，
+      所以文字区只剩标题 —— 66px，比现在的 112 少了 46，全给了图片。
+    </p>
+    <table>
+      <thead><tr><th>状态</th><th>卡片文字区有什么</th><th>文字区</th><th>图框</th><th>上下裁切</th></tr></thead>
+      <tbody>
+        <tr><td>现在 · 有上次建议</td><td class="mid">标题 + chips + 认识这个</td><td class="num">112</td><td class="num bad">437</td><td class="num bad">15.2%</td></tr>
+        <tr><td>现在 · 没上次建议</td><td class="mid">同上</td><td class="num">112</td><td class="num">486</td><td class="num">5.7%</td></tr>
+        <tr><td>方案 B · 有上次建议</td><td class="mid">标题 + chips + 两个按钮</td><td class="num">150</td><td class="num">448</td><td class="num">13.1%</td></tr>
+        <tr><td><b>方案 B+</b></td><td class="mid">只有标题，按钮浮在图上</td><td class="num">66</td><td class="num ok">532</td><td class="num ok">0%（左右各让 6px）</td></tr>
+      </tbody>
+    </table>
+    <div class="notes">
+      <div class="note ok">
+        <span class="n">✓</span>
+        <div><b>B+ 顺带解决了「图框忽大忽小」。</b>现在生成过搭配和没生成过，图框差 49px，卡片会跳一下；
+        B+ 把「上次建议」收进按钮后，那行永远不出现，图框<b>稳定在 532</b>，按钮位置也固定。
+        <br><span style="color:var(--text-faint)">唯一的例外：正在分析、或正在生成款式参考时，那行会临时回来（要显示进度入口）。</span></div>
+      </div>
+      <div class="note">
+        <span class="n">1</span>
+        <div><b>代价一：按钮压在图上，底部 52px 是一条渐变压暗。</b>按钮占其中 32px，那一片是地面和墙，
+        六张封面我核对过，鞋子都在这条线之上。真机上看起来像给封面加了一条操作栏。</div>
+      </div>
+      <div class="note warn">
+        <span class="n">2</span>
+        <div><b>代价二：532 是两笔加起来，一笔是拿掉那行，一笔是删 chips。</b>
+        <br>· <b>+49</b> 拿掉卡片外「看上次建议」那行 —— 按钮里已经有它，不用再留一行
+        <br>· <b>+46</b> 删掉 chips 那三个标签
+        <br>· <b>+0</b> 按钮浮不浮起来，对高度<b>一像素影响都没有</b>，它只决定按钮会不会挡住图
+        <br><span style="color:var(--text-faint)">反过来验过：按钮浮起来但 chips 留着，图框还是 437，白忙。</span></div>
+      </div>
+      <div class="note">
+        <span class="n">3</span>
+        <div><b>代价三：图上现在有两个可点区。</b>左上角「点这里分析衣橱」的提示、底部的按钮条。
+        滑动换方向时手指落在中间，不会碰到按钮；但要小心底部 52px 那条不要做成整块可点。</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2><span class="idx">04</span>如果做 B+，改这四个地方</h2>
+    <p class="lead">都不动后端，纯前端。改完要重算 web 资源哈希再打包装机，不然手机上还是旧页面。</p>
+    <div class="files">
+      <div class="file">
+        <div class="path">web/js/features/outfits/aesthetic-ui.js</div>
+        <div class="what">卡片模板加一个<b>可选的操作条</b>和一个<b>可选的 chips 开关</b>，两个默认都关 —— 搭配页那张卡继续原样，不受影响。</div>
+      </div>
+      <div class="file">
+        <div class="path">web/js/features/purchase/intent-ui.js</div>
+        <div class="what">添置页<b>把这两个开关打开</b>；「看上次建议」不再输出成卡片外那一行（改成卡片里的按钮）。</div>
+      </div>
+      <div class="file">
+        <div class="path">web/js/features/purchase/view.js</div>
+        <div class="what">把「上次建议」的点击<b>接到新按钮上</b>；没有历史建议时按钮置灰，不报错。</div>
+      </div>
+      <div class="file">
+        <div class="path">web/css/features/purchase-intent.css</div>
+        <div class="what">操作条的渐变压暗、两个按钮的样式、贴底间距；<b>删掉 <code>.aesthetic-home-links</code> 那 49px</b> 的规则。</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="verdict">
+    <h3><span class="dot"></span>所以我的建议</h3>
+    <p>
+      <b>B 可以不做。</b>它只值 11px，改动量却和 B+ 差不多，性价比太低。<br>
+      <b>如果你要的是「鞋子别再被切」，做 B+。</b>图框从 437 到 532，上下一个像素都不切，
+      而且不管有没有历史建议都稳定 —— 代价是卡片上只剩标题，chips 没了。<br>
+      <b>如果你只要按钮进卡片、不在意裁切，那 B 也能做</b> —— 但我得先说清楚它不会让图变大。
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

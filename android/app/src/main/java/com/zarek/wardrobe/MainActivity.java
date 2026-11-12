@@ -6,13 +6,13 @@ import android.content.ClipData;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
@@ -27,6 +27,7 @@ import android.webkit.WebResourceRequest;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -45,6 +46,9 @@ public class MainActivity extends Activity {
     /** startActivityForResult 的请求码，随便取一个不会被别处用到的值 */
     private static final int REQ_FILE_CHOOSER = 0x5141;
     private static final int REQ_CAMERA = 0x5142;
+    private static final int REQ_CAPTURE_PHOTO = 0x5143;
+    private static final int REQ_CAPTURE_PERMISSION = 0x5144;
+    private static final int CAPTURE_GRANTS = Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION;
     private PermissionRequest pendingCamera;
 
     private WebView web;
@@ -66,6 +70,7 @@ public class MainActivity extends Activity {
      * 否则它永远挂着，页面上那个文件按钮从此彻底死掉（第二次点连弹都不弹）。
      */
     private ValueCallback<Uri[]> pendingFileChooser;
+    private File pendingCapture;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -104,12 +109,13 @@ public class MainActivity extends Activity {
         //   点 <input type=file> 就完全无反应、不弹窗、不报错。
         //   2026-10-22 之前的版本就是这么写的，录入页/详情页的选择文件按钮全哑。
         web.setWebChromeClient(new ChooserClient());
-        web.setBackgroundColor(Color.parseColor("#101725"));
+        int pageBackground = getColor(R.color.wardrobe_page_background);
+        web.setBackgroundColor(pageBackground);
 
         hint = new TextView(this);
-        hint.setTextColor(Color.parseColor("#E8DCC8"));
+        hint.setTextColor(getColor(R.color.wardrobe_page_text));
         hint.setTextSize(16);
-        hint.setBackgroundColor(Color.parseColor("#101725"));
+        hint.setBackgroundColor(pageBackground);
         hint.setPadding(48, 240, 48, 48);
         hint.setText("正在启动衣橱服务…\n\n首次启动要解压 Python 运行时，大概 10–20 秒。");
 
@@ -258,11 +264,23 @@ public class MainActivity extends Activity {
                                         FileChooserParams params) {
             if (callback == null) return false;   // 没回调可结账，只能如实说没处理
 
-            // 上一次如果没结账（比如上次选择器还开着就被切回来），先当取消结掉。
-            // 不结的话新回调拿不到位置，旧的永远等不到结果。
-            cancelPendingFileChooser();
+            // 相机或相册返回前不接第二个请求，避免旧结果交给新控件。
+            if (pendingFileChooser != null) {
+                callback.onReceiveValue(null);
+                return true;
+            }
 
             pendingFileChooser = callback;
+            if (params != null && params.isCaptureEnabled()) {
+                if (view != web || !isLocalPage(view.getUrl()) || !acceptsCaptureImage(params)) {
+                    cancelPendingFileChooser();
+                } else if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAPTURE_PERMISSION);
+                } else {
+                    openCaptureCamera();
+                }
+                return true;
+            }
             try {
                 startActivityForResult(buildChooserIntent(params), REQ_FILE_CHOOSER);
                 return true;
@@ -275,6 +293,48 @@ public class MainActivity extends Activity {
                 cancelPendingFileChooser();
                 return true;
             }
+        }
+    }
+
+    private boolean acceptsCaptureImage(WebChromeClient.FileChooserParams params) {
+        String[] accept = params.getAcceptTypes();
+        if (params.getMode() != WebChromeClient.FileChooserParams.MODE_OPEN || accept == null) return false;
+        for (String type : accept) if (type != null && type.startsWith("image/")) return true;
+        return false;
+    }
+
+    private void openCaptureCamera() {
+        if (pendingFileChooser == null) return;
+        if (dead || web == null || !isLocalPage(web.getUrl())) {
+            cancelPendingFileChooser();
+            return;
+        }
+        try {
+            pendingCapture = CapturePhotoProvider.createPhoto(this);
+            Uri output = CapturePhotoProvider.uriFor(this, pendingCapture);
+            Intent capture = new Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                    .putExtra(MediaStore.EXTRA_OUTPUT, output)
+                    .addFlags(CAPTURE_GRANTS);
+            capture.setClipData(ClipData.newRawUri("衣物照片", output));
+            startActivityForResult(capture, REQ_CAPTURE_PHOTO);
+        } catch (Exception error) {
+            Log.w(TAG, "打开拍照失败", error);
+            finishCapture(false);
+            Toast.makeText(this, "无法打开相机，请从相册添加照片", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void finishCapture(boolean captured) {
+        File file = pendingCapture;
+        pendingCapture = null;
+        Uri output = file == null ? null : CapturePhotoProvider.uriFor(this, file);
+        if (output != null) revokeUriPermission(output, CAPTURE_GRANTS);
+        if (captured && file != null && file.length() > 0) {
+            finishFileChooser(new Uri[]{output});
+        } else {
+            if (file != null) file.delete();
+            cancelPendingFileChooser();
+            if (captured) Toast.makeText(this, "未收到照片，请重拍", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -332,15 +392,16 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == REQ_FILE_CHOOSER && pendingFileChooser != null) {
+        if (requestCode == REQ_CAPTURE_PHOTO && pendingCapture != null) {
+            finishCapture(resultCode == RESULT_OK);
+        } else if (requestCode == REQ_FILE_CHOOSER && pendingFileChooser != null) {
             Uri[] picked = null;
             if (resultCode == RESULT_OK && data != null) {
                 picked = readPickedUris(data);
             }
             // ★ 成功、取消、data 为空、Uri 读不了，四种情况都必须回调一次。
             //   "用户取消"不回调是 WebView 最经典的坑：回调泄漏，按钮从此点不动。
-            pendingFileChooser.onReceiveValue(picked);
-            pendingFileChooser = null;
+            finishFileChooser(picked);
         }
         // 无条件调 super：将来若加 Fragment 之类，漏调会让他们永远收不到结果。
         super.onActivityResult(requestCode, resultCode, data);
@@ -370,6 +431,7 @@ public class MainActivity extends Activity {
 
     /** 探一下这个 Uri 能不能真的读出来（内容只有几 KB 时开销可忽略）。 */
     private boolean readable(Uri u) {
+        if (CapturePhotoProvider.authority(this).equals(u.getAuthority())) return false;
         try (java.io.InputStream in = getContentResolver().openInputStream(u)) {
             return in != null;
         } catch (Exception e) {
@@ -380,26 +442,34 @@ public class MainActivity extends Activity {
 
     /** 把挂着的回调按"取消"结掉。可重复调用。 */
     private void cancelPendingFileChooser() {
+        finishFileChooser(null);
+    }
+
+    private void finishFileChooser(Uri[] picked) {
         ValueCallback<Uri[]> cb = pendingFileChooser;
         pendingFileChooser = null;
         if (cb != null) {
             try {
-                cb.onReceiveValue(null);
+                cb.onReceiveValue(picked);
             } catch (Exception e) {
                 Log.w(TAG, "回调已失效，忽略", e);
             }
         }
     }
 
+    private boolean isLocalPage(String url) {
+        Uri page = Uri.parse(url == null ? "" : url);
+        return "http".equals(page.getScheme()) && "127.0.0.1".equals(page.getHost())
+                && page.getPort() == WardrobeService.PORT;
+    }
+
     private boolean validCameraRequest(PermissionRequest request) {
         if (dead || !started || web == null || request == null) return false;
         Uri origin = request.getOrigin();
-        Uri current = Uri.parse(web.getUrl() == null ? "" : web.getUrl());
         String[] resources = request.getResources();
         return "http".equals(origin.getScheme()) && "127.0.0.1".equals(origin.getHost())
                 && origin.getPort() == WardrobeService.PORT
-                && "http".equals(current.getScheme()) && "127.0.0.1".equals(current.getHost())
-                && current.getPort() == WardrobeService.PORT
+                && isLocalPage(web.getUrl())
                 && resources.length == 1 && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0]);
     }
 
@@ -419,6 +489,13 @@ public class MainActivity extends Activity {
     public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
         if (code == REQ_CAMERA) finishCameraPermission(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
+        if (code == REQ_CAPTURE_PERMISSION) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) openCaptureCamera();
+            else {
+                cancelPendingFileChooser();
+                Toast.makeText(this, "未授权相机，可以从相册添加照片", Toast.LENGTH_SHORT).show();
+            }
+        }
     }
 
     @Override
@@ -447,6 +524,7 @@ public class MainActivity extends Activity {
         dead = true;
         if (waitThread != null) waitThread.interrupt();
         // WebView 销毁前把可能挂着的文件回调结掉，否则页面侧会留一个永不 resolve 的 Promise
+        if (pendingCapture != null) finishCapture(false);
         cancelPendingFileChooser();
         cancelPendingCamera();
         if (web != null) {

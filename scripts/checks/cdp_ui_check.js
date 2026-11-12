@@ -179,8 +179,7 @@ const TABBAR_CLEARANCE = `(() => {
   const tb = document.querySelector('.tabbar');
   if (!tb || getComputedStyle(tb).display === 'none') return { skipped: '非手机端（无底部栏）' };
   window.scrollTo(0, de.scrollHeight);
-  const container = document.getElementById('view') ||
-                    document.querySelector('.bind-wrap') || document.body;
+  const container = document.getElementById('view') || document.body;
   const kids = [...container.children].filter((el) => el.offsetParent !== null);
   const last = kids[kids.length - 1];
   const tbTop = tb.getBoundingClientRect().top;
@@ -260,16 +259,6 @@ const SW_STATE = `(async () => {
         const s = await cli.send("Page.captureScreenshot", { format: "png" });
         fs.writeFileSync(`${OUT}/mobile-390-${hash}.png`, Buffer.from(s.data, "base64"));
       }
-      // 契约视图清单第 6 项：微信绑定页（独立 HTML，路由管不到）
-      await cli.send("Page.navigate", { url: BASE + "bind.html" });
-      await sleep(1200);
-      const ovb = await evalJson(cli, OVERFLOW_ONLY);
-      ovb.tap = await evalJson(cli, TAP_TARGETS);
-      ovb.tabbar_clearance = await evalJson(cli, TABBAR_CLEARANCE);
-      report.mobile_subpages["bind.html"] = ovb;
-      const sb = await cli.send("Page.captureScreenshot", { format: "png" });
-      fs.writeFileSync(`${OUT}/mobile-390-bind.png`, Buffer.from(sb.data, "base64"));
-
       await cli.send("Page.navigate", { url: BASE + "#wardrobe" });
       await sleep(1200);
     }

@@ -78,7 +78,7 @@ export const intentSession={
   catch(err){if([400,401,403,404,409,422].includes(err.status)){pending.analysis=null;persistPending()}message='暂未确认这次分析：'+err.message+'。会先查询原请求。';error=true;await recover();throw err}
   finally{analysisPromise=null;notify()}
  },
- async queryAnalysis(){const id=this.analysisRequestId;if(!id)return refresh();const stamp=revision;const next=await api.purchaseAnalysisQuery(id);if(stamp===revision){++revision;if(pending.analysis?.id===id&&!['running','unknown'].includes(next.analysis_request?.status)){pending.analysis=null;persistPending()}accept(next);notify()}return data},
+ async queryAnalysis(){const id=this.analysisRequestId;if(!id)return refresh();const stamp=revision;const next=await api.purchaseAnalysisQuery(id);if(stamp===revision){++revision;if(pending.analysis?.id===id&&!['running','unknown'].includes(next.analysis_request?.status)){pending.analysis=null;persistPending()}accept(next,'analysis');notify()}return next},
  async prepare(id){
   if(this.preparing)return null;const row=this.selection(id),draft=drafts.get(id);
   if(!draft||!row.ids.length)return null;const allowed=new Set(draft.directions.map(d=>d.id));
@@ -89,6 +89,13 @@ export const intentSession={
   catch(err){if([400,401,403,404,409,422].includes(err.status)){pending.prepare=null;persistPending()}message='暂未确认这次准备：'+err.message+'。请先查询原任务。';error=true;await recover();throw err}
   finally{preparePromise=null;notify()}
  },
- async queryPreparation(){const id=this.preparationId;if(!id)return refresh();const stamp=revision;try{const next=await api.purchasePreparationQuery(id);if(stamp===revision){++revision;if(pending.prepare?.id===id&&next.preparation?.id===id){pending.prepare=null;persistPending()}accept(next);notify()}return data}catch(err){await refresh();throw err}},
- async choice(plan_id,direction_id,action){if(choicePromise)throw Error('正在保存，请稍候。');++revision;choicePromise=api.purchaseChoice({plan_id,direction_id,action});try{const next=await choicePromise;++revision;accept(next,'choice');notify();return next}finally{choicePromise=null}},
+ async queryPreparation(){const id=this.preparationId;if(!id)return refresh();const stamp=revision;const next=await api.purchasePreparationQuery(id);if(stamp===revision){++revision;if(pending.prepare?.id===id&&next.preparation?.id===id){pending.prepare=null;persistPending()}accept(next,'prepare');notify()}return next},
+ acceptSaved(next){++revision;accept(next,'choice');notify()},
+ async choice(plan_id,direction_id,action,reference_id){
+  if(choicePromise)throw Error('正在保存，请稍候。');
+  ++revision;
+  choicePromise=api.purchaseChoice({plan_id,direction_id,action,reference_id});
+  try{const next=await choicePromise;++revision;accept(next,'choice');notify();return next}
+  finally{choicePromise=null}
+ },
 };

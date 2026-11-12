@@ -36,7 +36,23 @@ export function createAssistantPanel({root,onClose,onBack,isBlocked=()=>false}){
   get open(){return Boolean(entry)},get closing(){return entry?.phase==='closing'},get dragging(){return entry?.pointer!==null&&Boolean(entry)},
   get content(){return entry?.scroll},get panel(){return entry?.panel},get layer(){return entry?.layer},
   show(options){return open(options)},
-  render({header,content,animate=false}){const e=entry;if(!e||e.phase==='closing'||isBlocked()||e.pointer!==null)return false;const focus=document.activeElement,key=focus?.dataset?.intentDirection,top=e.scroll.scrollTop;if(header!==e.headerHtml){e.head.innerHTML=header;e.headerHtml=header}if(content!==e.html){e.scroll.innerHTML=content;e.html=content;e.scroll.scrollTop=top;if(animate&&!reduced.matches)e.scroll.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:270,easing:'cubic-bezier(.2,.8,.2,1)'});if(key)e.scroll.querySelector(`[data-intent-direction="${key}"]`)?.focus({preventScroll:true})}return true},
+  render({header,content,animate=false}){
+   const e=entry;if(!e||e.phase==='closing'||isBlocked()||e.pointer!==null)return false;
+   const focus=document.activeElement,top=e.scroll.scrollTop;
+   if(header!==e.headerHtml){e.head.innerHTML=header;e.headerHtml=header}
+   if(content!==e.html){
+    const attribute=['data-intent-direction','data-builder-item','data-builder-format','data-builder-action']
+      .find(name=>focus?.hasAttribute(name));
+    e.scroll.innerHTML=content;e.html=content;e.scroll.scrollTop=top;
+    if(animate&&!reduced.matches)e.scroll.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:270,easing:'cubic-bezier(.2,.8,.2,1)'});
+    if(attribute){
+     const next=[...e.scroll.querySelectorAll(`[${attribute}]:not(:disabled)`)]
+       .find(node=>node.getAttribute(attribute)===focus.getAttribute(attribute));
+     next?.focus({preventScroll:true});
+    }
+   }
+   return true
+  },
   focus(){entry?.head.querySelector('[data-assistant-close]')?.focus({preventScroll:true})},
   close(){const e=entry;if(!e)return Promise.resolve();if(e.closing)return e.closing;e.resetDrag();e.phase='closing';e.layer.classList.remove('is-open');for(const row of e.background){row.node.style.filter=row.filter;row.node.style.transform=row.transform}e.panel.style.pointerEvents='none';e.closing=new Promise(resolve=>{e.done=resolve;e.timer=setTimeout(()=>finish(e),reduced.matches?1:500)});return e.closing},
   dispose(){if(entry)finish(entry,false)}

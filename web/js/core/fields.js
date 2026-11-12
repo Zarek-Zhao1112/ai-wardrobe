@@ -9,7 +9,8 @@
  *   （后者要按住 Ctrl 才能多选，难用且容易漏）
  */
 
-import { esc, labelOf } from "./ui.js";
+import { esc, icon, labelOf } from "./ui.js";
+import { syncPickers } from "../components/picker.js";
 
 const SINGLE_FIELDS = [
   ["primary_color", "主色", "color"],
@@ -61,14 +62,27 @@ export function slotOptionsHtml(taxonomy, placeholder = "全部槽位") {
   );
 }
 
+/** `<select>` + 看得见的替身按钮（弹窗见 components/picker.js）。
+ *
+ * 原生 select **必须留着**：`readForm` / `fillForm` / 保存校验全靠它，
+ * 替身只是显示层。所以这里用 `data-picker-kind` 标记，由 picker.js 隐藏。
+ */
+function pickerHtml(name, optionsHtml, title, kind = "list") {
+  return `<span class="picker" data-picker-host data-picker-title="${esc(title)}">
+      <select name="${esc(name)}" data-picker-kind="${kind}">${optionsHtml}</select>
+      <button type="button" class="picker-btn" data-picker-btn aria-haspopup="dialog" aria-expanded="false"><span data-picker-value></span>${icon("chevron")}</button>
+    </span>`;
+}
+
 function selectHtml(name, text, vocab, anyLabel = "未指定") {
   const opts =
     `<option value="">${esc(anyLabel)}</option>` +
     Object.entries(vocab || {})
       .map(([k, lbl]) => `<option value="${esc(k)}">${esc(lbl)}</option>`)
       .join("");
-  return `<label class="field"><span>${esc(text)}</span>
-    <select name="${esc(name)}">${opts}</select></label>`;
+  // 主色用色点单列，其余是两列文字网格
+  const kind = name === "primary_color" ? "color" : "list";
+  return `<label class="field"><span>${esc(text)}</span>${pickerHtml(name, opts, text, kind)}</label>`;
 }
 
 function chipsHtml(name, text, vocab) {
@@ -83,6 +97,16 @@ function chipsHtml(name, text, vocab) {
     <div class="chips">${chips}</div></div>`;
 }
 
+export function reviewFieldsHtml(taxonomy) {
+  const vocab = taxonomy?.vocabularies || {};
+  return `<div class="import-review-fields">
+    <label class="field"><span>名称</span><input type="text" name="name" placeholder="衣物名称"></label>
+    <label class="field"><span>品类</span>${pickerHtml("type", typeOptionsHtml(taxonomy, "选一个品类"), "品类", "type")}</label>
+    ${selectHtml("primary_color", "主色", vocab.color)}
+    ${selectHtml("material", "材质", vocab.material, "暂未确认")}
+  </div>`;
+}
+
 /** 整张属性表单的 HTML（不含「保存」按钮）。 */
 export function formHtml(taxonomy, { compact = false } = {}) {
   const vocab = (taxonomy && taxonomy.vocabularies) || {};
@@ -90,12 +114,11 @@ export function formHtml(taxonomy, { compact = false } = {}) {
     <div class="form-grid${compact ? " compact-fields" : ""}">
       <label class="field"><span>名称</span>
         <input type="text" name="name" placeholder="例如：白色棉T恤"></label>
-      <label class="field"><span>品类</span>
-        <select name="type">${typeOptionsHtml(taxonomy, "选一个品类")}</select></label>
+      <label class="field"><span>品类</span>${pickerHtml("type", typeOptionsHtml(taxonomy, "选一个品类"), "品类", "type")}</label>
       ${selectHtml("primary_color", compact ? "颜色" : "主色", vocab.color)}
       ${compact ? "" : chipsHtml("season", "季节", vocab.season)}
     </div>
-    <details class="more-fields">
+    <details class="more-fields" data-fold="1">
       <summary>更多属性<span class="faint">材质、版型、风格等</span></summary>
       <div class="form-grid">
         ${compact ? chipsHtml("season", "季节", vocab.season) : ""}
@@ -290,6 +313,9 @@ export function fillForm(root, item, { onlyEmpty = false, names = null } = {}) {
     // 这时候报"AI 填了颜色"，界面上却什么都没有。
     if (picked.size && (boxes.length || container)) filled.push(name);
   }
+  // 单值字段是直接 `el.value = x` 写进去的，**不会派发 change** ——
+  // 不在这里同步一次，替身按钮上显示的还是旧值（表现为"AI 填了但看不见"）。
+  syncPickers(root);
   return filled;
 }
 

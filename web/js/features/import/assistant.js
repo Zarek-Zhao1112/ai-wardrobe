@@ -1,11 +1,12 @@
 // §24：一键识别，无图种切换，平铺图就绪后确认入库。
 import { esc, icon } from "../../core/ui.js";
-import { flatlayBusy } from "./flatlay.js";
+import { flatlayBusy, flatlayPreparing } from "./flatlay.js";
 import { layoutMessage } from "../../components/flatlay-display.js";
 
 export function controls(item, { busy = "", locked = false, chaining = false, queued = false, hasImage = false, vision = false, configured = false } = {}) {
   const state = item.flatlay || {}, flow = item.assistant || {};
   const recognizing = busy === "recognizing", working = recognizing || flatlayBusy(state) || chaining;
+  const preparing = flatlayPreparing(state);
   const waiting = state.id && state.state === "waiting", failed = state.state === "failed";
   const needsType = flow.stage === "needs_type" && !item.fields.type;
   const invalid = hasImage && (state.sourceValid === false || (state.kind && state.kind !== item.fields.type));
@@ -13,8 +14,12 @@ export function controls(item, { busy = "", locked = false, chaining = false, qu
   const generationOnly = failed || (item.recognized && item.error?.kind !== "recognition" && !reuse);
   const disabled = locked || working || Boolean(busy) || (waiting || generationOnly ? !configured : !vision);
   if(queued)return '<p class="import-assistant-message" role="status">等待自动准备，无需逐张点击。</p>';
-  let html = reuse?`<p class="import-assistant-ready" role="status">${icon('check')}这件已准备好，确认后再入库。</p>`:"";
-  if (working) html += `<div class="import-assistant-status" role="status"><i class="import-spinner" aria-hidden="true"></i><strong>${recognizing ? "正在识别衣物…" : "正在生成平铺图…"}</strong><small>可收起继续</small></div><div class="import-progress" aria-hidden="true"><i></i></div><p class="import-assistant-steps">${recognizing ? "识别属性 · 生成平铺图" : "属性已填入 · 正在生成平铺图"}</p>`;
+  let html = reuse?`<p class="import-assistant-ready" role="status">${icon('check')}平铺图已就绪，确认后即可入库。</p>`:"";
+  if (working) {
+    const status = recognizing ? "正在识别衣物…" : preparing ? "正在准备照片…" : "正在生成平铺图…";
+    const detail = recognizing ? "识别属性 · 生成平铺图" : preparing ? "照片已保留，正在准备生成用的图片。" : "属性已填入 · 正在生成平铺图";
+    html += `<div class="import-assistant-status" role="status"><i class="import-spinner" aria-hidden="true"></i><strong>${status}</strong><small>可收起继续</small></div><div class="import-progress" aria-hidden="true"><i></i></div><p class="import-assistant-steps">${detail}</p>`;
+  }
   else if (!reuse || waiting || failed) {
     if (needsType) html += '<p class="import-assistant-message" role="status">品类暂未确认，可重新识别或跳过这件。其他拿不准的信息继续留空。</p>';
     if (failed || waiting) html += `<p class="import-assistant-message" role="status">${esc(state.error || "照片和填写内容已保留，请重试生成平铺图。")}</p>`;

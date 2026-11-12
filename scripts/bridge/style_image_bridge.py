@@ -8,6 +8,7 @@ import subprocess
 import time
 from .flatlay_bridge import MODEL, MAX_IMAGE, image_type, hook_command
 from .reference_bridge import ReferenceJobs, write_json
+from scripts.bridge.tty_runner import account_source_ok, run_cli
 
 IMAGE_MODEL = 'hunyuan-image-alpha'
 
@@ -42,7 +43,8 @@ def run_style_image(executable, entry, directory, spec, environment):
         '--system-prompt','只按用户参数调用一次ImageGen文生图，不提供参考图片，不用其他工具。参数不得更改，失败不重试，不换模型。完成后简短结束。']
     message={'type':'user','message':{'role':'user','content':[{'type':'text','text':'严格使用下列参数：'+json.dumps(request,ensure_ascii=False)}]}}
     try:
-        result=subprocess.run(args,cwd=directory,env=environment(),input=(json.dumps(message,ensure_ascii=False)+'\n').encode(),capture_output=True,timeout=240,creationflags=flags)
+        # §19.4：CLI 必须跑在真 TTY 才能拿账号凭据，故走 tty_runner（mintty 隐藏终端）。
+        result=run_cli(args,cwd=directory,env=environment(),stdin_bytes=(json.dumps(message,ensure_ascii=False)+'\n').encode(),timeout=240)
         raw=result.stdout
     except subprocess.TimeoutExpired as error:
         # 仅恢复已有完整工具结果，不再次发起生成。
@@ -53,7 +55,7 @@ def run_style_image(executable, entry, directory, spec, environment):
         except ValueError:continue
         if isinstance(value,dict):events.append(value)
     init=next((v for v in events if v.get('type')=='system' and v.get('subtype')=='init'),{})
-    if init.get('model')!=MODEL or init.get('apiKeySource')!='copilot.tencent.com':raise ValueError('款式生图账号或模型未通过校验')
+    if init.get('model')!=MODEL or not account_source_ok(init.get('apiKeySource')):raise ValueError('款式生图账号或模型未通过校验')
     calls={part.get('id') for event in events if event.get('type')=='assistant' for part in event.get('message',{}).get('content',[])
         if isinstance(part,dict) and part.get('type')=='tool_use' and part.get('name')=='ImageGen' and part.get('input')==request}
     tools=[part for event in events for part in (event.get('message',{}).get('content',[]) if isinstance(event.get('message'),dict) else [])

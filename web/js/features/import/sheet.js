@@ -6,7 +6,7 @@ let layer, content, panel, scroll, previousFocus, background = [], focusables = 
 let mounted, visible = false, closing = false, drag = null;
 let viewportMaxHeight = 0, viewportWidth = 0;
 const focusSelector = 'a[href],button,input,select,textarea,summary,[tabindex]';
-const topLayer = () => document.querySelector(".crop-layer,.import-modal,.bridge-modal");
+const topLayer = () => document.querySelector(".crop-layer,.import-modal,.bridge-modal,.picker-layer:not([hidden])");
 export const importSheetOpen = () => visible;
 export const importSheetRoot = () => content;
 
@@ -74,9 +74,14 @@ function create(ctx) {
   document.addEventListener("pointerdown", event => { if (drag && event.pointerId !== drag.id) cancelDrag(); }, true);
   document.addEventListener("keydown", event => {
     if (!visible || topLayer()) return;
-    if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); requestClose(); }
+    if (event.key === "Escape") {
+      event.preventDefault(); event.stopImmediatePropagation();
+      const flipBack = content.querySelector('.import-review[data-open="true"] [data-review-close]:not(:disabled)');
+      if (flipBack) flipBack.click();
+      else requestClose();
+    }
     if (event.key !== "Tab") return;
-    const nodes = [...panel.querySelectorAll(focusSelector)].filter(node => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length);
+    const nodes = [...panel.querySelectorAll(focusSelector)].filter(node => !node.disabled && node.tabIndex >= 0 && !node.closest('[aria-hidden="true"]') && node.getClientRects().length);
     if (!nodes.length) { event.preventDefault(); panel.focus(); return; }
     if (event.shiftKey && (document.activeElement === nodes[0] || document.activeElement === panel)) { event.preventDefault(); nodes[nodes.length - 1].focus(); }
     else if (!event.shiftKey && (document.activeElement === nodes[nodes.length - 1] || !panel.contains(document.activeElement))) { event.preventDefault(); nodes[0].focus(); }

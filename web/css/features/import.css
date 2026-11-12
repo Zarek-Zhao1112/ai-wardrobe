@@ -1,12 +1,4 @@
-/* §29：衣橱右下玻璃入口，自动准备与逐件确认共用同一录入面板。 */
-.wardrobe-import-fab{position:fixed;z-index:25;right:max(20px,env(safe-area-inset-right,0px));bottom:24px;width:56px;height:56px;min-height:56px;display:grid;place-items:center;padding:0;border:1px solid var(--glass-edge);border-radius:50%;background:var(--surface-blur);color:var(--text);box-shadow:var(--glass-button-shadow);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);transition:opacity .25s,transform .25s}
-.wardrobe-import-fab:before{content:"";position:absolute;top:1px;left:21%;right:21%;height:1px;background:linear-gradient(90deg,transparent,var(--surface),transparent)}
-.wardrobe-import-fab .icon{width:25px;height:25px;stroke-width:1.8}
-.wardrobe-import-fab:active{transform:scale(.94)}
-.import-fab-badge{position:absolute;top:-6px;right:-6px;background:var(--accent);color:var(--on-accent);font-size:10px;border:2px solid var(--bg);border-radius:99px;padding:3px 5px;line-height:1.3;min-width:22px}
-.import-fab-badge[hidden]{display:none}
-.view[data-view="wardrobe"]{padding-bottom:100px}
-body.import-sheet-open .wardrobe-import-fab{opacity:0;visibility:hidden;pointer-events:none;transform:scale(.8)}
+/* 自动准备与逐件确认共用同一录入面板。 */
 .import-batch-top{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--text-dim);min-height:24px}
 .import-batch-top [data-batch-saved]{font-size:10px;color:var(--text-faint)}
 .import-batch-track{height:3px;border-radius:99px;background:var(--border);overflow:hidden;margin:7px 0 14px}
@@ -43,13 +35,28 @@ body.import-sheet-open .wardrobe-import-fab{opacity:0;visibility:hidden;pointer-
 .wardrobe-import-content .import-assistant-ready{display:flex;align-items:center;gap:6px;color:var(--text-dim);font-size:11px;padding:3px 0}
 .import-assistant-ready .icon{height:15px;width:15px;color:var(--accent)}
 .wardrobe-import-content .photo-picker{min-height:250px;flex-direction:column;justify-content:center;text-align:center;gap:12px;background:var(--surface);border-radius:20px;border:1px solid var(--glass-edge)}
-.wardrobe-import-content .photo-picker .icon{height:44px;width:44px;margin-bottom:8px;color:var(--text-faint)}
+.wardrobe-import-content .photo-picker>.icon{height:44px;width:44px;margin-bottom:8px;color:var(--text-faint)}
 .wardrobe-import-content .photo-picker strong{font-size:18px;font-weight:550}
 .wardrobe-import-content .photo-picker .faint{font-size:12px;line-height:1.9;max-width:250px}
 .wardrobe-import-content .photo-picker{min-height:355px;border:0;background:transparent}
-.wardrobe-import-content .photo-select-cta{display:flex;align-items:center;justify-content:center;min-height:49px;width:100%;margin-top:12px;background:var(--accent);color:var(--on-accent);border-radius:13px;font-size:13px}
-@media(max-width:640px){.wardrobe-import-fab{bottom:calc(var(--tabbar-gap) + var(--tabbar-h) + 18px + env(safe-area-inset-bottom,0px))}.wardrobe-import-panel{height:calc(100% - 40px)}.wardrobe-import-header{padding-top:8px;padding-bottom:4px}.wardrobe-import-header h2{font-size:18px}}
-@media(prefers-reduced-motion:reduce){.wardrobe-import-fab,.import-batch-track i{transition:none}.import-batch-thumb.is-running i{animation:none}}
+/* §47：照片入口卡、识别前的照片集合。 */
+.wardrobe-import-content .import-source-card{min-height:355px;padding:var(--sp-4);background:var(--surface-blur)}
+.import-source-actions{display:flex;justify-content:center;gap:18px;margin-top:var(--sp-3)}
+.import-source-actions button{display:grid;place-items:center;width:56px;height:56px;padding:0;border-radius:50%}
+.import-source-actions .icon{width:24px;height:24px}
+.wardrobe-import-content .photo-form > :not(.photo-field),
+.photo-form.has-import-selection > :not(.photo-field){display:none}
+.import-selection .import-position{margin:var(--sp-1) 0 var(--sp-2);font-size:var(--fs-xs);color:var(--text-faint)}
+.import-selection .import-photo{height:220px;background:var(--surface);border-radius:20px;overflow:hidden}
+.import-selection .import-photo img{width:100%;height:100%;display:block;object-fit:contain}
+.import-selection-remove{display:flex;justify-content:flex-end}
+.import-selection-remove button{font-size:var(--fs-xs);color:var(--danger);background:transparent}
+.import-selection-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp-2);margin-top:var(--sp-2)}
+.import-selection-actions button{display:flex;justify-content:center;align-items:center;gap:6px;padding:var(--sp-2);min-height:49px;border-radius:13px;font-size:var(--fs-sm)}
+.import-selection-actions button.primary{grid-column:1/-1}
+.import-selection-actions .icon{width:16px;height:16px;flex-shrink:0}
+@media(max-width:640px){.wardrobe-import-panel{height:calc(100% - 40px)}.wardrobe-import-header{padding-top:8px;padding-bottom:4px}.wardrobe-import-header h2{font-size:18px}}
+@media(prefers-reduced-motion:reduce){.import-batch-track i{transition:none}.import-batch-thumb.is-running i{animation:none}}
 @keyframes import-batch-pulse{50%{opacity:.35}}
 
 .wardrobe-import-content .import-head{display:block;margin-bottom:10px;padding:0}
@@ -59,3 +66,60 @@ body.import-sheet-open .wardrobe-import-fab{opacity:0;visibility:hidden;pointer-
 .wardrobe-import-content .import-meta{display:none}
 .wardrobe-import-content .import-form>.compact-fields{padding:4px 0 0;border:0;background:transparent;box-shadow:none;border-radius:0}
 .wardrobe-import-content .more-fields select,.wardrobe-import-content .more-fields input:not([type="checkbox"]){min-height:44px}
+
+/* 逐件确认：正反面共用同一个右上角入口。 */
+.import-batch-top .import-batch-toggle {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 44px;
+  padding: 0 4px; color: var(--text-dim); font-size: var(--fs-xs);
+}
+.import-batch-toggle .icon { width: 13px; height: 13px; }
+.import-batch-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
+.import-batch-toggle:disabled .icon { visibility: hidden; }
+.import-batch-thumbs[hidden], .import-review [hidden] { display: none !important; }
+.import-review { perspective: 1100px; }
+.import-review-stack {
+  position: relative; transform-style: preserve-3d;
+  transition: transform .46s cubic-bezier(.22,.65,.3,1);
+}
+.import-review[data-open="true"] .import-review-stack { transform: rotateY(-180deg); }
+.import-review-face {
+  border: 1px solid var(--border); border-radius: 20px; background: var(--surface);
+  -webkit-backface-visibility: hidden; backface-visibility: hidden;
+}
+.import-review-face[aria-hidden="true"] {
+  visibility: hidden; pointer-events: none;
+  transition: visibility 0s linear .23s;
+}
+.import-review-front { position: relative; display: flex; flex-direction: column; min-height: 344px; overflow: hidden; }
+.wardrobe-import-content .import-review-front .import-photo {
+  flex: 1 0 270px; height: 270px; border: 0; border-radius: 0;
+}
+.import-review-front .import-photo img { padding: 10px 12px 18px; }
+.wardrobe-import-content .import-review-front .import-assistant { margin: 0; padding: 5px 12px 10px; }
+.import-review-front .import-photo-hint { color: var(--text-dim); }
+.import-review .import-review-corner {
+  position: absolute; top: 11px; right: 11px; z-index: 3; display: grid; place-items: center;
+  width: 44px; height: 44px; min-height: 44px; padding: 0;
+  border: 0; border-radius: 50%; background: var(--accent-soft); color: var(--accent);
+}
+.import-review-corner .icon { width: 19px; height: 19px; }
+.import-review-back {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  transform: rotateY(180deg); padding: 12px;
+}
+.import-review-back > header { flex: 0 0 auto; min-height: 45px; padding-right: 52px; }
+.import-review-back h3 { margin: 0 0 2px; font-size: var(--fs-body-lg); }
+.import-review-back > header p { margin: 0; font-size: var(--fs-xs); }
+.import-review-content { flex: 1; min-height: 0; overflow-y: auto; padding: 5px 2px 2px; }
+.import-review-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px 9px; }
+.import-review-fields .field { display: grid; gap: 3px; min-width: 0; margin: 0; }
+.import-review-fields .field > span:first-child { font-size: var(--fs-xs); color: var(--text-dim); }
+.import-review-fields :is(input,.picker-btn) { width: 100%; min-width: 0; min-height: 44px; font-size: var(--fs-sm); }
+.wardrobe-import-content .import-review-back .import-actions {
+  flex: 0 0 auto; grid-template-columns: minmax(0,1fr) minmax(0,1.6fr); padding: 8px 0 0;
+}
+.import-review-recovery { align-self: flex-start; margin: 0 10px 6px; min-height: 44px; }
+.import-review-content .import-review-recovery { margin: 4px 0 0; }
+@media (prefers-reduced-motion: reduce) {
+  .import-review-stack, .import-review-face[aria-hidden="true"] { transition: none; }
+}

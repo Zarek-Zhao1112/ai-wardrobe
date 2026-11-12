@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import subprocess
 import tempfile
 import threading
@@ -19,18 +20,25 @@ import time
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from app.bridge_discovery import DISCOVERY_PATH, discovery_proof
 from scripts.bridge.flatlay_bridge import FlatlayJobs, IMAGE_MODEL
 from scripts.bridge.reference_bridge import ReferenceJobs
 from scripts.bridge.style_image_bridge import StyleJobs, IMAGE_MODEL as STYLE_IMAGE_MODEL
+from scripts.bridge.tty_runner import account_source_ok, run_cli
 
-from fastapi import FastAPI, HTTPException, Request
+import httpx
+from fastapi import FastAPI, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 MODEL = "deepseek-v4.1-flash"
+#: 手机可以点名的两种上游。缺省仍是 account —— 老 APK 不带这个字段。
+ACCOUNT_ENGINE = "account"
+API_ENGINE = "api"
 MAX_BODY = 60 * 1024 * 1024
 MAX_IMAGE = 20 * 1024 * 1024
 UPLOAD_TIMEOUT = 10
-BUILD = hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('desktop_bridge.py', 'flatlay_bridge.py', 'flatlay_guard.cjs', 'reference_bridge.py', 'reference_net.py', 'reference_guard.cjs', 'style_image_bridge.py', 'style_image_guard.cjs'))).hexdigest()
+BUILD = hashlib.sha256(b''.join(Path(__file__).with_name(name).read_bytes() for name in ('desktop_bridge.py', 'flatlay_bridge.py', 'flatlay_guard.cjs', 'reference_bridge.py', 'reference_net.py', 'reference_guard.cjs', 'style_image_bridge.py', 'style_image_guard.cjs'))
+                       + (Path(__file__).resolve().parents[2] / 'app/bridge_discovery.py').read_bytes()).hexdigest()
 
 
 def convert_messages(messages):
@@ -81,8 +89,18 @@ def convert_messages(messages):
 def cli_environment():
     env = os.environ.copy()
     # 认证交给官方个人登录；不继承项目的直付密钥、代理入口或 Node 注入。
+    # ★ ACC_PRODUCT_CONFIG* 必须剥掉（§19.4 最终结论，2026-11-04 实测）：
+    #   WorkBuddy 桌面端会用 ACC_PRODUCT_CONFIG_PATH 把自己的产品配置溢出到
+    #   %Temp%\workbuddy-product-spill-*\acc-product-config-v3.json，其中
+    #   authentication.id=workbuddy-desktop。本进程是桌面端的子进程，天然继承它；
+    #   CLI 读到这份配置后只认 workbuddy-desktop 名下的 token，而那份凭据不落盘、
+    #   或早已过期，于是每次都报「Authentication required」。
+    #   剥掉之后 CLI 回落到包内 product.json（CodeBuddy / cli-external-link），
+    #   走 /login 写盘的凭据（%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\
+    #   Tencent-Cloud.coding-copilot.info），apiKeySource=copilot.tencent.com。
+    # 注意：http(s)_proxy 保留，CLI 自身取配置时会用到。
     for name in list(env):
-        if name.startswith(("CODEBUDDY_", "ANTHROPIC_", "LLM_", "OPENAI_")) or name in (
+        if name.startswith(("CODEBUDDY_", "ANTHROPIC_", "LLM_", "OPENAI_", "ACC_PRODUCT_CONFIG")) or name in (
             "NODE_OPTIONS", "ELECTRON_RUN_AS_NODE", "VISION_MODEL",
         ):
             env.pop(name, None)
@@ -90,10 +108,20 @@ def cli_environment():
     return env
 
 
+def free_port():
+    """每次调用要一个空闲端口。
+    §19.2：CLI 会持久化上一次用过的「稳定端口」，WorkBuddy 桌面端自己预热了一个
+    CLI 实例常驻占用它，于是新起的 CLI 直接 `EADDRINUSE` 崩在登录检查之前
+    （报错长得像网络问题，实际是端口撞车）。显式传 --port 绕开。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
 def execute_cli(executable: Path, system: str, content: list, *, json_output: bool, cli_entry: Path | None = None):
     if json_output:
         system += "\n只返回一个JSON对象，不能包含工具调用或解释。"
-    args = [str(executable), *([str(cli_entry)] if cli_entry else []), "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+    args = [str(executable), *([str(cli_entry)] if cli_entry else []), "-p", "--port", str(free_port()), "--input-format", "stream-json", "--output-format", "stream-json",
             "--verbose", "--model", MODEL, "--tools", "", "--max-turns", "1",
             "--no-session-persistence", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
             "--setting-sources", "", "--system-prompt", system or "只回答用户本次请求，不使用工具。"]
@@ -103,11 +131,11 @@ def execute_cli(executable: Path, system: str, content: list, *, json_output: bo
     started=time.monotonic();request_id=secrets.token_hex(8);timed_out=False
     try:
         # 每次使用空目录；无项目指令、无用户图片文件、无会话文件。
+        # §19.4：CLI 必须在真 TTY 里跑才能拿到账号凭据，故走 tty_runner（mintty 隐藏终端）。
         with tempfile.TemporaryDirectory(prefix="wardrobe_cli_") as cwd:
-            result = subprocess.run(args, cwd=cwd, env=cli_environment(),
-                input=(json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"),
-                capture_output=True, timeout=75,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            result = run_cli(args, cwd=cwd, env=cli_environment(),
+                stdin_bytes=(json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"),
+                timeout=75)
     except subprocess.TimeoutExpired as error:
         # §29.1：官方CLI可能已输出结果，仍在等待流/退出收尾；绝不重发。
         timed_out=True
@@ -126,7 +154,7 @@ def execute_cli(executable: Path, system: str, content: list, *, json_output: bo
     init = next((event for event in events if event.get("type") == "system" and event.get("subtype") == "init"), {})
     if timed_out:
         value=final.get("result")
-        complete=(init.get("apiKeySource")=="copilot.tencent.com" and init.get("model")==MODEL
+        complete=(account_source_ok(init.get("apiKeySource")) and init.get("model")==MODEL
                   and final.get("subtype")=="success" and final.get("is_error") is False
                   and not final.get("cancelled") and not final.get("is_cancelled")
                   and final.get("terminal_reason") not in ("aborted_streaming","aborted_tools")
@@ -142,12 +170,106 @@ def execute_cli(executable: Path, system: str, content: list, *, json_output: bo
         if any(word in diagnostic for word in ("insufficient", "balance", "credit", "积分不足", "额度不足")):
             raise HTTPException(402, "个人账号积分或额度不足")
         raise HTTPException(502, "个人CLI本次调用失败")
-    if init.get("apiKeySource") != "copilot.tencent.com" or init.get("model") != MODEL:
+    if not account_source_ok(init.get("apiKeySource")) or init.get("model") != MODEL:
         raise HTTPException(502, "个人账号或模型来源未通过校验")
     text = final.get("result")
     if not isinstance(text, str) or not text.strip() or len(text) > 100000:
         raise HTTPException(502, "模型未返回有效内容")
     if not timed_out:print(json.dumps({"event":"recognition_finished","request_id":request_id,"elapsed":round(time.monotonic()-started,2),"phase":"completed"}),flush=True)
+    return text
+
+
+def _dotenv():
+    """读电脑根目录 .env 的键值。读不到就返回空 —— 这个函数不该让中转起不来。"""
+    path = Path(__file__).resolve().parents[2] / ".env"
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return {}
+    values = {}
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        key, sep, value = line.partition("=")
+        if not sep or not key.strip():
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        values[key.strip()] = value
+    return values
+
+
+def api_profile():
+    """电脑侧直付模型的配置。
+
+    优先 `.local/llm-profiles.json` 的 openai 段：那份**不随 .env 的模式切换而变**，
+    手机点了「API 直连」就始终拿到 OpenAI，不会因为电脑切去账号额度而变成别的。
+    没有这份文件时才回退 .env。
+    """
+    source = {}
+    path = Path(__file__).resolve().parents[2] / ".local" / "llm-profiles.json"
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict) and isinstance(loaded.get("openai"), dict):
+            source = loaded["openai"]
+    except (OSError, ValueError):
+        source = {}
+    if not str(source.get("LLM_API_KEY") or "").strip():
+        source = _dotenv()
+    base = str(source.get("LLM_BASE_URL") or "").strip()
+    key = str(source.get("LLM_API_KEY") or "").strip()
+    model = str(source.get("LLM_MODEL") or "").strip()
+    if not base or not key or not model:
+        return None
+    if not base.rstrip("/").endswith("/v1"):
+        base = base.rstrip("/") + "/v1"
+    return {"base_url": base, "key": key, "model": model, "proxy": str(source.get("LLM_PROXY") or "").strip() or None}
+
+
+#: 这一类只认 `max_completion_tokens`，且不接受自定义 temperature。
+_REASONING_PREFIX = ("gpt-5", "gpt-6", "o1", "o3", "o4")
+
+
+def call_api(profile, messages, schema, json_output):
+    """把手机那条消息原样转给直付模型。手机发的本来就是 OpenAI 格式，不用转。"""
+    body = {"model": profile["model"], "messages": messages}
+    if profile["model"].lower().startswith(_REASONING_PREFIX):
+        body["max_completion_tokens"] = 4096
+    else:
+        body["max_tokens"] = 4096
+        body["temperature"] = 0
+    if json_output and isinstance(schema, dict):
+        # strict=true 要求每个 object 都带 additionalProperties:false 且 required 列全字段，
+        # 而项目这份 TAG_SCHEMA 不是按那个约束写的（只有 type 必填）→ 会被 400。
+        # strict=false 仍然按 schema 提示字段，实测返回结构完整。
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "result", "schema": schema, "strict": False}}
+    # trust_env=False：电脑上有个只放行特定域名的系统代理，走它会 502，必须显式指定。
+    with httpx.Client(timeout=120, trust_env=False, proxy=profile["proxy"]) as client:
+        try:
+            response = client.post(profile["base_url"].rstrip("/") + "/chat/completions",
+                                   headers={"Authorization": "Bearer " + profile["key"]}, json=body)
+        except httpx.TimeoutException:
+            raise HTTPException(504, "电脑直连模型超时")
+        except httpx.HTTPError:
+            raise HTTPException(502, "电脑连不上模型服务，请检查电脑代理是否开启")
+    if response.status_code == 401:
+        raise HTTPException(401, "电脑上的模型密钥无效，请在电脑重新配置")
+    if response.status_code == 402:
+        raise HTTPException(402, "模型账户额度不足")
+    if response.status_code == 429:
+        raise HTTPException(429, "模型限流，请稍后重试")
+    if response.status_code != 200:
+        raise HTTPException(502, "电脑直连模型失败")
+    try:
+        text = response.json()["choices"][0]["message"]["content"]
+    except (ValueError, KeyError, IndexError, TypeError):
+        raise HTTPException(502, "模型返回格式不正确")
+    if not isinstance(text, str) or not text.strip():
+        raise HTTPException(502, "模型没有返回内容")
     return text
 
 
@@ -175,7 +297,10 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
     async def authenticate(request: Request, call_next):
         from fastapi.responses import JSONResponse
         # 禁止浏览器跨站调用；手机后端发请求，不需要 CORS。
-        if request.headers.get("origin") or not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + token):
+        discovery = request.method == "GET" and request.url.path == DISCOVERY_PATH
+        if request.headers.get("origin") or (
+            not discovery and not hmac.compare_digest(request.headers.get("authorization", ""), "Bearer " + token)
+        ):
             return JSONResponse({"detail": "配对校验失败"}, status_code=403)
         if request.method == "POST" and request.url.path not in {"/admin/drain", "/admin/resume"}:
             gate = queue_admission if request.url.path == '/style/jobs' else admission
@@ -227,11 +352,23 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
             queue_admission.release()
             admission.release()
 
+    @app.get(DISCOVERY_PATH)
+    def discover(request: Request, nonce: str = Query(pattern=r"^[0-9a-f]{32}$")):
+        # 签名绑定服务实际收到连接的 IP 与端口，不信任 Host 请求头。
+        endpoint = request.scope.get("server")
+        if not endpoint or not endpoint[0] or not endpoint[1]:
+            raise HTTPException(503, "无法验证中转地址")
+        host, port = endpoint
+        state = "ready" if executable.is_file() and not draining else "unavailable"
+        return {"state": state, "proof": discovery_proof(token, nonce, host, port, state)}
+
     @app.get("/health")
     def health():
         if not executable.is_file():
             raise HTTPException(503, "找不到个人CLI")
+        profile = api_profile()
         return {"status": "maintenance" if draining else "ready", "model": MODEL, "protocol": 1, "build": BUILD,
+                "engines": {ACCOUNT_ENGINE: MODEL, API_ENGINE: profile["model"] if profile else None},
                 "image_edit": bool(flatlay), "image_model": IMAGE_MODEL if flatlay else None, "reference_search": bool(references) and search_enabled,
                 "style_generation": bool(styles), "style_image_model": STYLE_IMAGE_MODEL if styles else None}
 
@@ -298,36 +435,47 @@ def create_app(executable: Path, token: str, runner=execute_cli, *, cli_entry=No
 
     @app.post("/chat")
     async def chat(request: Request):
+        if request.headers.get("content-type", "").split(";")[0] != "application/json":
+            raise HTTPException(415, "需要JSON请求")
+        body = bytearray()
+        try:
+            async with asyncio.timeout(UPLOAD_TIMEOUT):
+                async for chunk in request.stream():
+                    body.extend(chunk)
+                    if len(body) > MAX_BODY:
+                        raise HTTPException(413, "请求过大")
+        except TimeoutError:
+            raise HTTPException(504, "图片上传超时，请检查网络后重试")
+        try:
+            payload = json.loads(body)
+        except (ValueError, UnicodeError):
+            raise HTTPException(400, "JSON格式不正确")
+        if not isinstance(payload, dict) or payload.get("model") != MODEL:
+            raise HTTPException(400, "模型固定为DeepSeek V4.1 Flash")
+        # 两条上游共用这套入参校验：图片只收内嵌 base64，文字和图片张数都设上限。
+        system, content = convert_messages(payload.get("messages"))
+        schema = payload.get("schema")
+        serialized = None
+        if schema is not None:
+            serialized = json.dumps(schema, ensure_ascii=False)
+            if not isinstance(schema, dict) or len(serialized) > 50000:
+                raise HTTPException(400, "结构要求不正确")
+        if payload.get("engine") == API_ENGINE:
+            # 直付这条路**不占** CLI 的单通道锁 —— 它跟 CLI 是两条独立上游，
+            # 手机在直付上跑打标时，电脑自己的 CLI 请求不该被一起堵住。
+            profile = api_profile()
+            if profile is None:
+                raise HTTPException(503, "电脑上没有可用的模型密钥，请先在电脑配置")
+            text = await run_in_threadpool(call_api, profile, payload.get("messages"), schema, payload.get("json_output") is True)
+            return {"model": profile["model"], "text": text, "engine": API_ENGINE}
+        if serialized is not None:
+            system += "\n输出JSON须遵循以下字段约定：\n" + serialized
         if not busy.acquire(blocking=False):
             raise HTTPException(429, "电脑正在识别，请稍后再试")
         try:
-            if request.headers.get("content-type", "").split(";")[0] != "application/json":
-                raise HTTPException(415, "需要JSON请求")
-            body = bytearray()
-            try:
-                async with asyncio.timeout(UPLOAD_TIMEOUT):
-                    async for chunk in request.stream():
-                        body.extend(chunk)
-                        if len(body) > MAX_BODY:
-                            raise HTTPException(413, "请求过大")
-            except TimeoutError:
-                raise HTTPException(504, "图片上传超时，请检查网络后重试")
-            try:
-                payload = json.loads(body)
-            except (ValueError, UnicodeError):
-                raise HTTPException(400, "JSON格式不正确")
-            if not isinstance(payload, dict) or payload.get("model") != MODEL:
-                raise HTTPException(400, "模型固定为DeepSeek V4.1 Flash")
-            system, content = convert_messages(payload.get("messages"))
-            schema = payload.get("schema")
-            if schema is not None:
-                serialized = json.dumps(schema, ensure_ascii=False)
-                if not isinstance(schema, dict) or len(serialized) > 50000:
-                    raise HTTPException(400, "结构要求不正确")
-                system += "\n输出JSON须遵循以下字段约定：\n" + serialized
             options = {"cli_entry": cli_entry} if cli_entry else {}
             text = await run_in_threadpool(runner, executable, system, content, json_output=payload.get("json_output") is True, **options)
-            return {"model": MODEL, "text": text}
+            return {"model": MODEL, "text": text, "engine": ACCOUNT_ENGINE}
         finally:
             busy.release()
 

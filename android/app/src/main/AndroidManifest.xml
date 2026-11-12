@@ -4,7 +4,8 @@
 
     <!-- 本机监听 8787 其实不需要 INTERNET，但调 DeepSeek API 需要 -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- §30：仅在用户打开试衣摄像头时请求；不采集麦克风。 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- §30、§47：用户打开试衣摄像头或拍照时请求。 -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
@@ -37,6 +38,7 @@
              （原来是 standard + CLEAR_TOP 的语义 = 销毁旧的再建新的） -->
         <activity
             android:name=".MainActivity"
+            android:theme="@style/Theme.Wardrobe.Main"
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
@@ -51,5 +53,11 @@
             android:name=".WardrobeService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <provider
+            android:name=".CapturePhotoProvider"
+            android:authorities="${applicationId}.capture"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

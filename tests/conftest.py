@@ -35,6 +35,11 @@ os.environ["WARDROBE_DB"] = str(_TMP / "test.db")
 for _key in ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "VISION_MODEL"):
     os.environ[_key] = ""
 
+# `LLM_THINKING_DISABLED` 也要写死成 "true"：这是 DeepSeek 专有字段的开关，
+# 而本机 `.env` 为了兼容别的供应商可能设成 false（OpenAI 收到会 400）。
+# 测试要锁的是**默认行为**，不能跟着开发机当前用哪家模型一起漂。
+os.environ["LLM_THINKING_DISABLED"] = "true"
+
 # 微信通道的后台 worker **必须关掉**：`main.py` 的 lifespan 会启动它，
 # 而每个起 `TestClient` 的测试都会触发 lifespan —— 不关就会拉一堆后台线程
 # 去戳微信（未绑定时每 5 秒重试一次），测试变慢、日志变脏。

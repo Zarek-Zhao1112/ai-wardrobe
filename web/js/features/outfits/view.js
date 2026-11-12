@@ -1,8 +1,8 @@
-/** §40：搭配页两层 —— 第一层一屏一张审美卡（点卡即生成），第二层玻璃面板里堆叠搭配。
+/** §45：搭配页两层 —— 第一层平铺整图卡，第二层玻璃面板里堆叠搭配。
  *
  * 为什么不再有「从衣橱生成搭配」按钮：§20 那张长页面在 390×844 上量过，
  * 审美区 + 完整结果卡 + 底栏 = 1007px，可用只有 712px，**任何组合都装不下**。
- * 所以生成动作挂到审美卡本身（点卡＝按这个审美生成），结果进玻璃面板，
+ * 生成动作由卡片内星芒按钮触发，结果进玻璃面板，
  * 第一层纵向滚动严格为 0。
  *
  * 面板由 aesthetic-sheet.js 提供（它同时管 guide/basis/more 三帧），
@@ -12,7 +12,8 @@ import { api } from "../../core/api.js";
 import { esc, icon, fmtDateTime, itemChipsHtml, toast } from "../../core/ui.js";
 import { openTryonSheet } from "./tryon-sheet.js";
 import { createAestheticSheet } from "./aesthetic-sheet.js";
-import { aestheticCardHtml, aestheticDotsHtml, methodDetails } from "./aesthetic-ui.js";
+import { outfitCoverCardHtml, methodDetails } from "./aesthetic-ui.js";
+import { mountStyleDeck } from "../../components/style-deck.js";
 import { tighten } from "./tight.js";
 
 export const label = "搭配";
@@ -37,19 +38,20 @@ export function unmount(root) { if (activeOutfit?.root === root) { rememberedVie
 
 export async function mount(root, ctx, arg = "", restore = null) {
   if (activeOutfit) unmount(activeOutfit.root);
-  const anchorId = arg || "";
+  const styleRoute = arg?.startsWith("style/");
+  const styleId = styleRoute ? arg.slice("style/".length) : "";
+  const anchorId = styleRoute ? "" : arg || "";
+  const restoreBackground = Boolean(restore);
   if (!restore && rememberedView?.anchorId === anchorId) restore = rememberedView;
   if (restore?.anchorId !== anchorId) restore = null;
-  let disposed = false, sheet = null;
+  let disposed = false, sheet = null, styleDeck = null;
   const taxonomy = ctx.taxonomy || {};
   const alive = () => !disposed && root.isConnected;
 
   root.innerHTML = `<section class="outfit-view">${anchorId ? `<div class="outfit-anchor" data-anchor-id="${esc(anchorId)}"><button type="button" class="outfit-anchor-back" data-anchor-back aria-label="返回这件衣服">${icon("back")}</button><div data-anchor-piece><span class="faint">正在读取必选衣物…</span></div></div>` : ""}<div class="outfit-season-line"><span data-season><span class="faint">正在读取审美方案…</span></span><span class="outfit-season-count" data-season-count></span></div>
-    <div class="outfit-aesthetic-deck" data-aesthetic-deck aria-label="审美方案，左右滑动切换"><div class="outfit-aesthetic-card is-loading"></div></div>
-    <div class="outfit-aesthetic-dots" data-aesthetic-dots role="group" aria-label="切换审美方案"></div></section>`;
+    <div class="outfit-aesthetic-deck" data-aesthetic-deck role="region" aria-roledescription="轮播" aria-label="审美方案，左右滑动或用方向键切换" tabindex="0"><div class="outfit-aesthetic-card is-loading"></div></div></section>`;
   const container = root.querySelector(".outfit-view");
   const deckEl = container.querySelector("[data-aesthetic-deck]");
-  const dotsEl = container.querySelector("[data-aesthetic-dots]");
   const seasonEl = container.querySelector("[data-season]");
   const countEl = container.querySelector("[data-season-count]");
   // ★ CSS 里**不能**用 100dvh 算这个高度：部分 Android WebView 把 `100dvh` 解析成 0px，
@@ -78,6 +80,7 @@ export async function mount(root, ctx, arg = "", restore = null) {
     window.removeEventListener("resize", syncViewport);
     window.visualViewport?.removeEventListener("resize", syncViewport);
     document.removeEventListener("error", imageFailed, true);
+    styleDeck?.dispose();
     sheet?.dispose();
     document.removeEventListener("visibilitychange", refreshSeason);
     document.removeEventListener("outfits:feedback", feedbackChanged);
@@ -125,12 +128,17 @@ export async function mount(root, ctx, arg = "", restore = null) {
 
   let deck = [], deckIndex = 0, deckProfile = null, busy = false, errorText = "";
   let historyRows = [], historySeq = 0, historyError = "";
-  let aestheticIndex = 0;
+  let aestheticIndex = Math.max(0, profiles.findIndex(profile => profile.id === state.aesthetic));
   if (restore) {
     deck = (restore.deck || []).filter(usableOutfit);
     deckIndex = clampIndex(restore.deckIndex, deck.length);
     deckProfile = restore.deckProfile || null;
     aestheticIndex = Math.min(Math.max(0, restore.aestheticIndex || 0), profiles.length - 1);
+  }
+  const selectedIndex = profiles.findIndex(profile => profile.id === styleId);
+  if (!restoreBackground && selectedIndex >= 0) {
+    aestheticIndex = selectedIndex;
+    state.aesthetic = profiles[selectedIndex].id;
   }
   if (!deckProfile) deckProfile = profiles.find(profile => profile.id === state.aesthetic) || profiles[0];
   if (!deck.length) deckIndex = 0;
@@ -142,29 +150,22 @@ export async function mount(root, ctx, arg = "", restore = null) {
   }
 
   /* ---------- 第一层：审美卡 ---------- */
-  function syncAesthetic(index, force = false) {
-    const next = Math.min(Math.max(0, index), profiles.length - 1);
-    if (!force && next === aestheticIndex) return;
-    aestheticIndex = next;
-    countEl.textContent = `${next + 1} / ${profiles.length}`;
-    [...dotsEl.children].forEach((button, position) => button.setAttribute("aria-pressed", String(position === next)));
-  }
   function renderAestheticDeck() {
-    deckEl.innerHTML = profiles.map(profile => aestheticCardHtml(profile)).join("");
-    dotsEl.innerHTML = aestheticDotsHtml(profiles, aestheticIndex);
-    syncAesthetic(aestheticIndex, true);
-    // 首帧可能还没布局完，宽度拿不到就先落一次，等 rAF 再对一次。
-    requestAnimationFrame(() => { if (alive() && deckEl.clientWidth) deckEl.scrollLeft = aestheticIndex * deckEl.clientWidth; });
-  }
-  let scrollTick = 0;
-  deckEl.addEventListener("scroll", () => {
-    if (scrollTick) return;
-    scrollTick = requestAnimationFrame(() => {
-      scrollTick = 0;
-      const width = deckEl.clientWidth;
-      if (width) syncAesthetic(Math.round(deckEl.scrollLeft / width));
+    deckEl.innerHTML = profiles.map((profile, position) => outfitCoverCardHtml(profile, profiles, position)).join("");
+    styleDeck = mountStyleDeck(deckEl, {
+      index: aestheticIndex,
+      enabled: () => alive() && !document.querySelector(".aesthetic-layer,.bridge-modal,.import-modal"),
+      onChange(index) {
+        aestheticIndex = index;
+        countEl.textContent = `${index + 1} / ${profiles.length}`;
+      }
     });
-  }, { passive: true });
+    requestAnimationFrame(() => {
+      if (alive() && selectedIndex >= 0 && !restoreBackground && document.activeElement === document.body) {
+        deckEl.children[aestheticIndex]?.querySelector("[data-aesthetic-open]")?.focus({ preventScroll: true });
+      }
+    });
+  }
   deckEl.addEventListener("click", event => {
     const learn = event.target.closest("[data-aesthetic-guide]");
     if (learn) { const profile = profiles.find(row => row.id === learn.dataset.aestheticGuide); if (profile && alive()) sheet.openGuide(profile, learn); return; }
@@ -172,12 +173,6 @@ export async function mount(root, ctx, arg = "", restore = null) {
     if (!face) return;
     const profile = profiles.find(row => row.id === face.dataset.aestheticOpen);
     if (profile && alive()) openDeck(profile, face);
-  });
-  dotsEl.addEventListener("click", event => {
-    const dot = event.target.closest("[data-aesthetic-dot]");
-    if (!dot) return;
-    const index = Number(dot.dataset.aestheticDot);
-    deckEl.scrollTo({ left: index * deckEl.clientWidth, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   });
 
   function showSeason(data) {
@@ -423,10 +418,17 @@ export async function mount(root, ctx, arg = "", restore = null) {
     root, profiles,
     getSettings: () => ({ ...state }),
     onSettings: patch => { if (alive()) { Object.assign(state, patch); state.limit = 1; } },
-    onUseProfile: profile => { if (alive()) openDeck(profile, null); },
+    onUseProfile: profile => {
+      if (!alive()) return;
+      const index = profiles.indexOf(profile);
+      if (index < 0) return;
+      state.aesthetic = profile.id;
+      styleDeck.select(index);
+      deckEl.children[index]?.querySelector("[data-aesthetic-open]")?.focus({ preventScroll: true });
+    },
     onFeedback: (outfit, kind) => submitFeedback(outfit, kind),
     isFeedbackPending: id => feedbackPending.has(id),
-    useLabel: "用这个审美生成搭配",
+    useLabel: "按这个风格搭配",
     getHistoryHtml: historyHtml,
     onRestore: restoreOutfit,
     onMore: () => { void loadHistory(); },

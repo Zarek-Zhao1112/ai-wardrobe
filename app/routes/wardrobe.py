@@ -28,6 +28,7 @@ class PurchaseChoiceIn(BaseModel):
     plan_id: str = Field(min_length=1, max_length=64)
     direction_id: str = Field(min_length=1, max_length=64)
     action: Literal["save", "unsave", "dismiss"]
+    reference_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class PurchaseReferenceIn(BaseModel):
@@ -57,6 +58,61 @@ class PurchasePrepareIn(BaseModel):
     draft_id: UUID
     direction_ids: list[str] = Field(min_length=1, max_length=3)
     preference: str = Field("", max_length=160)
+
+
+class PurchaseBuilderIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    request_id: UUID
+    aesthetic: str = Field(min_length=1, max_length=32)
+    mode: Literal["single", "multi", "outfit"]
+    item_ids: list[str] = Field(min_length=1, max_length=12)
+
+
+class PurchaseBuilderSaveIn(BaseModel):
+    model_config = {"extra": "forbid"}
+    reference_ids: dict[str, str] = Field(min_length=1, max_length=3)
+
+
+@router.get('/purchase/builder')
+def purchase_builder_state(inventory: bool = False) -> dict:
+    from ..services import purchase_builder
+    return purchase_builder.snapshot(_uid(), inventory=inventory)
+
+
+@router.post('/purchase/builder')
+def purchase_builder_start(payload: PurchaseBuilderIn) -> dict:
+    from ..services import purchase_builder
+    try:
+        return purchase_builder.start(_uid(), str(payload.request_id), payload.aesthetic, payload.mode, payload.item_ids)
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.get('/purchase/builder/{request_id}')
+def purchase_builder_request(request_id: UUID) -> dict:
+    from ..services import purchase_builder
+    try:
+        return purchase_builder.request_state(_uid(), str(request_id))
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.post('/purchase/builder/{request_id}/query')
+def purchase_builder_query(request_id: UUID) -> dict:
+    from ..services import purchase_builder
+    try:
+        return purchase_builder.query(_uid(), str(request_id))
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
+
+
+@router.put('/purchase/builder/{request_id}/wanted')
+def purchase_builder_save(request_id: UUID, payload: PurchaseBuilderSaveIn) -> dict:
+    from ..services import purchase_builder
+    try:
+        return purchase_builder.save(_uid(), str(request_id), payload.reference_ids)
+    except purchase.PurchaseError as error:
+        raise HTTPException(error.status, str(error)) from error
 
 
 @router.get('/purchase/intent')
@@ -164,7 +220,7 @@ def purchase_generate(payload: PurchaseIn) -> dict:
 @router.put("/purchase/choice")
 def purchase_choice(payload: PurchaseChoiceIn) -> dict:
     try:
-        return purchase.choice(_uid(), payload.plan_id, payload.direction_id, payload.action)
+        return purchase.choice(_uid(), payload.plan_id, payload.direction_id, payload.action, reference_id=payload.reference_id)
     except purchase.PurchaseError as error:
         raise HTTPException(error.status, str(error)) from error
 

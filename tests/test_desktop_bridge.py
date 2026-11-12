@@ -206,7 +206,10 @@ def test_failed_connect_keeps_old_config(monkeypatch, isolated):
     monkeypatch.setattr(desktop, "bridge_request", offline)
     with pytest.raises(client.LLMError):
         desktop.save_settings("http://192.168.1.2:8891", TOKEN)
-    assert desktop.load_settings() == previous
+    # 只断言"连接失败没把旧地址写坏"。整个 dict 相等会把内部字段（engine 等）绑进测试，
+    # 以后加字段就得改这条无关的断言。
+    kept = desktop.load_settings()
+    assert kept["url"] == previous["url"] and kept["token"] == previous["token"]
 
 
 @pytest.mark.parametrize("status,code", [(401, "bridge_login"), (403, "bridge_pairing"), (402, "insufficient_balance"), (429, "bridge_busy"), (504, "bridge_timeout"), (302, "bridge_unavailable")])

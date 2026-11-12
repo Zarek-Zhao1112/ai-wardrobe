@@ -6,7 +6,11 @@ const rejectedPhotos = new Map();
 const pending = state => ['queued', 'running', 'unknown'].includes(state?.status);
 export function referenceMediaChanged() { listeners.forEach(fn => fn()); }
 export function subscribeReferenceMedia(listener) { listeners.add(listener); return () => listeners.delete(listener); }
-export function referenceState(direction) { return states.get(direction?.id) || { status: 'idle', references: [] }; }
+export function referenceState(direction) {
+  const photo = direction?.saved_reference;
+  if (photo) return { job_id: 'saved:'+direction.id, status: 'complete', image_origin: photo.origin, references: [photo] };
+  return states.get(direction?.id) || { status: 'idle', references: [] };
+}
 export function referenceIndex(direction) {
   const state = referenceState(direction), key = state.job_id + ':' + (state.references || []).map(r => r.id).join(',');
   return Math.min(selections.get(direction?.id)?.key === key ? selections.get(direction.id).index : 0, Math.max(0, (state.references?.length || 0) - 1));

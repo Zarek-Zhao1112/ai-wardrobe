@@ -27,6 +27,10 @@
   --import-shadow: 0 -12px 56px rgba(29, 40, 60, .15);
   --glass-button-shadow: inset 1px 1px 1px rgba(255,255,255,.95), inset -1px -1px 1px rgba(107,121,145,.18), 0 4px 14px rgba(29,40,60,.06);
   --label-scrim:  rgba(28, 28, 30, .52);      /* §40：压在照片上的浅色小标签底（白字要够对比） */
+  --outfit-cover-shade: rgba(0, 0, 0, .86); /* §45：平铺封面上的文字承托 */
+  --outfit-cover-button: rgba(29, 29, 31, .72);
+  --outfit-cover-dot: rgba(255, 255, 255, .60);
+  --outfit-cover-max: 480px;
   --shadow-card:  0 8px 26px rgba(20, 25, 40, .09);
   --import-radius: 30px;
   --focus-ring:   rgba(0, 102, 204, .28);

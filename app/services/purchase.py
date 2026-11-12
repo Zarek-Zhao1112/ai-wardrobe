@@ -138,20 +138,23 @@ def _messages(pool, profile, dismissed, full_pool=None):
         "colors": taxonomy.COLORS}, ensure_ascii=False)}], aliases
 
 
-def _response_schema(aliases):
+def _response_schema(aliases, model=ModelPlan, *, independent=False):
     # §25.3：同一份编号清单进入schema和提示；本地校验仍独立执行。
-    schema = ModelPlan.model_json_schema()
-    fields = schema["$defs"]["Direction"]["properties"]
+    schema = model.model_json_schema()
+    direction_ref = schema["properties"]["directions"]["items"]["$ref"]
+    fields = schema["$defs"][direction_ref.rsplit("/", 1)[-1]]["properties"]
     fields["owned"]["items"] = {"type": "string", "enum": list(aliases)}
     fields["owned"]["description"] = "仅填与新衣同时穿的本次已有衣物编号，每个只填一次；新衣也占位置，不能选同位置替代款。例：新裤子不能再配旧裤子，新鞋不能再配旧鞋；连身不能配上下分体。不同品类配饰可同穿，同品类至多一件；已有上装只在受控visual_profile确认结构、用途、外大内小时可一内一外，新top不可凭文案当外层。"
+    if independent:
+        fields["owned"]["description"] = "列出可以分别与该单品搭配的已选编号，每个只填一次。每次搭配都不能与该单品占用同一穿着位置。"
     fields["type"]["enum"] = [key for key in taxonomy.CLOTHING_TYPES if key != "other"]
     fields["primary_color"]["enum"] = list(taxonomy.COLORS)
     return schema
 
 
-def _validate(raw, aliases, full_pool=None):
+def _validate(raw, aliases, full_pool=None, *, model=ModelPlan, independent=False):
     try:
-        plan = ModelPlan.model_validate(raw).model_dump()
+        plan = model.model_validate(raw).model_dump()
     except ValidationError as error:
         raise PurchaseError("AI 返回的选购建议不完整，请重新推荐。", 502) from error
     directions = plan["directions"]
@@ -171,7 +174,7 @@ def _validate(raw, aliases, full_pool=None):
             if isinstance(value, str) and field not in ("type", "primary_color"):
                 direction[field] = sanitize(value)
     try:
-        plan = ModelPlan.model_validate(plan).model_dump()
+        plan = model.model_validate(plan).model_dump()
     except ValidationError as error:
         raise PurchaseError("AI 返回的建议文案不符合展示要求，本次建议未采用。", 502,
             code="invalid_plan_text", diagnostics={"validation_errors": error.error_count()}) from error
@@ -200,8 +203,14 @@ def _validate(raw, aliases, full_pool=None):
         conflicts = [role for role, count in Counter(roles).items() if count > 1]
         if "full" in slots:
             conflicts.extend("full+" + role for role in ("top", "bottom") if role in slots)
-        resolved = garment_profile.wearing_roles([
-            {"id": "__new__", "type": kind}, *(aliases[alias] for alias in owned)])
+        new_item = {"id": "__new__", "type": kind}
+        resolved = None
+        if independent:
+            conflicts = []
+            if any(garment_profile.wearing_roles([new_item, aliases[alias]]) is None for alias in owned):
+                raise PurchaseError("AI 给出的单品与所选衣物占用同一穿着位置，请调整后再试。", 502)
+        else:
+            resolved = garment_profile.wearing_roles([new_item, *(aliases[alias] for alias in owned)])
         if resolved is not None:
             conflicts = [role for role in conflicts if role != "top"]
         if conflicts:
@@ -216,7 +225,7 @@ def _validate(raw, aliases, full_pool=None):
         direction["owned"] = [aliases[alias]["id"] for alias in owned]
         if resolved and "upper_layer" in resolved.values():
             direction["wearing_roles"] = {identifier: role for identifier, role in resolved.items() if identifier != "__new__"}
-        direction["complete"] = {"top", "bottom", "shoes"}.issubset(slots) or {"full", "shoes"}.issubset(slots)
+        direction["complete"] = not independent and ({"top", "bottom", "shoes"}.issubset(slots) or {"full", "shoes"}.issubset(slots))
     return plan
 
 
@@ -276,7 +285,7 @@ def generate(uid, request_id, aesthetic="auto", *, client=None):
         _gate.release()
 
 
-def choice(uid, plan_id, direction_id, action):
+def choice(uid, plan_id, direction_id, action, *, reference_id=None):
     with db.conn(immediate=True) as connection:
         def read(suffix, default):
             row = connection.execute("SELECT value FROM meta WHERE key=?", (_key(uid, suffix),)).fetchone()
@@ -287,12 +296,21 @@ def choice(uid, plan_id, direction_id, action):
         candidate = next((d for plan in plans for d in plan["directions"] if d["id"] == direction_id), None)
         if not candidate:
             raise PurchaseError("这条建议已更新，请重新读取后操作。", 409)
-        state["saved"] = [{**p, "directions": [d for d in p["directions"] if d["id"] != direction_id]} for p in state["saved"]]
-        state["saved"] = [p for p in state["saved"] if p["directions"]]
+        already_saved = any(
+            p["id"] == plan_id and any(d["id"] == direction_id for d in p["directions"])
+            for p in state["saved"]
+        )
         if action == "save":
-            if len(state["saved"]) >= 30:
-                raise PurchaseError("已记下30个方向，请先取消一些再记下新的。", 409)
-            state["saved"].append({**plans[0], "directions": [candidate]})
+            if not already_saved:
+                from . import purchase_reference
+                photo = purchase_reference.wanted_reference(uid, plan_id, direction_id, reference_id, connection)
+                saved_direction = {**candidate, "saved_reference": photo} if photo else candidate
+                state["saved"].append({**plans[0], "saved_at": db.now_iso(), "directions": [saved_direction]})
+        else:
+            for index, plan in enumerate(state["saved"]):
+                if plan["id"] == plan_id:
+                    state["saved"][index] = {**plan, "directions": [d for d in plan["directions"] if d["id"] != direction_id]}
+            state["saved"] = [plan for plan in state["saved"] if plan["directions"]]
         if action == "dismiss":
             state["dismissed"] = [*state["dismissed"], {key: candidate[key] for key in ("type", "primary_color", "title", "fit")}][-20:]
         connection.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (_key(uid, "choices"), json.dumps(state, ensure_ascii=False)))

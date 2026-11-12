@@ -1,7 +1,6 @@
 /* §40：搭配页两层结构（2026-11-03，替换 §20 的单页长滚动）
  *
- * 第一层：一屏一张的审美卡（横向 snap）。点卡本身＝按这个审美生成，
- *         所以页面上**不再有**「从衣橱生成搭配」按钮（§40 前它有 96px 高）。
+ * 第一层：§52 的风格轻叠卡，按前景卡的星芒进入生成。
  * 第二层：玻璃面板里堆叠的搭配卡。按住最上面那张左右拖，一张张滑走。
  *
  * ⚠️ 三处别改坏：
@@ -9,8 +8,7 @@
  *      否则底部会多出一整屏滚动 —— 甲方要求「不要往下滑」。
  *   2) 堆叠露边靠 `translateY(k*38) scale(1-k*.04)` + `transform-origin:top center`。
  *      默认 origin 是中心，后卡会被"往上收"，偏移量被吃掉，看起来完全没层次。
- *   3) 圆点是 44×44 的按钮，里面才是 6px 的条 —— 契约 §4 要求可点元素 ≥44，
- *      原型里那个 6px 的圆点过不了门禁。
+ *   3) §45–46 两页的圆点均为图内非交互指示，切换依靠横滑或方向键。
  */
 
 /* ---------- 第一层：审美卡 ---------- */
@@ -60,6 +58,74 @@
 .outfit-aesthetic-dots button { width: 44px; height: 44px; padding: 0; border: 0; background: none; display: grid; place-items: center; }
 .outfit-aesthetic-dots i { display: block; width: 6px; height: 6px; border-radius: 3px; background: var(--border-strong); transition: width .22s, background .22s; }
 .outfit-aesthetic-dots button[aria-pressed="true"] i { width: 20px; background: var(--text); }
+
+/* §45–46：两页共用平铺整图卡，外层各自计算可用高度。 */
+.outfit-view { width: 100%; max-width: var(--outfit-cover-max); margin: 0 auto; }
+.outfit-cover-card {
+  position: relative; border: 0; border-radius: var(--import-radius); box-shadow: none;
+  background: var(--surface-2); isolation: isolate;
+}
+.outfit-aesthetic-deck.is-stacked {
+  position: relative; overflow: hidden; isolation: isolate;
+  scroll-snap-type: none; touch-action: pan-y;
+}
+.is-stacked > .outfit-cover-card { position: absolute; inset: 0 auto 0 0; width: 91%; }
+.is-stacked.is-single > .outfit-cover-card { width: 100%; }
+.is-stacked > .outfit-cover-card[aria-hidden="true"] { pointer-events: none; }
+.is-stacked > .outfit-cover-card[aria-hidden="true"] > :not(.outfit-cover-photo) { visibility: hidden; }
+.is-stacked .outfit-cover-photo { cursor: grab; }
+.is-stacked .outfit-cover-photo:active { cursor: grabbing; }
+.outfit-cover-photo { position: absolute; inset: 0; user-select: none; }
+.outfit-cover-image { position: absolute; inset: 0; filter: brightness(var(--cover-brightness, 1)); }
+.outfit-cover-image img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* §56：主图按原比例完整显示，补纹只画在主图外。重叠 1px 消除小数像素产生的白线。 */
+.outfit-cover-image[data-cover-bleed] img { object-fit: contain; object-position: 50% 40%; }
+.outfit-cover-image[data-cover-bleed="block"] {
+  background: var(--cover-before-image) top / 100% calc(var(--cover-before) + 1px) no-repeat,
+    var(--cover-after-image) bottom / 100% calc(var(--cover-after) + 1px) no-repeat;
+}
+.outfit-cover-image[data-cover-bleed="inline"] {
+  background: var(--cover-before-image) left / calc(var(--cover-before) + 1px) 100% no-repeat,
+    var(--cover-after-image) right / calc(var(--cover-after) + 1px) 100% no-repeat;
+}
+.outfit-cover-photo .ph { display: grid; place-items: center; height: 100%; color: var(--text-dim); }
+.outfit-cover-photo::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(transparent 65%, rgba(0, 0, 0, .48) 85%, var(--outfit-cover-shade));
+}
+.outfit-cover-label {
+  position: absolute; top: var(--sp-4); left: var(--sp-4); pointer-events: none;
+  padding: var(--sp-1) var(--sp-2); border-radius: var(--radius-pill);
+  background: var(--outfit-cover-button); color: var(--on-accent); font-size: var(--fs-xs);
+}
+.outfit-cover-caption {
+  position: absolute; left: var(--sp-4); right: var(--sp-4); bottom: 72px;
+  color: var(--on-accent); text-shadow: 0 1px 6px rgba(0, 0, 0, .55); pointer-events: none;
+}
+.outfit-cover-caption h2 { margin: 0; font-size: var(--fs-hero); letter-spacing: var(--ls-tight); line-height: 1.2; font-weight: 600; }
+.outfit-cover-caption p {
+  margin: var(--sp-2) 0 0; font-size: var(--fs-sm); line-height: 1.7;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.outfit-cover-controls { position: absolute; right: var(--sp-4); bottom: var(--sp-4); display: flex; gap: var(--sp-2); }
+.outfit-cover-card .outfit-cover-action {
+  display: grid; place-items: center; width: 46px; height: 46px; min-height: 46px; padding: 0;
+  border-radius: var(--radius-pill); border: 1px solid var(--glass-edge);
+  color: var(--on-accent); background: var(--outfit-cover-button);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.outfit-cover-card .outfit-cover-action:hover:not(:disabled) { background: var(--text); }
+.outfit-cover-card .outfit-cover-action:focus-visible { outline: 3px solid var(--on-accent); outline-offset: 3px; }
+.outfit-cover-action .icon { width: 20px; height: 20px; }
+.outfit-cover-dots {
+  position: absolute; left: var(--sp-4); bottom: var(--sp-4); height: 44px;
+  display: flex; align-items: center; gap: var(--sp-2); pointer-events: none;
+}
+.outfit-cover-dots i { display: block; width: 6px; height: 6px; border-radius: var(--radius-pill); background: var(--outfit-cover-dot); }
+.outfit-cover-dots i.is-active { width: 18px; background: var(--accent); }
+@media (max-width: 360px) {
+  .outfit-cover-caption h2 { font-size: var(--fs-h1); }
+}
 
 .outfit-deck-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3); padding: var(--sp-6); text-align: center; border: 1px solid var(--border); border-radius: 22px; background: var(--surface); }
 .outfit-deck-empty p { margin: 0; font-size: 13px; line-height: 1.8; color: var(--text-dim); }

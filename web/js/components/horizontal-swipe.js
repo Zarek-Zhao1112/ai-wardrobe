@@ -24,7 +24,7 @@ export function bindHorizontalSwipe(host, { selector, enabled = () => true, onSw
       if (g.axis === 'x') { try { host.setPointerCapture(event.pointerId); } catch {} }
     }
     if (g.axis) blockUntil = now() + 450;
-    if (g.axis === 'x') onDrag(g.node, Math.max(-54, Math.min(54, dx * .3)));
+    if (g.axis === 'x') onDrag(g.node, Math.max(-54, Math.min(54, dx * .3)), dx);
   }
   function up(event) {
     if (cancelledPointers.has(event.pointerId)) { cancelledPointers.delete(event.pointerId); blockUntil = now() + 450; return; }

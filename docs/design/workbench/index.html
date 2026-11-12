@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI 衣橱 · 界面效果图</title>
+  <link rel="stylesheet" href="preview.css">
+  <script src="preview.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <div><strong>AI 衣橱</strong><span>界面效果图</span></div>
+    <div class="mode">
+      <button type="button" id="show-shots" aria-pressed="true">界面截图</button>
+      <button type="button" id="show-live" aria-pressed="false">交互预览</button>
+      <label for="size">查看尺寸</label>
+      <select id="size"><option value="phone">手机尺寸</option><option value="fit">适合窗口</option></select>
+    </div>
+  </header>
+  <main class="workbench">
+    <nav id="pages" aria-label="页面与交互状态"></nav>
+    <section class="stage" aria-labelledby="screen-title">
+      <h1 id="screen-title"></h1>
+      <p class="caption" id="preview-hint">当前前端源码截图 · 393 × 819 手机视口 · 演示数据</p>
+      <img id="screen" class="original" width="393" height="819" alt="">
+      <iframe id="live" class="original" title="AI 衣橱交互预览" src="about:blank" hidden></iframe>
+    </section>
+    <aside class="review">
+      <h2>页面说明</h2>
+      <dl id="explanation"></dl>
+      <label for="notes">这个界面的讨论备注</label>
+      <textarea id="notes" rows="5" placeholder="例如：说明按钮能否更靠近标题？"></textarea>
+      <p id="storage" role="status">备注保存在当前浏览器。</p>
+      <a href="页面说明.md">查看完整页面与交互说明</a>
+    </aside>
+  </main>
+  <noscript>请在启用 JavaScript 的浏览器里打开效果图。</noscript>
+</body>
+</html>

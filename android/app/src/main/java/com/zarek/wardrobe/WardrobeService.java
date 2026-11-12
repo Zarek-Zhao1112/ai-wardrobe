@@ -6,12 +6,19 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.IBinder;
 import android.util.Log;
 
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
+
+import java.net.Inet4Address;
 
 /**
  * 常驻前台服务：跑 Python 侧的 uvicorn，并让进程拿到前台优先级。
@@ -48,7 +55,7 @@ public class WardrobeService extends Service {
             //   config.py 支持 WARDROBE_DATA_DIR 覆盖，不用改任何业务代码。
             String dataDir = getFilesDir().getAbsolutePath();
             Log.i(TAG, "启动 Python 服务，dataDir=" + dataDir);
-            py.getModule("server").callAttr("start", dataDir, PORT);
+            py.getModule("server").callAttr("start", dataDir, PORT, this);
             started = true;
             updateNotification("衣橱服务运行中 · 127.0.0.1:" + PORT);
         } catch (Throwable t) {
@@ -57,6 +64,25 @@ public class WardrobeService extends Service {
             Log.e(TAG, "Python 服务启动失败", t);
             updateNotification("启动失败：" + t.getMessage());
         }
+    }
+
+    /** 自动修复时读取正在连接的 Wi-Fi 网段。 */
+    public String wifiIpv4() {
+        ConnectivityManager manager = getSystemService(ConnectivityManager.class);
+        if (manager == null) return null;
+        for (Network network : manager.getAllNetworks()) {
+            NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+            if (capabilities == null || !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) continue;
+            LinkProperties properties = manager.getLinkProperties(network);
+            if (properties == null) continue;
+            for (LinkAddress link : properties.getLinkAddresses()) {
+                if (link.getAddress() instanceof Inet4Address && link.getAddress().isSiteLocalAddress()) {
+                    return link.getAddress().getHostAddress() + "/" + link.getPrefixLength();
+                }
+            }
+        }
+        return null;
     }
 
     private void createChannel() {

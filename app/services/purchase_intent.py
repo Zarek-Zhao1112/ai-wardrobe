@@ -100,8 +100,11 @@ def request_state(uid, request_id):
 
 
 def _response(uid, rid):
-    result = state(uid)
     record = _read(uid, "request:" + rid)
+    if record and record.get("builder"):
+        from . import purchase_builder
+        return purchase_builder.snapshot(uid, record)
+    result = state(uid)
     if record and record["kind"] == "analyze":
         result["analysis_request"] = _public(uid, record)
         draft = _read(uid, "draft:" + rid)
@@ -359,13 +362,18 @@ def query(uid, request_id):
     if record["phase"] == "refining":
         _fail(uid, rid, "上次偏好整理已中断，请明确发起新准备。", status="interrupted")
         return _response(uid, rid)
+    query_error = ""
     for job in record["jobs"].values():
         try:
-            refs.status(uid, job)
+            snapshot = refs.status(uid, job)
+            query_error = query_error or snapshot.get("query_error", "")
         except purchase.PurchaseError as error:
             if error.status == 404:
                 _fail(uid, rid, "上次任务未完整提交，未自动重发，请重新准备。", status="interrupted")
                 return _response(uid, rid)
             raise
     _check_and_publish(uid, rid)
-    return _response(uid, rid)
+    response = _response(uid, rid)
+    if query_error:
+        response["query_error"] = query_error
+    return response

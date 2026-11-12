@@ -12,8 +12,9 @@ from pydantic import BaseModel, Field
 from .. import config, db, taxonomy
 from ..models import TaxonomyOut
 from ..schema import SCHEMA_VERSION
-from ..services.llm.client import LLMError, model_ready
-from ..services.llm.desktop import bridge_status, save_settings
+from ..services.llm.client import LLMError, model_ready, reset_client_cache
+from ..services.llm.bridge_repair import repair_bridge
+from ..services.llm.desktop import bridge_status, save_settings, set_engine
 
 router = APIRouter(tags=["meta"])
 
@@ -55,6 +56,7 @@ def health() -> dict:
         "vision_ready": model_ready(vision=True),
         "llm_model": bridge["model"] if bridge["configured"] else config.LLM_MODEL or None,
         "vision_model": bridge["model"] if bridge["configured"] else config.VISION_MODEL or None,
+        "engine": bridge.get("engine") or "",
         "desktop_bridge": bridge,
         "flatlay_configured": bool(bridge["configured"] and not bridge.get("invalid")),
     }
@@ -80,6 +82,51 @@ def configure_bridge(body: BridgeSettings, request: Request):
         raise HTTPException(503, error.detail()) from error
     except OSError:
         raise HTTPException(503, "无法保存电脑连接，请稍后重试")
+
+
+class EngineSettings(BaseModel):
+    engine: str = Field(pattern="^(account|api)$")
+
+
+class BridgeRepair(BaseModel):
+    candidate: str | None = Field(default=None, max_length=15)
+
+
+@router.post("/settings/desktop-bridge/repair")
+async def repair_desktop_bridge(body: BridgeRepair, request: Request):
+    origin = request.headers.get("origin")
+    expected = str(request.base_url).rstrip("/")
+    if urlsplit(expected).hostname not in ("127.0.0.1", "localhost", "::1") or (origin and origin != expected):
+        raise HTTPException(403, "请在应用内修复电脑连接")
+    try:
+        return await repair_bridge(body.candidate)
+    except LLMError as error:
+        raise HTTPException(503, error.detail()) from error
+    except OSError as error:
+        raise HTTPException(503, "无法保存电脑连接，请稍后重试") from error
+
+
+@router.put("/settings/engine")
+def configure_engine(body: EngineSettings, request: Request):
+    """只切「走哪条上游」，不动电脑地址和配对码。
+
+    成功时直接回一份新的 health —— 前端拿到就能整块重画，不用再请求一次。
+    """
+    origin = request.headers.get("origin")
+    expected = str(request.base_url).rstrip("/")
+    if urlsplit(expected).hostname not in ("127.0.0.1", "localhost", "::1") or (origin and origin != expected):
+        raise HTTPException(403, "请在应用内设置识别引擎")
+    try:
+        set_engine(body.engine)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    except LLMError as error:
+        raise HTTPException(503, error.detail()) from error
+    except OSError:
+        raise HTTPException(503, "无法保存识别引擎，请稍后重试")
+    # 客户端是进程级单例，引擎变了必须让它重建，否则下一次调用还带着旧的上游。
+    reset_client_cache()
+    return health()
 
 
 @router.get("/taxonomy", response_model=TaxonomyOut)

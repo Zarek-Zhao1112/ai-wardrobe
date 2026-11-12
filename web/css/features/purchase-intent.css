@@ -27,6 +27,9 @@
 .purchase-intent .primary{min-height:50px;width:100%;display:flex;justify-content:center;align-items:center;gap:8px;color:#fff;background:var(--accent);border-radius:15px;padding:12px 14px;font-size:14px;font-weight:500}
 .purchase-intent .primary .icon{width:19px;height:19px}
 .purchase-intent .primary:disabled{background:#8cb2d8;opacity:1}
+/* Android WebView 点击后可能保留 :hover；全局 button:hover 会盖掉蓝底，白字因此像消失。
+   添置助手的主按钮在悬停/按下时继续使用强调色，避免查询时看成白色空按钮。 */
+.purchase-intent button.primary:hover:not(:disabled),.purchase-intent button.primary:active:not(:disabled){background:var(--accent-hover);color:var(--on-accent)}
 .purchase-intent .home-return{width:100%;margin-top:5px;display:flex;justify-content:center;align-items:center;gap:6px}
 .purchase-intent .home-return .icon{width:15px;height:15px}
 .purchase-intent .section-eyebrow{display:flex;align-items:center;gap:7px;color:var(--accent);font-size:11px;margin:0 0 11px;line-height:1.6}
@@ -61,25 +64,37 @@
 .purchase-intent .request-details textarea{width:100%;min-height:82px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.8);padding:10px 12px;color:var(--text);font-size:16px;line-height:1.6;resize:vertical}
 .purchase-intent .selection-note{font-size:11px;line-height:1.8;color:var(--text-faint);margin:8px 0 0;text-align:center}
 .purchase-intent .result-description{font-size:12px;color:var(--text-faint);line-height:1.85;margin:0 0 20px}
-.purchase-intent .result-types{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 20px}
+/* §57：款式图入口和「我想要」按钮各自操作。 */
+.purchase-intent .purchase-choice-card {
+  display: grid; grid-template-columns: minmax(70px, 32%) minmax(0, 1fr); gap: var(--sp-3);
+  min-height: 148px; padding: var(--sp-2); margin-bottom: var(--sp-3);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface);
+}
+.purchase-intent .purchase-choice-photo {
+  position: relative; display: block; width: 100%; min-height: 120px; padding: 0;
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface);
+}
+.purchase-choice-photo .purchase-reference-photo { position: absolute; inset: 0; }
+.purchase-choice-photo .media-label {
+  position: absolute; left: 4px; bottom: 4px; padding: 2px 4px;
+  border-radius: 5px; background: var(--surface); color: var(--text-dim); font-size: 10px;
+}
+.purchase-choice-copy { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-1) var(--sp-1) var(--sp-1) 0; }
+.purchase-choice-copy h3 { margin: 0; font-size: var(--fs-body-lg); line-height: 1.35; overflow-wrap: anywhere; }
+.purchase-choice-copy p { margin: 0; color: var(--text-dim); font-size: var(--fs-sm); line-height: 1.5; }
+.purchase-choice-copy .purchase-want-error { color: var(--danger); }
+.purchase-want-error:empty { display: none; }
+.purchase-intent .purchase-want {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  min-height: 44px; margin-top: auto; padding: 0 var(--sp-3); border-radius: var(--radius-pill); font-size: var(--fs-sm);
+}
+.purchase-intent .purchase-want .icon { width: 16px; height: 16px; }
+.purchase-intent .purchase-want[aria-pressed="true"],
+.purchase-intent .purchase-want[aria-pressed="true"]:is(:hover,:active):not(:disabled) {
+  border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent);
+}
 .purchase-intent .chip{font-size:10px;color:var(--text-dim);background:rgba(255,255,255,.78);border:1px solid rgba(255,255,255,.95);border-radius:7px;padding:5px 8px}
-.purchase-intent .product-card{width:100%;background:rgba(255,255,255,.88);border:1px solid #fff;border-radius:22px;overflow:hidden;padding:0;text-align:left;display:block;margin-bottom:16px;box-shadow:0 5px 18px rgba(29,40,60,.03)}
-.purchase-intent .product-card:hover{border-color:rgba(0,102,204,.15)}
-.purchase-intent .product-media{height:226px;position:relative;background:#fff;padding:16px;display:flex;align-items:center;justify-content:center}
-.purchase-intent .product-media>img{height:100%;width:100%;object-fit:contain}
-.purchase-intent .product-card.compact .product-media{height:176px}
-.purchase-intent .product-media .media-label{position:absolute;bottom:11px;left:13px;font-size:9px;color:var(--text-faint);padding:4px 7px;border:1px solid rgba(255,255,255,.95);background:rgba(255,255,255,.75);border-radius:6px;backdrop-filter:blur(10px)}
-.purchase-intent .product-media .reference-check{position:absolute;right:13px;top:12px;display:flex;align-items:center;gap:3px;font-size:9px;color:var(--accent);background:rgba(245,250,255,.9);border-radius:6px;padding:4px 6px}
 .purchase-intent .reference-check .icon{width:11px;height:11px}
-.purchase-intent .product-caption{padding:15px 15px 14px;border-top:1px solid rgba(238,240,244,.65)}
-.purchase-intent .product-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.purchase-intent .product-heading h3{font-size:16px;letter-spacing:-.025em;line-height:1.6;margin:0;font-weight:500}
-.purchase-intent .product-heading .icon{width:17px;height:17px;color:var(--text-faint)}
-.purchase-intent .product-caption p{font-size:12px;line-height:1.8;color:var(--text-faint);margin:7px 0 0}
-.purchase-intent .matches{display:flex;gap:5px;align-items:center;margin-top:11px;color:var(--text-faint);font-size:10px}
-.purchase-intent .matches img{width:29px;height:29px;object-fit:contain;border:1px solid #f2f3f6;background:#fff;border-radius:7px}
-.purchase-intent .matches span{margin-left:3px}
-.purchase-intent .result-end{font-size:11px;line-height:1.8;color:var(--text-faint);text-align:center;margin:18px 0 4px}
 .purchase-intent .global-notice{font-size:12px;line-height:1.8;border:1px solid rgba(0,102,204,.12);border-radius:13px;background:rgba(232,242,253,.62);color:var(--text-dim);padding:12px;margin:0 0 17px}
 .purchase-intent .preparing{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:38px 0 25px}
 .purchase-intent .prep-orb{width:102px;height:102px;border-radius:50%;position:relative;margin:15px 0 27px;display:flex;justify-content:center;align-items:center;background:rgba(255,255,255,.65);border:1px solid #fff;color:var(--accent);box-shadow:0 0 44px rgba(0,102,204,.065),inset 0 1px 2px #fff}
@@ -144,7 +159,7 @@
 .purchase-intent .purchase-content{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:3px 1px 22px}
 .purchase-intent .purchase-content::-webkit-scrollbar{display:none}
 .purchase-intent .purchase-heading{margin-bottom:14px;min-height:44px;flex:none}.purchase-intent .intent-heading-right{display:flex;align-items:center;gap:8px}.purchase-intent .intent-heading-right .status{margin:0}
-.purchase-intent .home-layout{min-height:100%}.purchase-intent .product-media>.purchase-reference-photo{width:100%;height:100%}.purchase-intent .product-media img{position:static;object-fit:contain;width:100%;height:100%}
+.purchase-intent .home-layout{min-height:100%}
 .purchase-intent .intent-owned-mini{display:inline-flex;align-items:center;justify-content:center;width:29px;height:29px;border-radius:6px;overflow:hidden;background:#fff;flex:none}.purchase-intent .intent-owned-mini img{width:100%;height:100%;object-fit:contain}
 .purchase-intent .proposal-match .intent-owned-mini{width:25px;height:25px}.purchase-intent .proposal-match>span:last-child{font-size:10px}
 .purchase-intent .intent-note-label{display:block;font-size:11px;color:var(--text-faint);margin:12px 0 8px}.purchase-intent textarea{font-size:16px;width:100%;min-height:84px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-blur);color:var(--text)}
@@ -153,7 +168,7 @@
 .purchase-intent .detail-title{font-size:24px}.purchase-intent .detail-actions{margin-top:18px}.purchase-intent .detail-actions .primary{width:auto;flex:1.2;font-size:12px;min-height:50px}.purchase-intent .detail-actions .secondary{font-size:12px;min-height:50px;border:1px solid var(--glass-edge);color:var(--text-dim)}
 .purchase-intent .owned-piece>div{height:100px}.purchase-intent .global-notice.is-error{color:var(--text-dim);border-color:var(--border)}
 @keyframes pi-breathe{0%{transform:scale(.94);opacity:.85}80%,100%{transform:scale(1.15);opacity:0}}@keyframes pi-spin{to{transform:rotate(360deg)}}
-@media(max-width:640px){.purchase-view.purchase-intent{height:calc(100vh - var(--topbar-h-sm) - env(safe-area-inset-top,0px) - var(--sp-4) - var(--tabbar-h) - var(--tabbar-gap) - env(safe-area-inset-bottom,0px));min-height:0}.purchase-intent .home-title{font-size:29px}.purchase-intent .screen-title{font-size:24px}.purchase-intent .purchase-heading{gap:8px}.purchase-intent .purchase-heading .style-stamp{font-size:11px}.purchase-intent .intent-heading-right{gap:4px}.purchase-intent .saved-link{font-size:10px}.purchase-intent .product-media{height:250px}}
+@media(max-width:640px){.purchase-view.purchase-intent{height:calc(100vh - var(--topbar-h-sm) - env(safe-area-inset-top,0px) - var(--sp-4) - var(--tabbar-h) - var(--tabbar-gap) - env(safe-area-inset-bottom,0px));min-height:0}.purchase-intent .home-title{font-size:29px}.purchase-intent .screen-title{font-size:24px}.purchase-intent .purchase-heading{gap:8px}.purchase-intent .purchase-heading .style-stamp{font-size:11px}.purchase-intent .intent-heading-right{gap:4px}.purchase-intent .saved-link{font-size:10px}}
 @media(max-width:360px){.purchase-intent .screen-title{font-size:22px}.purchase-intent .home-title{font-size:27px}.purchase-intent .proposal{padding:13px 10px;gap:9px}.purchase-intent .proposal-title strong{font-size:13px}.purchase-intent .saved-link{padding:0 3px!important}.purchase-intent .intent-heading-right .quiet{padding:0 3px;font-size:11px}}
 @media(prefers-reduced-motion:reduce){.purchase-intent *, .purchase-intent *:before,.purchase-intent *:after{animation:none!important;transition:none!important}}
 
@@ -222,7 +237,41 @@
 /* 卡片上只剩标题 + chips 时，chips 和标题之间别贴死。 */
 .purchase-intent .outfit-aesthetic-copy h2{margin-bottom:2px}
 
-/* 顶栏那枚「已记下 N」。它不在 .purchase-intent 作用域里（在 #topbar-action），
+/* 顶栏那枚「已想要 N」。它不在 .purchase-intent 作用域里（在 #topbar-action），
  * 所以必须单独写一份，不能靠 .saved-link 继承。 */
-.topbar-action .saved-link{display:flex;align-items:center;gap:5px;min-height:36px;font-size:12px;color:var(--text-faint);padding:0 7px;border:0;background:none;border-radius:10px}
+.topbar-action .saved-link{display:flex;align-items:center;gap:5px;min-height:44px;font-size:12px;color:var(--text-faint);padding:0 7px;border:0;background:none;border-radius:10px}
 .topbar-action .saved-link .icon{width:16px;height:16px}
+
+/* §55：风格说明在卡片右上角，回看入口跟随卡片上方的页码。 */
+.purchase-view.purchase-intent[data-purchase-page="home"]{width:100%;max-width:var(--outfit-cover-max);padding-bottom:0}
+.purchase-intent .purchase-content.is-aesthetic-home{padding:0;overflow:hidden}
+.purchase-intent .outfit-season-line.has-purchase-resume{height:44px}
+.purchase-intent .purchase-style-meta{flex:none;gap:var(--sp-1)}
+.purchase-intent .purchase-cover-resume{
+ display:grid;place-items:center;width:44px;height:44px;min-height:44px;padding:0;
+ border:0;border-radius:var(--radius-pill);background:transparent;color:var(--text-dim)
+}
+.purchase-intent .purchase-cover-resume:hover:not(:disabled){background:var(--surface-2)}
+.purchase-intent .purchase-cover-resume .icon{width:17px;height:17px}
+.purchase-cover-resume:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.purchase-intent .outfit-cover-guide{position:absolute;top:var(--sp-4);right:var(--sp-4)}
+
+/* 图片、渐变和卡面内容分层，换图时标题与按钮一直在上方。 */
+.purchase-intent .outfit-cover-photo{z-index:0;isolation:isolate}
+.purchase-intent .outfit-cover-photo::after{
+ inset:0;z-index:2;background:linear-gradient(rgba(0,0,0,.08),transparent 18% 63%,rgba(0,0,0,.55) 85%,var(--outfit-cover-shade))
+}
+.purchase-intent :is(.outfit-cover-caption,.outfit-cover-controls,.outfit-cover-dots,.outfit-cover-guide){z-index:1}
+.purchase-intent .outfit-cover-caption h2{text-shadow:0 1px 6px rgba(0,0,0,.5)}
+.purchase-look-frame{opacity:0;pointer-events:none}
+.purchase-look-frame[data-previous]{opacity:1}
+.purchase-look-frame[data-current]{opacity:1;z-index:1;transition:opacity .3s ease-in-out}
+.purchase-intent .purchase-look-dots i.is-active{background:var(--on-accent)}
+@media(prefers-reduced-motion:reduce){.purchase-look-frame[data-current]{transition:none}}
+
+@media(max-width:640px){
+ .purchase-view.purchase-intent[data-purchase-page="home"]{height:calc(var(--purchase-home-vh,100vh) - var(--topbar-h-sm) - env(safe-area-inset-top,0px) - var(--sp-4) - var(--tabbar-h) - var(--tabbar-gap) - var(--sp-4) - env(safe-area-inset-bottom,0px))}
+}
+@media(min-width:641px){
+ .purchase-view.purchase-intent[data-purchase-page="home"]{height:calc(100vh - var(--topbar-h) - var(--sp-8) - var(--sp-8));min-height:0}
+}

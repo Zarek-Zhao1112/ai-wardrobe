@@ -1,6 +1,6 @@
 """APK 内的 Python 服务入口。
 
-Java 侧调用：`py.getModule("server").callAttr("start", filesDir, 8787)`
+Java 侧调用：`py.getModule("server").callAttr("start", filesDir, 8787, service)`
 
 ## 为什么要单独一个入口（而不是复用 run.py）
 
@@ -18,7 +18,7 @@ assets 解压出来的**只读**目录，写不进去。
 from __future__ import annotations
 
 
-def start(data_dir, port):
+def start(data_dir, port, network_provider=None):
     """起 uvicorn，阻塞当前线程（Java 侧已把它放在单独线程里）。"""
     import os
     import pathlib
@@ -38,6 +38,10 @@ def start(data_dir, port):
         import uvicorn
 
         from app.main import app
+        from app.services.llm import bridge_repair
+
+        if network_provider is not None:
+            bridge_repair.wifi_ipv4 = network_provider.wifiIpv4
 
         cfg = uvicorn.Config(
             app,

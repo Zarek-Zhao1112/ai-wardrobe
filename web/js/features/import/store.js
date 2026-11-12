@@ -6,6 +6,7 @@ let memory = null;
 const photos = new Map();
 let durable = true;
 let retryPhotos = [];
+let selectionMemory;
 export const storageAvailable = () => durable;
 // 这里只复制JSON草稿/属性；File保存在独立photos仓库，兼容旧WebView。
 export const copyData = value => value === null || typeof value !== "object" ? value : JSON.parse(JSON.stringify(value));
@@ -55,12 +56,15 @@ export async function loadPhoto(id) {
     return value;
   } catch (error) { durable = false; throw error; }
 }
-export function saveDraft(draft, { put = [], remove = [], clear = false } = {}) {
+export function saveDraft(draft, { put = [], remove = [], clear = false, consumeSelection = false } = {}) {
   const snapshot = copy(draft);
-  memory = snapshot;
-  if (clear) photos.clear();
-  for (const id of remove) photos.delete(id);
-  for (const value of put) photos.set(value.id, value);
+  const updateMemory = () => {
+    memory = snapshot;
+    if (clear) photos.clear();
+    for (const id of remove) photos.delete(id);
+    for (const value of put) photos.set(value.id, value);
+  };
+  if (!consumeSelection) updateMemory();
   const operation = async () => {
     // 失败事务中的图片增删也要重放，不能仅补元数据就宣称草稿已保存。
     const changes = [...retryPhotos, { put, remove, clear }];
@@ -74,20 +78,58 @@ export function saveDraft(draft, { put = [], remove = [], clear = false } = {}) 
         for (const id of change.remove) target.delete(id);
         for (const value of change.put) target.put(value);
       }
-      if (snapshot) tx.objectStore("draft").put(snapshot, "current");
-      else tx.objectStore("draft").delete("current");
+      const drafts = tx.objectStore("draft");
+      if (snapshot) drafts.put(snapshot, "current");
+      else drafts.delete("current");
+      if (consumeSelection) drafts.delete("selection");
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error("本机草稿未保存"));
       });
+      if (consumeSelection) { updateMemory(); selectionMemory = []; }
       retryPhotos = []; durable = true;
-    } catch (error) { retryPhotos = changes; durable = false; throw error; }
+    } catch (error) {
+      // 识别入口转移失败时仍停留在原照片列表，重试不能重复追加同批照片。
+      if (!consumeSelection) retryPhotos = changes;
+      durable = false;
+      throw error;
+    }
   };
   const result = writes.then(operation);
   writes = result.catch(() => { durable = false; });
   return result.catch(error => { durable = false; throw error; });
 }
 export const flushDraft = () => writes;
+
+// §47：识别前的照片独立于正在处理的草稿。入队时用同一事务转移。
+export async function loadPhotoSelection() {
+  if (selectionMemory === undefined) {
+    try {
+      const files = await read("draft", "selection");
+      if (selectionMemory === undefined) selectionMemory = Array.isArray(files) ? files.slice(0, 20) : [];
+    } catch { return []; }
+  }
+  return selectionMemory.slice();
+}
+
+export function savePhotoSelection(files) {
+  const snapshot = files.slice();
+  selectionMemory = snapshot;
+  const operation = writes.then(async () => {
+    const db = await database();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction("draft", "readwrite");
+      const drafts = tx.objectStore("draft");
+      if (snapshot.length) drafts.put(snapshot, "selection");
+      else drafts.delete("selection");
+      tx.oncomplete = () => resolve();
+      tx.onabort = () => reject(tx.error || new Error("待选照片未保存"));
+      tx.onerror = () => reject(tx.error);
+    });
+  });
+  writes = operation.catch(() => {});
+  return operation;
+}
 
 // §23：已入库衣物的生成预览单独放draft键，批量清photos不会删掉它。
 const visualMemory = new Map();

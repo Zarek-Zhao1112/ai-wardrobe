@@ -12,7 +12,8 @@ import { watchFlatlayImages } from "../components/flatlay-display.js";
 import { esc, icon, toast, serviceSettingsHtml } from "./ui.js";
 import { guardImportNavigation, refreshImportService } from "../features/import/photo-import.js";
 import { openBridgeSettings, restoreBridgeSettings } from "./desktop-settings.js";
-import { canReveal, capturePage, revealPage, cancelReveal, revealRunning } from "../components/page-transition.js";
+import { initCollapse } from "../components/collapse.js";
+import { initPickers } from "../components/picker.js";
 import * as add from "../features/import/view.js";
 import { openImportSheet, closeImportSheet, importSheetOpen } from "../features/import/sheet.js";
 import * as gaps from "../features/purchase/view.js";
@@ -21,6 +22,7 @@ import { closeTryonSheet } from "../features/outfits/tryon-sheet.js";
 import * as item from "../features/wardrobe/detail.js";
 import { openItemSheet, closeItemSheet, itemSheetOpen, itemSheetRoot, itemSheetReturn, itemSheetHistory, refreshItemSheet } from "../features/wardrobe/sheet.js";
 import * as outfits from "../features/outfits/view.js";
+import * as today from "../features/today/view.js";
 import * as wardrobe from "../features/wardrobe/view.js";
 
 /** 已实现的页面。后面几波会往这里加：缺口 / 搭配。
@@ -28,64 +30,27 @@ import * as wardrobe from "../features/wardrobe/view.js";
  * `hidden: true` 的页面**不出现在导航里**，只能通过 hash 进去
  * （例如 `#item/it_xxx` 是详情页，它不该占一个 Tab）。
  */
+const WARDROBE_VIEW = { id: "wardrobe", label: "衣橱", mod: wardrobe };
 const VIEWS = [
-  { id: "wardrobe", label: "衣橱", mod: wardrobe },
+  { id: "today", label: "今日", mod: today },
+  { id: "outfits", label: "搭配", navIcon: "layers", caption: "选一种穿搭风格", mod: outfits },
+  { id: "gaps", label: "添置", caption: "从喜欢的风格出发", mod: gaps },
+  WARDROBE_VIEW,
   { id: "add", label: "录入", mod: add, hidden: true, parent: "wardrobe" },
-  { id: "gaps", label: "添置", mod: gaps },
-  { id: "outfits", label: "搭配", mod: outfits },
   { id: "item", label: "单品", mod: item, hidden: true, parent: "wardrobe" },
 ];
+const DEFAULT_HASH = "#" + VIEWS[0].id;
 
 let rootEl = document.getElementById("view");
 watchFlatlayImages();
 const navEl = document.getElementById("nav");
 const tabbarEl = document.getElementById("tabbar");
 const statusEl = document.getElementById("status");
-/** §39：手机顶栏那行页面名。桌面不显示（CSS 里 `.topbar-title{display:none}`），
- *  但照样写入 —— 只为让"当前页"这件事只有一个来源：renderNav()。 */
+/** 顶栏页面名由 renderNav() 统一写入，显示范围由 CSS 决定。 */
 const titleEl = document.getElementById("page-title");
-let renderSequence = 0, pressedTab = null, pendingTurn = null, queuedTab = null;
-
-function clearTurns() { pressedTab = null; pendingTurn = null; queuedTab = null; cancelReveal(); }
-
-function navigateTab(target) {
-  if (target.hash === (location.hash || "#wardrobe")) return;
-  try {
-    const snapshot = capturePage([document.querySelector(".topbar"), rootEl, tabbarEl]);
-    pendingTurn = { ...target, from: location.hash, snapshot };
-  } catch { pendingTurn = null; }
-  location.hash = target.hash;
-}
-
-// §21：使用按下落点，但先确认一次有效轻点；拖动、取消和键盘不复用旧触点。
-tabbarEl?.addEventListener("pointerdown", event => {
-  pressedTab = null;
-  const tab = event.target.closest("a.tab");
-  if (!tab || event.button !== 0 || !event.isPrimary || !canReveal(rootEl, tabbarEl)) return;
-  pressedTab = { hash: tab.hash, x: event.clientX, y: event.clientY, pointer: event.pointerId,
-    from: location.hash, time: performance.now() };
-});
-document.addEventListener("pointermove", event => {
-  if (pressedTab?.pointer === event.pointerId && Math.hypot(event.clientX - pressedTab.x, event.clientY - pressedTab.y) > 10) pressedTab = null;
-}, { passive: true });
-document.addEventListener("pointercancel", () => { pressedTab = null; });
-tabbarEl?.addEventListener("contextmenu", () => { pressedTab = null; });
-tabbarEl?.addEventListener("click", event => {
-  const tab = event.target.closest("a.tab"), point = pressedTab;
-  pressedTab = null;
-  if (!tab || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-  if (tab.hash === (location.hash || "#wardrobe")) { event.preventDefault(); queuedTab = null; return; }
-  if (!event.detail || !point || point.hash !== tab.hash || point.from !== location.hash ||
-      performance.now() - point.time > 700 || !canReveal(rootEl, tabbarEl)) return;
-  event.preventDefault();
-  const target = { hash: tab.hash, point: { x: point.x, y: point.y } };
-  if (revealRunning()) queuedTab = target;
-  else navigateTab(target);
-});
-window.addEventListener("resize", clearTurns);
-window.visualViewport?.addEventListener("resize", clearTurns);
-document.addEventListener("visibilitychange", () => { if (document.hidden) clearTurns(); });
-matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", clearTurns);
+const captionEl = document.getElementById("page-caption");
+const localDate = new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", weekday: "long" });
+let renderSequence = 0;
 
 /**
  * 启动状态，**给 index.html 的看门狗一个可判定的答案**。
@@ -108,7 +73,14 @@ matchMedia("(prefers-reduced-motion: reduce)").addEventListener("change", clearT
 window.__wz = { boot: "booting" };
 
 /** 共享上下文。视图不必自己去取词表和健康状态。 */
-const ctx = { api, taxonomy: null, health: null };
+const ctx = { api, taxonomy: null, health: null, updateWardrobeCount };
+
+function updateWardrobeCount(root, total) {
+  root.dataset.wardrobeCaption = total == null ? "" : `${total.toLocaleString("zh-CN")} 件衣物`;
+  if (root === rootEl && titleEl.closest(".topbar").dataset.page === "wardrobe") {
+    captionEl.textContent = root.dataset.wardrobeCaption;
+  }
+}
 
 /** 解析 `#view` 或 `#view/参数`（例：`#item/it_abc123`）。 */
 function parseHash() {
@@ -126,7 +98,7 @@ function renderNav(currentId) {
   const html = VIEWS.filter((v) => !v.hidden)
     .map(
       (v) =>
-        `<a class="tab${v.id === currentId ? " active" : ""}" href="#${esc(v.id)}"${v.id === currentId ? ' aria-current="page"' : ""}>${icon(v.id)}<span>${esc(v.label)}</span></a>`
+        `<a class="tab${v.id === currentId ? " active" : ""}" href="#${esc(v.id)}"${v.id === currentId ? ' aria-current="page"' : ""}>${icon(v.navIcon || v.id)}<span>${esc(v.label)}</span></a>`
     )
     .join("");
   navEl.innerHTML = html;
@@ -134,16 +106,52 @@ function renderNav(currentId) {
   // §39：顶栏标题跟着导航走。隐藏页（详情、录入）传进来的是它的 parent，
   // 所以浮层盖住顶栏时，底下那行仍然是「衣橱」，不会写着「单品」。
   const current = VIEWS.find((v) => v.id === currentId);
-  if (titleEl && current) titleEl.textContent = current.label;
+  if (!current) return;
+  titleEl.textContent = current.label;
+  const isWardrobe = current.id === "wardrobe";
+  const caption = current.id === "today" ? localDate.format(new Date()).replace("日", "日 · ")
+    : isWardrobe ? rootEl.dataset.wardrobeCaption : current.caption;
+  captionEl.textContent = caption || "";
+  captionEl.hidden = !caption && !isWardrobe;
+  if (isWardrobe) captionEl.setAttribute("aria-live", "polite");
+  else captionEl.removeAttribute("aria-live");
+  titleEl.closest(".topbar").dataset.page = current.id;
+  document.body.classList.toggle("has-page-caption", isWardrobe || Boolean(caption));
+}
+
+function unmountView(root) {
+  VIEWS.find(view => view.id === root.dataset.view)?.mod.unmount?.(root);
 }
 
 function renderStatus() {
   statusEl.innerHTML = serviceSettingsHtml(ctx.health);
 }
 
+/** 切换识别引擎：只影响这台手机发出的请求，电脑自己的模式不动。 */
+async function switchEngine(node) {
+  const engine = node.dataset.engine;
+  const group = node.closest(".engine-picker");
+  if (!engine || !group || node.disabled || node.classList.contains("on")) return;
+  const buttons = [...group.querySelectorAll("[data-engine]")];
+  buttons.forEach(item => { item.disabled = true; });
+  try {
+    ctx.health = await api.setEngine(engine);
+    renderStatus();
+    // 菜单是整块重画的，open 状态会跟着丢 —— 不重新打开，用户就看不到切换结果。
+    const fresh = document.querySelector(".status-menu");
+    if (fresh) fresh.open = true;
+    toast(engine === "api" ? "已切换为 API 直连" : "已切换为账号额度", "ok");
+  } catch (error) {
+    buttons.forEach(item => { item.disabled = false; });
+    toast(error?.message || "切换失败，请重试", "error");
+  }
+}
+
 // 状态浮层不接管页面焦点；Escape 和点外部都可以收起。
 document.addEventListener("click", (ev) => {
   document.querySelectorAll(".status-menu[open]").forEach(menu => { if (!menu.contains(ev.target)) menu.open = false; });
+  const engineButton = ev.target.closest("[data-engine]");
+  if (engineButton) { switchEngine(engineButton); return; }
   const button = ev.target.closest("[data-desktop-settings]");
   if (!button) return;
   button.closest("details").open = false;
@@ -159,12 +167,11 @@ document.addEventListener("keydown", (ev) => {
   });
 });
 
-async function render(turn = null) {
+async function render() {
   const sequence = ++renderSequence;
   await closePurchaseSheet();
   await closeTryonSheet();
   if (sequence !== renderSequence) return;
-  cancelReveal();
   const { id, arg } = parseHash();
   const requested = VIEWS.find((v) => v.id === id) || VIEWS[0];
   if (requested.id === "item") {
@@ -172,10 +179,10 @@ async function render(turn = null) {
     const origin = history.state?.itemOrigin?.id === arg ? history.state.itemOrigin : null;
     if (origin && rootEl.dataset.routeHash !== origin.returnHash) {
       const [backgroundId, ...parts] = origin.returnHash.replace(/^#/, "").split("/");
-      const view = VIEWS.find(v => v.id === backgroundId && !v.hidden) || VIEWS[0];
+      const view = VIEWS.find(v => v.id === backgroundId && !v.hidden) || WARDROBE_VIEW;
       const background = document.createElement("main"); background.id = "view"; background.className = "view";
       background.dataset.view = view.id; background.dataset.routeHash = origin.returnHash; background.setAttribute("aria-label", view.label);
-      gaps.unmount(rootEl); wardrobe.unmount(rootEl); outfits.unmount(rootEl);
+      unmountView(rootEl);
       rootEl.replaceWith(background); rootEl = background;
       await view.mod.mount(background, ctx, parts.join("/"), origin.background);
       if (sequence !== renderSequence) return;
@@ -183,6 +190,7 @@ async function render(turn = null) {
     }
     if (!["wardrobe", "outfits", "gaps"].includes(rootEl.dataset.view)) {
       const background = document.createElement("main"); background.id = "view"; background.className = "view"; background.dataset.view = "wardrobe"; background.dataset.routeHash = "#wardrobe"; background.setAttribute("aria-label", "衣橱");
+      unmountView(rootEl);
       rootEl.replaceWith(background); rootEl = background; await wardrobe.mount(background, ctx);
       if (sequence !== renderSequence) return;
       history.replaceState(null, "", "#wardrobe"); history.pushState({ wardrobeItem: true }, "", "#item/" + arg);
@@ -198,15 +206,13 @@ async function render(turn = null) {
     if (window.__wz) window.__wz.boot = "ok";
     return;
   }
-  const view = requested.id === "add" ? VIEWS[0] : requested;
+  const view = requested.id === "add" ? WARDROBE_VIEW : requested;
   // 新页先接入DOM，旧真实节点断开；迟到mount只能写各自的旧根节点。
   const next = document.createElement("main");
   next.id = "view"; next.className = "view"; next.dataset.view = view.id;
   next.dataset.routeHash = "#" + view.id + (arg ? "/" + arg : "");
   next.setAttribute("aria-label", view.label);
-  gaps.unmount(rootEl);
-  wardrobe.unmount(rootEl);
-  outfits.unmount(rootEl);
+  unmountView(rootEl);
   rootEl.replaceWith(next); rootEl = next;
   // 隐藏页（详情）不在导航里，高亮它所属的那个 Tab，免得看起来"哪个都没选中"
   renderNav(view.parent || view.id);
@@ -214,11 +220,6 @@ async function render(turn = null) {
   window.scrollTo(0, 0);
   try {
     const mounted = view.mod.mount(next, ctx, arg);
-    if (turn && sequence === renderSequence) revealPage(turn.snapshot, turn.point, next, () => {
-      if (sequence !== renderSequence) return;
-      const queued = queuedTab; queuedTab = null;
-      if (queued && canReveal(rootEl, tabbarEl)) navigateTab(queued);
-    });
     await mounted;
     if (requested.id === "add" && sequence === renderSequence) await openImportSheet(ctx);
   } catch (err) {
@@ -260,7 +261,7 @@ let waitingForBackend = false;
  *   只有系统的「强制停止」才会杀掉进程。
  */
 function renderBackendDown() {
-  clearTurns(); ++renderSequence;
+  ++renderSequence;
   // 先定状态再画 DOM：index.html 的看门狗以这个字段为准，晚一步就可能被它插手
   if (window.__wz) window.__wz.boot = "down";
   const onServerDevice = ["127.0.0.1", "localhost", "::1"].includes(location.hostname);
@@ -365,10 +366,8 @@ async function boot() {
 let routeSequence = 0;
 window.addEventListener("hashchange", event => {
   const request = ++routeSequence;
-  const turn = pendingTurn;
-  pendingTurn = null;
   if (itemSheetOpen()) {
-    clearTurns(); const target = location.hash, previous = new URL(event.oldURL).hash, returnHash = itemSheetReturn(), itemState = itemSheetHistory();
+    const target = location.hash, previous = new URL(event.oldURL).hash, returnHash = itemSheetReturn(), itemState = itemSheetHistory();
     void closeItemSheet().then(allowed => {
       if (request !== routeSequence) return;
       if (!allowed) { history.pushState(itemState, "", previous); return; }
@@ -379,7 +378,6 @@ window.addEventListener("hashchange", event => {
     return;
   }
   if (importSheetOpen() && location.hash !== "#add") {
-    clearTurns();
     // 返回只消费最上层；裁剪原有 hashchange 监听不会再处理同一次事件。
     if (document.querySelector(".crop-layer,.import-modal,.bridge-modal")) {
       event.stopImmediatePropagation();
@@ -398,15 +396,12 @@ window.addEventListener("hashchange", event => {
     });
     return;
   }
-  if (!guardImportNavigation(event)) { clearTurns(); return; }
+  if (!guardImportNavigation(event)) return;
   if (location.hash === "#add") {
-    clearTurns(); history.replaceState({ wardrobeImport: true }, "", "#add");
+    history.replaceState({ wardrobeImport: true }, "", "#add");
     void render(); return;
   }
-  const matching = turn && new URL(event.oldURL).hash === turn.from &&
-    new URL(event.newURL).hash === turn.hash && location.hash === turn.hash;
-  if (!matching) queuedTab = null;
-  void render(matching ? turn : null);
+  void render();
 });
 
 /** 注册 Service Worker（PWA：离线可用 + 可"添加到主屏幕"）。
@@ -464,4 +459,6 @@ if (location.hash === "#add") {
   history.replaceState(null, "", "#wardrobe");
   history.pushState({ wardrobeImport: true }, "", "#add");
 }
+initCollapse();
+initPickers();
 boot();

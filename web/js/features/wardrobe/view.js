@@ -10,12 +10,16 @@
 
 import { api } from "../../core/api.js";
 import { getImportProgress } from "../import/photo-import.js";
-import { slotOptionsHtml, typeOptionsHtml } from "../../core/fields.js";
+import { typeOptionsHtml } from "../../core/fields.js";
 import { emptyState, esc, icon, renderError, toast } from "../../core/ui.js";
 
 export const label = "衣橱";
-let badgeBinding=null;
-export function unmount(root){if(badgeBinding?.root===root){document.removeEventListener('import:progress',badgeBinding.listener);badgeBinding=null;}}
+let activeView = null;
+export function unmount(root) {
+  if (activeView?.root !== root) return;
+  activeView.dispose();
+  activeView = null;
+}
 
 const PAGE_SIZE = 60;
 const SEARCH_DEBOUNCE_MS = 250;
@@ -29,11 +33,14 @@ function cardHtml(item) {
   const badges = [];
   if (item.tagging_status === "pending") badges.push(`<span class="chip warn">待打标</span>`);
   if (item.is_archived) badges.push(`<span class="chip">已归档</span>`);
-  if (item.favorite) badges.push(`<span class="wardrobe-liked" aria-label="喜欢的衣服">${icon("heart")}</span>`);
+  const favorite = item.favorite
+    ? `<span class="wardrobe-liked" role="img" aria-label="喜欢的衣服">${icon("heart")}</span>`
+    : "";
 
   return `
-    <a class="card" href="#item/${esc(item.id)}" data-id="${esc(item.id)}">
+    <a class="card wardrobe-card" href="#item/${esc(item.id)}" data-id="${esc(item.id)}">
       <div class="card-media">${media}</div>
+      ${favorite}
       <div class="card-body">
         <p class="card-title">${esc(item.name || item.type_label || "未命名")}</p>
         <div class="card-foot">
@@ -45,6 +52,7 @@ function cardHtml(item) {
 }
 
 export async function mount(root, ctx, arg, restore = null) {
+  if (activeView) unmount(activeView.root);
   const taxonomy = ctx.taxonomy || {};
   const state = {
     search: restore?.search || "",
@@ -60,35 +68,44 @@ export async function mount(root, ctx, arg, restore = null) {
     <div class="wardrobe-tools">
       <div class="search-row">
         <label class="search-field">${icon("search")}<input type="search" id="w-search" placeholder="搜索衣服" aria-label="搜索名称、品牌或备注"></label>
-        <button type="button" id="w-filter-toggle" class="filter-toggle" aria-expanded="false" aria-controls="w-filters">${icon("filter")}<span>筛选</span><span id="w-filter-count" class="filter-count" hidden></span></button>
+        <button type="button" id="w-filter-toggle" class="wardrobe-tool" aria-label="筛选" aria-haspopup="dialog" aria-expanded="false" aria-controls="w-filters">${icon("filter")}<span class="wardrobe-filter-dot" aria-hidden="true" hidden></span></button>
+        <button type="button" class="wardrobe-tool wardrobe-import-button" data-open-import aria-haspopup="dialog" aria-label="录入衣物" title="录入衣物">${icon("plus")}<span class="wardrobe-import-badge" aria-hidden="true" hidden></span></button>
       </div>
-      <div id="w-filters" class="filter-fields" hidden>
-        <label class="field"><span>分类</span><select id="w-slot">${slotOptionsHtml(taxonomy, "全部分类")}</select></label>
-        <label class="field"><span>品类</span><select id="w-type">${typeOptionsHtml(taxonomy)}</select></label>
-        <label class="control-toggle"><input type="checkbox" id="w-archived"> 含已归档</label>
-        <button id="w-reload" class="ghost">刷新列表</button>
-      </div>
-      <div class="wardrobe-categories">
-        <div class="category-nav" role="group" aria-label="按衣服分类筛选">
-          ${[["", "全部"], ...Object.entries(taxonomy.slots || {})].map(([key, text]) => `<button type="button" class="category${key === "" ? " active" : ""}" data-slot="${esc(key)}" aria-pressed="${key === ""}">${esc(text)}</button>`).join("")}
-        </div>
-        <span class="faint wardrobe-count" id="w-count"></span>
+      <div class="category-nav" role="group" aria-label="按衣服分类筛选">
+        ${[["", "全部"], ...Object.entries(taxonomy.slots || {})].map(([key, text]) => `<button type="button" class="category" data-slot="${esc(key)}" aria-pressed="${key === ""}">${esc(text)}</button>`).join("")}
       </div>
     </div>
     <div id="w-body"><p class="muted">加载中…</p></div>
-    <button type="button" class="wardrobe-import-fab" data-open-import aria-haspopup="dialog" aria-label="录入衣物" title="录入衣物">${icon('plus')}<span class="import-fab-badge" hidden></span></button>
+    <dialog id="w-filters" class="wardrobe-filter-sheet" aria-labelledby="w-filter-title">
+      <div class="wardrobe-filter-handle" aria-hidden="true"></div>
+      <header class="wardrobe-filter-header">
+        <h2 id="w-filter-title">筛选</h2>
+        <button type="button" class="wardrobe-tool" data-filter-close aria-label="关闭筛选">${icon("close")}</button>
+      </header>
+      <form>
+        <label class="wardrobe-filter-field"><span>品类</span><select id="w-type">${typeOptionsHtml(taxonomy)}</select></label>
+        <label class="wardrobe-filter-field"><span>显示已归档</span><input type="checkbox" id="w-archived"></label>
+        <div class="wardrobe-filter-actions">
+          <button type="button" class="ghost" id="w-reload">刷新列表</button>
+          <button type="submit" class="primary">应用筛选</button>
+        </div>
+      </form>
+    </dialog>
   `;
 
-  root.querySelector("[data-open-import]").onclick = () => { location.hash = "#add"; };
-  if(badgeBinding)unmount(badgeBinding.root);
-  const updateBadge=event=>{
-    if(!root.isConnected)return;
-    const progress=event.detail,button=root.querySelector('[data-open-import]'),badge=button.querySelector('.import-fab-badge');
-    badge.hidden=!progress.remaining;badge.textContent=`${progress.prepared}/${progress.total}`;
-    button.setAttribute('aria-label',progress.remaining?`继续录入衣物，已准备 ${progress.prepared} / ${progress.total} 件`:'录入衣物');
+  const importButton = root.querySelector("[data-open-import]");
+  const importBadge = importButton.querySelector(".wardrobe-import-badge");
+  importButton.onclick = () => { location.hash = "#add"; };
+  const updateBadge = ({ detail: progress }) => {
+    if (!root.isConnected) return;
+    importBadge.hidden = !progress.remaining;
+    importBadge.textContent = `${progress.prepared}/${progress.total}`;
+    importButton.setAttribute("aria-label", progress.remaining
+      ? `继续录入衣物，已准备 ${progress.prepared} / ${progress.total} 件`
+      : "录入衣物");
   };
-  badgeBinding={root,listener:updateBadge};document.addEventListener('import:progress',updateBadge);
-  void getImportProgress().then(detail=>updateBadge({detail}));
+  document.addEventListener("import:progress", updateBadge);
+  void getImportProgress().then(detail => updateBadge({ detail }));
   root.addEventListener("wardrobe:refresh", event => {
     const cards = [...root.querySelectorAll('.card')], position = cards.findIndex(card => card.dataset.id === event.detail?.focusItemId);
     void load({ preserve: true }).then(() => {
@@ -99,45 +116,85 @@ export async function mount(root, ctx, arg, restore = null) {
   });
 
   const bodyEl = root.querySelector("#w-body");
-  const countEl = root.querySelector("#w-count");
   const searchEl = root.querySelector("#w-search");
   const filterToggle = root.querySelector("#w-filter-toggle");
+  const filterDot = filterToggle.querySelector(".wardrobe-filter-dot");
   const filters = root.querySelector("#w-filters");
-  searchEl.value = state.search; root.querySelector("#w-slot").value = state.slot;
-  root.querySelector("#w-type").value = state.type; root.querySelector("#w-archived").checked = state.archived;
-  filters.hidden = !restore?.filters; filterToggle.setAttribute("aria-expanded", String(!filters.hidden));
+  const typeSelect = root.querySelector("#w-type");
+  const archivedCheckbox = root.querySelector("#w-archived");
+  const filterRoute = root.dataset.routeHash || "#wardrobe";
+  let dismissingFilters = false;
+  searchEl.value = state.search;
   root.captureState = () => ({ search: searchEl.value.trim(), slot: state.slot, type: state.type,
-    archived: state.archived, page: state.page, filters: !filters.hidden });
+    archived: state.archived, page: state.page });
+
+  function syncFilterDialog() {
+    dismissingFilters = false;
+    const open = location.hash === filterRoute && Boolean(history.state?.wardrobeFilters);
+    if (open && !filters.open) {
+      typeSelect.value = state.type;
+      archivedCheckbox.checked = state.archived;
+      filters.showModal();
+    } else if (!open && filters.open) {
+      filters.close();
+      if (location.hash === filterRoute) filterToggle.focus({ preventScroll: true });
+    }
+    filterToggle.setAttribute("aria-expanded", String(open));
+    document.body.classList.toggle("wardrobe-filters-open", open);
+  }
+
+  function dismissFilters() {
+    if (dismissingFilters || !filters.open) return;
+    dismissingFilters = true;
+    history.back();
+  }
+
+  // 同一 hash 下增加一条历史，让 Android 返回先收起筛选面板。
   filterToggle.addEventListener("click", () => {
-    filters.hidden = !filters.hidden;
-    filterToggle.setAttribute("aria-expanded", String(!filters.hidden));
+    history.pushState({ ...history.state, wardrobeFilters: true }, "");
+    syncFilterDialog();
   });
-  filters.addEventListener("keydown", (ev) => {
-    if (ev.key !== "Escape") return;
-    filters.hidden = true;
-    filterToggle.setAttribute("aria-expanded", "false");
-    filterToggle.focus();
+  filters.addEventListener("cancel", event => {
+    event.preventDefault();
+    dismissFilters();
+  });
+  filters.addEventListener("click", event => {
+    if (event.target.closest("[data-filter-close]")) {
+      dismissFilters();
+    } else if (event.target === filters) {
+      const { left, right, top, bottom } = filters.getBoundingClientRect();
+      if (event.clientX < left || event.clientX > right || event.clientY < top || event.clientY > bottom) dismissFilters();
+    }
+  });
+  filters.querySelector("form").addEventListener("submit", event => {
+    event.preventDefault();
+    if (dismissingFilters) return;
+    state.type = typeSelect.value;
+    state.archived = archivedCheckbox.checked;
+    dismissFilters();
+    void load();
+  });
+  root.querySelector("#w-reload").addEventListener("click", () => {
+    if (dismissingFilters) return;
+    dismissFilters();
+    void load();
   });
   root.querySelector(".category-nav").addEventListener("click", (ev) => {
     const button = ev.target.closest("[data-slot]");
     if (!button) return;
     state.slot = button.dataset.slot;
     state.type = "";
-    root.querySelector("#w-slot").value = state.slot;
-    root.querySelector("#w-type").value = "";
     load();
   });
 
   function syncFilters() {
     root.querySelectorAll("[data-slot]").forEach((button) => {
       const active = button.dataset.slot === state.slot;
-      button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", String(active));
     });
-    const count = [state.slot, state.type, state.archived].filter(Boolean).length;
-    const badge = root.querySelector("#w-filter-count");
-    badge.textContent = count;
-    badge.hidden = count === 0;
+    const count = Number(Boolean(state.type)) + Number(state.archived);
+    filterDot.hidden = count === 0;
+    filterToggle.setAttribute("aria-label", count ? `筛选，已启用 ${count} 项` : "筛选");
   }
 
   let debounce = null;
@@ -148,19 +205,6 @@ export async function mount(root, ctx, arg, restore = null) {
       load();
     }, SEARCH_DEBOUNCE_MS);
   });
-  root.querySelector("#w-slot").addEventListener("change", (ev) => {
-    state.slot = ev.target.value;
-    load();
-  });
-  root.querySelector("#w-type").addEventListener("change", (ev) => {
-    state.type = ev.target.value;
-    load();
-  });
-  root.querySelector("#w-archived").addEventListener("change", (ev) => {
-    state.archived = ev.target.checked;
-    load();
-  });
-  root.querySelector("#w-reload").addEventListener("click", () => load());
 
   // 事件委托：卡片和「加载更多」按钮每次渲染都是新节点
   bodyEl.addEventListener("click", (ev) => {
@@ -176,7 +220,7 @@ export async function mount(root, ctx, arg, restore = null) {
   function render() {
     const items = state.items;
     const total = state.total;
-    countEl.textContent = total ? `共 ${total} 件` : "";
+    ctx.updateWardrobeCount?.(root, total);
 
     if (items.length === 0) {
       const filtered = state.search || state.slot || state.type || state.archived;
@@ -238,13 +282,13 @@ export async function mount(root, ctx, arg, restore = null) {
     } catch (err) {
       if (seq !== reqSeq) return;
       if (preserve) { toast("刷新失败，现有衣橱仍保留", "error"); return; }
-      countEl.textContent = "";
       if (append) {
         // 追加失败：回退页码，保留已加载的，只把按钮恢复可点
         state.page -= 1;
         more_sync();
         toast("加载失败：" + err.message, "error");
       } else {
+        ctx.updateWardrobeCount?.(root, null);
         renderError(bodyEl, err);
       }
     }
@@ -259,5 +303,18 @@ export async function mount(root, ctx, arg, restore = null) {
     }
   }
 
+  activeView = {
+    root,
+    dispose() {
+      clearTimeout(debounce);
+      ++reqSeq;
+      document.removeEventListener("import:progress", updateBadge);
+      window.removeEventListener("popstate", syncFilterDialog);
+      if (filters.open) filters.close();
+      document.body.classList.remove("wardrobe-filters-open");
+    }
+  };
+  window.addEventListener("popstate", syncFilterDialog);
+  syncFilterDialog();
   await load({ preserve: Boolean(restore) });
 }

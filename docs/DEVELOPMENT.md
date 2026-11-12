@@ -80,7 +80,10 @@ node scripts/checks/cdp_ui_check.js
 
 将scripts/bridge/config.example.json复制为.local/bridge.json，填写现有官方CLI入口；账号认证仍由官方CLI管理，应用不保存账号密码。已有登录环境迁移目录时应沿用账号与pairing.json，不能自动重新创建配对码。
 
+电脑中转使用单独的图像依赖。生成平铺图时，超过 4.5 MiB 的输入会压缩成临时副本再交给 WorkBuddy，草稿和任务来源仍对应原照片。
+
 ```powershell
+.venv/Scripts/python.exe -m pip --isolated install -r scripts/bridge/requirements.txt
 .venv/Scripts/python.exe -X utf8 scripts/bridge/manage.py status
 .venv/Scripts/python.exe -X utf8 scripts/bridge/manage.py start
 .venv/Scripts/python.exe -X utf8 scripts/bridge/manage.py stop

@@ -1,0 +1,167 @@
+.today-view { max-width: var(--outfit-cover-max); margin: 0 auto; }
+.today-hero {
+  border: 1px solid var(--border);
+  border-radius: var(--import-radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+.today-art { display: grid; place-items: center; background: radial-gradient(ellipse at 72% 25%, var(--accent-soft), transparent 68%), var(--accent-wash); }
+.today-artwork { display: block; width: 100%; height: 161px; }
+.today-art-paper { fill: var(--surface); filter: drop-shadow(0 4px 7px #1d283c26); }
+.today-art-blue { fill: var(--accent-soft); }
+.today-art-gray { fill: var(--surface-2); }
+.today-art-rule { stroke: var(--border-strong); stroke-width: 2; stroke-linecap: round; }
+.today-art-spark { fill: none; stroke: var(--accent); opacity: .65; }
+.today-hero-copy { padding: var(--sp-4) var(--sp-6); }
+.today-hero h1 { margin: 0; font-size: var(--fs-hero); letter-spacing: var(--ls-tight); line-height: 1.2; }
+.today-hero p { margin: var(--sp-2) 0 var(--sp-3); color: var(--text-dim); font-size: var(--fs-sm); }
+a.today-primary {
+  display: inline-flex; align-items: center; gap: var(--sp-2); min-height: 46px; padding-inline: var(--sp-4);
+  border-radius: var(--radius-pill); border-color: var(--accent); background: var(--accent); color: var(--on-accent);
+}
+a.today-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.today-styles { margin-top: var(--sp-6); }
+.today-styles h2 { margin: 0 0 var(--sp-3); font-size: var(--fs-h2); letter-spacing: var(--ls-tight); }
+.today-style-rail {
+  display: flex;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  padding: var(--sp-1);
+  margin: calc(-1 * var(--sp-1));
+  scroll-padding-inline: var(--sp-1);
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.today-style-rail::-webkit-scrollbar { display: none; }
+.today-style-card {
+  position: relative;
+  flex: 0 0 154px;
+  min-width: 0;
+  height: 130px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  scroll-snap-align: start;
+  text-align: left;
+}
+.today-style-card img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center 46%; }
+.today-style-name {
+  position: absolute;
+  inset: auto 0 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-6) var(--sp-3) var(--sp-2);
+  background: linear-gradient(transparent, var(--outfit-cover-shade) 62%);
+  color: var(--on-accent);
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.today-style-name .icon { width: 14px; height: 14px; transform: rotate(-90deg); }
+.today-style-status { font-size: var(--fs-sm); }
+
+/* §53、§57：风格卡片下方分别展示想要清单和最近搭配。 */
+.today-recent-section { margin-top: var(--sp-6); }
+.today-recent-section > h2, .today-wanted-heading h2 {
+  margin: 0 0 var(--sp-2); font-size: var(--fs-h2); letter-spacing: var(--ls-tight);
+}
+.today-wanted-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.today-wanted-heading h2 { margin: 0; }
+.today-wanted-heading > span, .today-wanted-status { font-size: var(--fs-sm); color: var(--text-dim); }
+.today-wanted-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-3); }
+.today-wanted-card {
+  min-width: 0; align-self: stretch; display: flex; flex-direction: column; width: 100%; padding: 0;
+  overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); text-align: left;
+}
+.today-wanted-card > .today-recent-media {
+  width: 100%; height: auto; aspect-ratio: 4 / 3; padding: 0; border: 0; border-radius: 0; background: var(--surface);
+}
+.today-wanted-card > .today-recent-copy { padding: var(--sp-2) var(--sp-3) var(--sp-3); }
+.today-wanted-empty {
+  text-align: center; padding: var(--sp-4) var(--sp-3) var(--sp-2);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); color: var(--text-dim);
+}
+.today-wanted-empty .icon { width: 20px; height: 20px; }
+.today-wanted-empty p { margin: var(--sp-1) 0 0; }
+.today-wanted-empty a { min-height: 44px; }
+.today-recent-card {
+  display: grid; grid-template-columns: 76px minmax(0, 1fr) 18px; align-items: center;
+  gap: var(--sp-3); width: 100%; padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-2);
+  border-radius: 20px; text-align: left;
+}
+.today-recent-card > .icon { width: 18px; height: 18px; color: var(--text-dim); }
+.today-recent-copy { display: grid; gap: var(--sp-1); overflow-wrap: anywhere; }
+.today-recent-copy strong {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; font-size: var(--fs-body); line-height: 1.35;
+}
+.today-recent-copy > span { font-size: var(--fs-xs); color: var(--text-dim); }
+.today-recent-media {
+  display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); height: 68px;
+  overflow: hidden; padding: var(--sp-1); border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+}
+.today-recent-media img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.today-recent-media.is-tiles { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); gap: 2px; }
+.today-recent-media.is-3 { grid-template-rows: minmax(0, 1.25fr) minmax(0, .75fr); }
+.today-recent-media.is-3 > :first-child { grid-row: span 2; }
+.today-recent-photo-placeholder { display: grid; place-items: center; color: var(--text-dim); }
+.today-recent-media.is-detail { height: 170px; padding: var(--sp-2); }
+
+body.today-recent-open { overflow: hidden; }
+.today-recent-dialog {
+  position: fixed; inset: 0; width: min(360px, calc(100% - 32px)); max-height: min(80vh, 580px);
+  padding: 0; border: 1px solid var(--border); border-radius: 24px;
+  background: var(--surface); color: var(--text); box-shadow: var(--import-shadow);
+}
+.today-recent-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
+.today-recent-dialog::backdrop { background: var(--import-scrim); }
+.today-recent-dialog > header {
+  display: flex; flex: none; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+}
+.today-recent-dialog h2 { margin: 0; font-size: var(--fs-h2); }
+.today-recent-dialog header button {
+  width: 44px; flex: 0 0 44px; display: grid; place-items: center; padding: 0;
+  border-radius: var(--radius-pill); border: 0; background: var(--accent-soft); color: var(--accent);
+}
+.today-recent-dialog header button .icon { width: 18px; height: 18px; }
+.today-recent-detail {
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  padding: 0 var(--sp-4) var(--sp-4); overflow-wrap: anywhere;
+}
+.today-recent-detail h3 { margin: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-body-lg); }
+.today-recent-detail p { margin: var(--sp-2) 0 0; }
+.today-recent-detail .today-recent-meta, .today-recent-detail .today-recent-photo-label {
+  color: var(--text-dim); font-size: var(--fs-xs);
+}
+.today-recent-detail dl { margin: var(--sp-3) 0; }
+.today-recent-detail dl > div {
+  display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: var(--sp-2);
+  border-top: 1px solid var(--border); padding: var(--sp-2) 0; font-size: var(--fs-sm);
+}
+.today-recent-detail dt { color: var(--text-dim); }
+.today-recent-detail dd { margin: 0; }
+.today-wanted-error:empty { display: none; }
+.today-recent-detail .today-wanted-error { font-size: var(--fs-sm); color: var(--danger); }
+.today-wanted-remove { width: 100%; margin-top: var(--sp-4); min-height: 44px; }
+
+@media (max-width: 640px) {
+  /* §49：页面滚到底时使用 body 已有的底栏与安全区占位。 */
+  .view[data-view="today"] { padding-bottom: 0; }
+  .today-styles { margin-top: var(--sp-8); }
+  .today-style-card {
+    flex-basis: clamp(126px, 43%, 154px);
+    /* 610px 含顶栏、主卡、风格标题、底栏和留白，矮屏允许继续滚动。 */
+    height: clamp(130px, calc(100vh - 610px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)), 210px);
+  }
+}
+
+@media (max-width: 360px) {
+  .today-hero-copy { padding-inline: var(--sp-4); }
+  .today-hero h1 { font-size: var(--fs-h1); }
+}

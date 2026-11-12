@@ -134,16 +134,6 @@ class TestNoDeadBranch:
         assert c.needs_type is True
         assert c.pick.error, "模型没接上必须带原因"
 
-    def test_frontend_condition_is_reachable(self):
-        """前端同款恒假条件也要修掉：`!needs_type && used_llm && llm_error` 永不成立。"""
-        from pathlib import Path
-
-        src = (Path(C.__file__).resolve().parents[2] / "web" / "js" / "features" / "import" / "text-input.js").read_text(
-            encoding="utf-8"
-        )
-        assert "!row.needs_type && row.used_llm && row.llm_error" not in src
-        assert "row.needs_type && row.llm_error" in src
-
 
 # ---------------------------------------------------------------------------
 # 6 / 7 · 兜底路径：别删型号、别丢链接

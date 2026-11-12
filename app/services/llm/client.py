@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -43,6 +44,52 @@ _REJECT_STATUS = {400, 415, 422}
 #:
 #: 2048 足够本项目所有场景：打标输出受控字段、推荐只排 25 套并写 20~30 字理由。
 MAX_OUTPUT_TOKENS = 2048
+
+#: 能力探测用的输出上限。**不能给 1** —— 推理族模型有最小输出预算，
+#: 1 个 token 会被服务端拒绝，于是"探测失败"被误读成"不支持结构化输出"。
+PROBE_OUTPUT_TOKENS = 32
+
+#: 参数契约变了的模型族：`max_tokens` 换成 `max_completion_tokens`，
+#: 且 temperature 只接受默认值 1（传 0 直接 400）。
+#:
+#: ⚠️ 刻意按**模型名前缀**判断而不是按供应商判断：同一个 base_url 下
+#: 可能既有 gpt-4o（旧参数）又有 gpt-6（新参数），只有模型名能区分。
+#: 不在这个前缀里的（deepseek / doubao / ollama / gpt-4o）保持原行为。
+_REASONING_FAMILY = ("gpt-5", "gpt-6", "o1", "o3", "o4")
+
+
+def _is_reasoning_model(model: str) -> bool:
+    return (model or "").strip().lower().startswith(_REASONING_FAMILY)
+
+
+def _token_fields(
+    model: str,
+    *,
+    temperature: float | None = None,
+    limit: int = MAX_OUTPUT_TOKENS,
+) -> dict[str, Any]:
+    """按模型族给出"输出上限 + 采样温度"这组参数。
+
+    推理族只回 `max_completion_tokens`（不带 temperature）；
+    其余模型回 `max_tokens`，有传温度才带上。
+    """
+    if _is_reasoning_model(model):
+        return {"max_completion_tokens": limit}
+    fields: dict[str, Any] = {"max_tokens": limit}
+    if temperature is not None:
+        fields["temperature"] = temperature
+    return fields
+
+
+def _proxy_url() -> str | None:
+    """模型调用专用的显式代理，来自 `LLM_PROXY`。
+
+    **为什么必须显式传**：httpx 默认 `trust_env=True` 会读 `HTTPS_PROXY`，
+    而本机那个值被宿主程序设成了内部白名单代理 —— 连 OpenAI 只会拿到 502。
+    `LLM_PROXY` 只在模型这一层生效，不污染进程里其他请求；留空则完全
+    沿用 httpx 原有行为（系统环境变量 / 直连）。
+    """
+    return (os.environ.get("LLM_PROXY") or "").strip() or None
 
 
 class _StrategyRejected(RuntimeError):
@@ -208,7 +255,13 @@ class OpenAICompatClient:
         }
 
     def _new_client(self, timeout: float) -> httpx.Client:
-        return httpx.Client(transport=self._transport, timeout=timeout)
+        # transport 只给测试注入 MockTransport 用；httpx 不允许它和 proxy 同时出现
+        if self._transport is not None:
+            return httpx.Client(transport=self._transport, timeout=timeout)
+        proxy = _proxy_url()
+        if proxy:
+            return httpx.Client(timeout=timeout, proxy=proxy)
+        return httpx.Client(timeout=timeout)
 
     def _post(self, payload: dict[str, Any], *, timeout: float) -> dict[str, Any]:
         """发一次 chat/completions。**只发一次，失败不重试** —— 降级交给调用方。"""
@@ -288,8 +341,7 @@ class OpenAICompatClient:
             "model": self.model,
             "messages": [{"role": "user", "content": "ping"}],
             "response_format": response_format,
-            "max_tokens": 1,
-            "temperature": 0,
+            **_token_fields(self.model, temperature=0, limit=PROBE_OUTPUT_TOKENS),
         }
         try:
             with self._new_client(self.timeout) as client:
@@ -309,7 +361,19 @@ class OpenAICompatClient:
         schema_ok = self._probe(
             {
                 "type": "json_schema",
-                "json_schema": {"name": "probe", "schema": {"type": "object"}, "strict": True},
+                # ⚠️ strict 模式要求 `additionalProperties: false` 且 `required` 列全字段。
+                # 只写 `{"type":"object"}` 会被 OpenAI 判 400 —— 于是"支持 schema"被
+                # 误判成"不支持"，静默退化成纯文本抽 JSON（能用但更脆）。
+                "json_schema": {
+                    "name": "probe",
+                    "schema": {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": False,
+                    },
+                    "strict": True,
+                },
             }
         )
         # 接受 json_schema 的供应商必然也接受 json_object，省掉一次探测往返；
@@ -331,16 +395,16 @@ class OpenAICompatClient:
         timeout: float,
         temperature: float,
     ) -> dict[str, Any]:
+        # ⚠️ 输出额度**必须给上限**，不能省略。
+        # 省略时服务端用默认值，而推理模型的 reasoning 与正文**共用**这个额度 ——
+        # 实测：不传上限时它为一个 713 字符的 prompt 写了 7857 字思考，耗时 52s；
+        # 给上限后被截断，反而能在几秒内交出正文。
+        # 字段名（max_tokens / max_completion_tokens）与 temperature 能否传，
+        # 按模型族切换，见 `_token_fields`。
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
-            # ⚠️ `max_tokens` **必须给上限**，不能省略。
-            # 省略时服务端用默认值，而推理模型（deepseek-v4-pro）的 reasoning
-            # 与正文**共用**这个额度 —— 实测：不传 max_tokens 时它为一个
-            # 713字符的 prompt 写了 7857 字思考（completion_tokens=5195），
-            # 耗时 52s。给上限后被截断，反而能在几秒内交出正文。
-            "max_tokens": MAX_OUTPUT_TOKENS,
+            **_token_fields(self.model, temperature=temperature),
         }
         # 抑制思考：这是"从给定候选里挑几套并写一句话"的活，
         # 不需要推理模型的长时间 chain-of-thought。实测 52s → 1.8s。
@@ -372,9 +436,8 @@ class OpenAICompatClient:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
             # 与 `_post_chat` 同理：给上限 + 抑制思考，理由见 MAX_OUTPUT_TOKENS 的注释
-            "max_tokens": MAX_OUTPUT_TOKENS,
+            **_token_fields(self.model, temperature=temperature),
         }
         if config.LLM_THINKING_DISABLED:
             payload["thinking"] = {"type": "disabled"}

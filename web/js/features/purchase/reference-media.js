@@ -33,8 +33,9 @@ function warm(direction, rows) {
     image.onerror = () => finish(false); image.src = api.imageUrl(row.image_path);
   }
 }
-export function referenceRows(direction) {
-  const rows = candidates(direction); warm(direction, rows);
+export function referenceRows(direction, { preload = true } = {}) {
+  const rows = candidates(direction);
+  if (preload) warm(direction, rows);
   return rows;
 }
 function decoding(direction) {

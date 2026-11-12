@@ -41,7 +41,7 @@
  *    「ServiceWorker script evaluation failed」，指不到真正的位置（踩过）。
  */
 // Android打包文件时间固定；更新说明同时改变字节数，避免同长度ETag把新脚本误判为未变化。
-const VERSION = "v52"; // §38：添置AI款式示意、来源隔离与历史照片兼容。
+const VERSION = "v53"; // §43：属性下拉改自绘选择层、折叠面板动画、录入页移除粘贴文案、微信入口下线。
                         // v21：移除独立大图预览，保留裁剪与随表单滚动的操作。
                         // v20：图片大图预览与随表单滚动的操作按钮。
                         // v19：旧WebView兼容的JSON草稿复制。
@@ -83,10 +83,9 @@ const NET_TIMEOUT_MS = 3000;
 
 // 清单由 scripts/checks/web_assets.py 生成，激活检查复用同一清单。
 // BEGIN GENERATED ASSETS
-const ASSET_REVISION = "0a226477aedb400f";
+const ASSET_REVISION = "d41d2400b28ac060";
 const SHELL_ASSETS = [
   "/",
-  "/bind.html",
   "/css/base/page-chrome.css",
   "/css/base/style.css",
   "/css/base/tokens.css",
@@ -99,6 +98,7 @@ const SHELL_ASSETS = [
   "/css/features/purchase-intent.css",
   "/css/features/purchase-reference.css",
   "/css/features/purchase.css",
+  "/css/features/today.css",
   "/css/features/wardrobe.css",
   "/icons/apple-touch-icon.png",
   "/icons/favicon-32.png",
@@ -106,10 +106,13 @@ const SHELL_ASSETS = [
   "/icons/icon-512.png",
   "/icons/icon-maskable-512.png",
   "/icons/logo.svg",
+  "/js/components/collapse.js",
+  "/js/components/cover-bleed.js",
   "/js/components/flatlay-display.js",
   "/js/components/garment-profile.js",
   "/js/components/horizontal-swipe.js",
-  "/js/components/page-transition.js",
+  "/js/components/picker.js",
+  "/js/components/style-deck.js",
   "/js/core/api.js",
   "/js/core/app.js",
   "/js/core/desktop-settings.js",
@@ -124,7 +127,6 @@ const SHELL_ASSETS = [
   "/js/features/import/queue.js",
   "/js/features/import/sheet.js",
   "/js/features/import/store.js",
-  "/js/features/import/text-input.js",
   "/js/features/import/view.js",
   "/js/features/outfits/aesthetic-sheet.js",
   "/js/features/outfits/aesthetic-ui.js",
@@ -133,13 +135,17 @@ const SHELL_ASSETS = [
   "/js/features/outfits/tryon-sheet.js",
   "/js/features/outfits/view.js",
   "/js/features/purchase/assistant-panel.js",
+  "/js/features/purchase/builder.js",
   "/js/features/purchase/intent-session.js",
   "/js/features/purchase/intent-ui.js",
+  "/js/features/purchase/lookbook.js",
   "/js/features/purchase/reference-media.js",
   "/js/features/purchase/reference-store.js",
   "/js/features/purchase/reference.js",
   "/js/features/purchase/sheet.js",
   "/js/features/purchase/view.js",
+  "/js/features/today/recent.js",
+  "/js/features/today/view.js",
   "/js/features/wardrobe/detail.js",
   "/js/features/wardrobe/sheet.js",
   "/js/features/wardrobe/view.js",
@@ -173,7 +179,25 @@ const SHELL_ASSETS = [
   "/reference/aesthetics/thumb-urban.webp",
   "/reference/aesthetics/urban-01.webp",
   "/reference/aesthetics/urban-02.webp",
-  "/reference/aesthetics/urban-03.webp"
+  "/reference/aesthetics/urban-03.webp",
+  "/reference/purchase-lookbook/heritage_v2-1.webp",
+  "/reference/purchase-lookbook/heritage_v2-2.webp",
+  "/reference/purchase-lookbook/heritage_v2-3.webp",
+  "/reference/purchase-lookbook/natural-1.webp",
+  "/reference/purchase-lookbook/natural-2.webp",
+  "/reference/purchase-lookbook/natural-3.webp",
+  "/reference/purchase-lookbook/refined-1.webp",
+  "/reference/purchase-lookbook/refined-2.webp",
+  "/reference/purchase-lookbook/refined-3.webp",
+  "/reference/purchase-lookbook/street_v2-1.webp",
+  "/reference/purchase-lookbook/street_v2-2.webp",
+  "/reference/purchase-lookbook/street_v2-3.webp",
+  "/reference/purchase-lookbook/technical-1.webp",
+  "/reference/purchase-lookbook/technical-2.webp",
+  "/reference/purchase-lookbook/technical-3.webp",
+  "/reference/purchase-lookbook/urban-1.webp",
+  "/reference/purchase-lookbook/urban-2.webp",
+  "/reference/purchase-lookbook/urban-3.webp"
 ];
 // END GENERATED ASSETS
 // 同一VERSION下的不同资源构建也使用独立桶，避免新HTML与旧模块混合。
