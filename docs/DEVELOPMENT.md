@@ -107,6 +107,8 @@ sync_sources.py按清单同步app/web并删除目标中过期副本，排除宿�
 
 ## Git与发布
 
+一次性探针、日志和调试截图放系统临时目录，用完清理。正式效果图和交互原型在 `docs/design/workbench/` 内更新，Android 构建产物使用上面约定的独立构建目录。
+
 ```powershell
 git config core.hooksPath .githooks
 git status --short

@@ -14,6 +14,15 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# 本机临时调试产物
+/_tmp/
+/tty_in.json
+/tty_out.json
+/tty_err.txt
+/tty_exit.txt
+/tty_inner.sh
+/tty_launch.sh
+
 # 编辑器 / 系统
 .vscode/
 .idea/
