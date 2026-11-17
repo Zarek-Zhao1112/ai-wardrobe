@@ -54,3 +54,24 @@ a { color: var(--accent); }
   #screen { height: auto; }
   #live.original { max-width: 100%; height: min(819px, 72vh); }
 }
+
+/* 从本地文件打开时，「交互预览」只能给一张说明卡：file:// 加载不了 App 的模块和接口。
+   写法要克制 —— 这一块只在真的点不到界面时出现，别让人误以为是常态。 */
+.need-server {
+  max-width: 520px; margin: 7vh auto 16px; padding: 18px 20px; text-align: left;
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+}
+.need-server[hidden] { display: none; }
+.need-server h2 { margin: 0 0 10px; font-size: 16px; }
+.need-server p { margin: 0 0 10px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.need-server code { padding: 1px 5px; background: #f0f0f3; border-radius: 4px; font-size: 12px; }
+.need-server .cmd { margin: 0 0 12px; }
+.need-server .cmd code { display: inline-block; padding: 8px 10px; }
+.need-server .note { margin-bottom: 0; font-size: 12px; }
+#open-live-url {
+  min-height: 34px; margin-bottom: 12px; padding: 0 14px; border: 1px solid #b6d4f2;
+  border-radius: 8px; background: #e8f2fd; color: #0055ab; font: inherit; font-size: 13px;
+  font-weight: 650; cursor: pointer;
+}
+#open-live-url:hover { background: #d9e9fb; }
+#open-live-url[hidden] { display: none; }

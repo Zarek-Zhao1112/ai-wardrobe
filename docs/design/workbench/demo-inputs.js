@@ -62,3 +62,23 @@
     };
   }
 })();
+
+// 工作台可以直接进入 AI 通道菜单或模型设置。
+const panel = new URLSearchParams(location.search).get("panel");
+if (panel === "ai-channel" || panel === "ai-models") {
+  document.addEventListener("DOMContentLoaded", () => {
+    const status = document.getElementById("status");
+    if (!status) return;
+    const openMenu = () => {
+      const menu = status.querySelector(".status-menu");
+      const configure = menu?.querySelector("[data-ai-configure]");
+      if (!configure) return;
+      menu.open = true;
+      observer.disconnect();
+      if (panel === "ai-models") configure.click();
+    };
+    const observer = new MutationObserver(openMenu);
+    observer.observe(status, { childList: true, subtree: true });
+    openMenu();
+  }, { once: true });
+}

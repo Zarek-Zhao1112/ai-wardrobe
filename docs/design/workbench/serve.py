@@ -9,8 +9,10 @@ import json
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+import socket
 import sys
 from threading import Lock
+from urllib import request as urllib_request
 from urllib.parse import parse_qs, unquote, urlsplit
 import webbrowser
 
@@ -77,10 +79,18 @@ class PreviewHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    def health(self):
+        return {
+            "status": "healthy", "item_count": len(ITEM_BY_ID), "pending_tagging": 0,
+            "llm_ready": True, "vision_ready": True, "llm_model": "演示模式", "vision_model": "演示模式",
+            "desktop_bridge": {"configured": True}, "flatlay_configured": True,
+            "ai_channel": self.server.ai_channel,
+        }
+
     def do_GET(self):
         path = unquote(urlsplit(self.path).path)
         if path == "/health":
-            return self.respond(200,{"status":"healthy","item_count":len(ITEM_BY_ID),"pending_tagging":0,"llm_ready":True,"vision_ready":True,"llm_model":"演示模式","vision_model":"演示模式","desktop_bridge":{"configured":False},"flatlay_configured":True})
+            return self.respond(200, self.health())
         if path == "/taxonomy":
             return self.respond(200,{"slots":taxonomy.SLOTS,"types":{k:{"label":v[0],"slot":v[1]} for k,v in taxonomy.CLOTHING_TYPES.items()},"vocabularies":taxonomy.VOCABULARIES})
         if path == "/outfits/aesthetics":
@@ -131,14 +141,17 @@ class PreviewHandler(BaseHTTPRequestHandler):
         if path == "/":
             return self.respond(200,(WORKBENCH/"index.html").read_bytes(),"text/html; charset=utf-8")
         if path in ("/app","/app/"):
-            html = (WEB / "index.html").read_bytes().replace(b"<head>", b'<head><script src="/demo-inputs.js"></script>', 1)
+            preview_head = (b'<head><script type="importmap">{"imports":{'
+                            b'"/js/core/ai-channel-settings.js":"/ai-model-preview.js"}}</script>'
+                            b'<script src="/demo-inputs.js"></script>')
+            html = (WEB / "index.html").read_bytes().replace(b"<head>", preview_head, 1)
             return self.respond(200, html, "text/html; charset=utf-8")
         if path.startswith("/screens/"):
             name = PurePosixPath(path.removeprefix("/screens/")).name
             file = WORKBENCH/"screens"/name
             if name.endswith(".png") and file.is_file():
                 return self.respond(200,file.read_bytes(),"image/png")
-        if path in ("/preview.css", "/preview.js", "/demo-inputs.js"):
+        if path in ("/preview.css", "/preview.js", "/demo-inputs.js", "/ai-model-preview.js"):
             kind = "text/css" if path.endswith(".css") else "text/javascript"
             return self.respond(200, (WORKBENCH / path.lstrip("/")).read_bytes(), kind + "; charset=utf-8")
         if path == "/页面说明.md":
@@ -158,6 +171,17 @@ class PreviewHandler(BaseHTTPRequestHandler):
             return self.respond(400, {"detail": "这次演示操作缺少必要的数据。"})
 
     def write_demo(self, path, query):
+        if path == "/settings/ai-channel":
+            body = json.loads(self.read_body())
+            mode = body["mode"]
+            if mode not in ("direct", "account"):
+                raise ValueError()
+            state = {"mode": mode}
+            for field in ("provider", "model", "vision_model"):
+                if field in body:
+                    state[field] = str(body[field])[:150]
+            self.server.ai_channel = {**self.server.ai_channel, **state}
+            return self.respond(200, self.health())
         if path == "/outfits/recommend":
             style = query.get("aesthetic", [""])[0]
             profile = next((row for row in CATALOG["aesthetics"] if row["id"] == style), DEFAULT_STYLE)
@@ -213,17 +237,57 @@ class PreviewHandler(BaseHTTPRequestHandler):
     do_DELETE = do_POST
 
 
+def serving_here(port):
+    """确认这个端口上跑的就是工作台（而不是 App 本体或其他程序）。
+
+    判据用 /preview.js —— 只有工作台提供这个文件。`/health` 不能用：
+    App 本体的 /health 也会带 item_count，会被误认成工作台。
+    必须绕开代理：本机的 http_proxy 指向外部代理，走它访问 127.0.0.1 会失败。
+    """
+    opener = urllib_request.build_opener(urllib_request.ProxyHandler({}))
+    try:
+        with opener.open(f"http://127.0.0.1:{port}/preview.js", timeout=1.5) as response:
+            return b"wardrobe-workbench" in response.read()
+    except OSError:
+        return False
+
+
+def port_state(port):
+    """先问再绑。
+
+    Windows 上 SO_REUSEADDR 允许两个进程同时绑同一个端口（HTTPServer 默认就开着），
+    所以「绑不上就报错」这条路在 Windows 上根本不会触发 —— 必须自己先探一下。
+    """
+    with socket.socket() as probe:
+        probe.settimeout(0.4)
+        if probe.connect_ex(("127.0.0.1", port)) != 0:
+            return "free"
+    return "workbench" if serving_here(port) else "other"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port",type=int,default=8798)
     parser.add_argument("--open",action="store_true",help="启动后打开默认浏览器")
     args = parser.parse_args()
+    # 双击两次不该看到一串 traceback：已经有一个就把它打开，被别人占了就说清楚。
+    state = port_state(args.port)
+    if state != "free":
+        if state == "workbench":
+            print(f"工作台已经在运行：http://127.0.0.1:{args.port}/",flush=True)
+            if args.open:
+                webbrowser.open(f"http://127.0.0.1:{args.port}/")
+            return 0
+        print(f"端口 {args.port} 被其他程序占用。换一个：serve.py --port 8799",flush=True)
+        return 1
     with ThreadingHTTPServer(("127.0.0.1",args.port),PreviewHandler) as server:
         server.demo_lock = Lock()
         server.purchase_jobs = {}
         server.latest_purchase = None
         server.flatlays = {}
         server.imports = {}
+        server.ai_channel = {"mode": "direct", "provider": "openai", "model": "gpt-6-luna",
+                             "vision_model": "", "configured": True, "direct_ready": True}
         url = f"http://127.0.0.1:{server.server_port}/"
         print(f"设计工作台：{url}",flush=True)
         if args.open:
@@ -232,7 +296,8 @@ def main():
             server.serve_forever()
         except KeyboardInterrupt:
             pass
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

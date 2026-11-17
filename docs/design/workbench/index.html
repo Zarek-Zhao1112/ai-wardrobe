@@ -22,6 +22,15 @@
     <section class="stage" aria-labelledby="screen-title">
       <h1 id="screen-title"></h1>
       <p class="caption" id="preview-hint">当前前端源码截图 · 393 × 819 手机视口 · 演示数据</p>
+      <div id="need-server" class="need-server" hidden>
+        <h2>交互预览需要本地服务</h2>
+        <p>这个页面是从本地文件（<code>file://</code>）打开的。浏览器不允许本地文件加载 App 的界面，所以在这里点「交互预览」只能看到这张说明。</p>
+        <p>双击工作台文件夹里的 <strong>启动效果图.bat</strong>，浏览器会自动打开可交互的地址。也可以在项目根目录运行：</p>
+        <p class="cmd"><code>.venv/Scripts/python.exe docs/design/workbench/serve.py --open</code></p>
+        <p id="server-state" role="status">正在检查本地服务…</p>
+        <button type="button" id="open-live-url" hidden>服务已在运行 · 打开交互预览</button>
+        <p class="note">「界面截图」不受影响，仍然可以逐页翻看。</p>
+      </div>
       <img id="screen" class="original" width="393" height="819" alt="">
       <iframe id="live" class="original" title="AI 衣橱交互预览" src="about:blank" hidden></iframe>
     </section>
