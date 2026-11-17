@@ -1,35 +1,26 @@
 /** 属性表单：按 `/taxonomy` 渲染控件，并提供「读值 / 填值」。
  *
- * **录入页和详情页共用这一个模块** —— 两处各写一遍的话，
- * 迟早会出现"详情页能改版型、录入页忘了加"这类分裂。
+ * **详情页与录入页的逐件确认共用这一个模块** —— 两处各写一遍的话，
+ * 迟早会出现"详情页能改版型、确认面板忘了加"这类分裂。
  *
  * 控件选择：
  * - 单值字段（材质/版型/正式度/图案/主色）→ `<select>`
  * - 多值字段（颜色/风格/季节/场合）→ **chip 复选**，不用 `<select multiple>`
  *   （后者要按住 Ctrl 才能多选，难用且容易漏）
+ *
+ * 2026-11-17：录入页那张「手填属性 → 保存」的整表（`formHtml`）已删除，
+ * 它被 CSS 隐藏且一选片就被 `PhotoImport` 重绘掉，从没真正可用过。
+ * 现在渲染入口只剩 `reviewFieldsHtml`（逐件确认）与详情页。
+ *
+ * 2026-11-17（§63）：`reviewFieldsHtml` 只留四个字段时，版型 / 裤长 / 正式度 /
+ * 图案 / 风格 / 季节 / 场合 / 品牌 / 备注**在手机上没有任何手工入口** ——
+ * 详情页是只读的（§33），重新识别又得把整件重认一遍。所以在这张卡里补一个
+ * 「更多属性」折叠：控件形态与当初整表完全一致（单值 select / 多值 chip），
+ * `readForm` / `fillForm` 因此一行都不用改。
  */
 
 import { esc, icon, labelOf } from "./ui.js";
 import { syncPickers } from "../components/picker.js";
-
-const SINGLE_FIELDS = [
-  ["primary_color", "主色", "color"],
-  ["material", "材质", "material"],
-  ["fit", "版型", "fit"],
-  // 裤长是**独立维度**（2026-10-20 从品类里拆出来）：
-  // 「九分运动裤」= 品类 运动裤 + 长度 九分。放在版型后面，
-  // 因为它俩都是"剪裁细节"，和颜色/材质不是一个层级。
-  ["length", "裤长", "length"],
-  ["formality", "正式度", "formality"],
-  ["pattern", "图案", "pattern"],
-];
-
-const MULTI_FIELDS = [
-  ["colors", "颜色", "color"],
-  ["style", "风格", "style"],
-  ["season", "季节", "season"],
-  ["scene", "场合", "scene"],
-];
 
 /** 品类下拉，按槽位分组（50 个品类平铺太难找）。 */
 export function typeOptionsHtml(taxonomy, placeholder = "全部品类") {
@@ -85,6 +76,10 @@ function selectHtml(name, text, vocab, anyLabel = "未指定") {
   return `<label class="field"><span>${esc(text)}</span>${pickerHtml(name, opts, text, kind)}</label>`;
 }
 
+/** 多值字段的 chip 复选。
+ *
+ *  `.chips` 这层不能省：`fillForm` 靠 `boxes[0].closest(".chips")` 找到容器，
+ *  才能给词表外的旧值补一个可取消的 chip。 */
 function chipsHtml(name, text, vocab) {
   const chips = Object.entries(vocab || {})
     .map(
@@ -97,6 +92,30 @@ function chipsHtml(name, text, vocab) {
     <div class="chips">${chips}</div></div>`;
 }
 
+/** 「更多属性」里的单值字段（`[name, 标签, 词表键]`）。
+ *
+ *  裤长是**独立维度**（2026-10-20 从品类里拆出来）：「九分运动裤」= 品类 运动裤 +
+ *  长度 九分。放在版型后面，因为两者都是剪裁细节，和颜色/材质不是一个层级。 */
+const EXTRA_SINGLE_FIELDS = [
+  ["fit", "版型", "fit"],
+  ["length", "裤长", "length"],
+  ["formality", "正式度", "formality"],
+  ["pattern", "图案", "pattern"],
+];
+
+/** 「更多属性」里的多值字段。颜色不在这里 —— 它已经在上面以「主色」出现，
+ *  再给一组同样的 chip 只会让人不知道哪个说了算。 */
+const EXTRA_MULTI_FIELDS = [
+  ["style", "风格", "style"],
+  ["season", "季节", "season"],
+  ["scene", "场合", "scene"],
+];
+
+/** 逐件确认面板的四个可编辑字段（名称 / 品类 / 主色 / 材质）。
+ *
+ *  这是录入流程里**唯一**能改属性的地方 —— 2026-11-17 起录入页不再挂整张表单。
+ *  其余属性收在下面的「更多属性」折叠里，术语和顺序沿用 §34 那版整表。
+ */
 export function reviewFieldsHtml(taxonomy) {
   const vocab = taxonomy?.vocabularies || {};
   return `<div class="import-review-fields">
@@ -104,31 +123,16 @@ export function reviewFieldsHtml(taxonomy) {
     <label class="field"><span>品类</span>${pickerHtml("type", typeOptionsHtml(taxonomy, "选一个品类"), "品类", "type")}</label>
     ${selectHtml("primary_color", "主色", vocab.color)}
     ${selectHtml("material", "材质", vocab.material, "暂未确认")}
-  </div>`;
-}
-
-/** 整张属性表单的 HTML（不含「保存」按钮）。 */
-export function formHtml(taxonomy, { compact = false } = {}) {
-  const vocab = (taxonomy && taxonomy.vocabularies) || {};
-  return `
-    <div class="form-grid${compact ? " compact-fields" : ""}">
-      <label class="field"><span>名称</span>
-        <input type="text" name="name" placeholder="例如：白色棉T恤"></label>
-      <label class="field"><span>品类</span>${pickerHtml("type", typeOptionsHtml(taxonomy, "选一个品类"), "品类", "type")}</label>
-      ${selectHtml("primary_color", compact ? "颜色" : "主色", vocab.color)}
-      ${compact ? "" : chipsHtml("season", "季节", vocab.season)}
-    </div>
-    <details class="more-fields" data-fold="1">
-      <summary>更多属性<span class="faint">材质、版型、风格等</span></summary>
-      <div class="form-grid">
-        ${compact ? chipsHtml("season", "季节", vocab.season) : ""}
-        ${SINGLE_FIELDS.filter(([k]) => k !== "primary_color").map(([k, label, v]) => selectHtml(k, label, vocab[v])).join("")}
-        ${MULTI_FIELDS.filter(([k]) => k !== "season").map(([k, label, v]) => chipsHtml(k, label, vocab[v])).join("")}
-        <label class="field"><span>品牌</span><input type="text" name="brand"></label>
-        <label class="field"><span>备注</span><input type="text" name="notes"></label>
+    <details class="more-fields import-review-more" data-fold="1" data-review-more>
+      <summary>更多属性<span class="faint">版型、风格、季节等</span></summary>
+      <div class="form-grid import-review-extra">
+        ${EXTRA_SINGLE_FIELDS.map(([name, text, key]) => selectHtml(name, text, vocab[key])).join("")}
+        ${EXTRA_MULTI_FIELDS.map(([name, text, key]) => chipsHtml(name, text, vocab[key])).join("")}
+        <label class="field"><span>品牌</span><input type="text" name="brand" placeholder="未填写"></label>
+        <label class="field"><span>备注</span><input type="text" name="notes" placeholder="未填写"></label>
       </div>
     </details>
-  `;
+  </div>`;
 }
 
 const TEXT_NAMES = [

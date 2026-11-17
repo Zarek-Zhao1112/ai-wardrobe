@@ -153,37 +153,8 @@ export function saveVisualDraft(id, value) {
   writes = result.catch(() => {});
   return result;
 }
-// §22：手填草稿使用独立键，清除它不能触碰批量照片。
-let manualMemory, manualDurable = true;
-export const manualStorageAvailable = () => manualDurable;
-export async function loadManualDraft() {
-  if (manualMemory !== undefined) return copy(manualMemory);
-  try {
-    const value = await read("draft", "manual");
-    if (manualMemory === undefined) manualMemory = value?.version === 1 ? value : null;
-  } catch { manualDurable = false; }
-  return copy(manualMemory);
-}
-export function saveManualDraft(value) {
-  const snapshot = copy(value);
-  manualMemory = snapshot;
-  const result = writes.then(async () => {
-    try {
-      const db = await database();
-      await new Promise((resolve, reject) => {
-        const tx = db.transaction("draft", "readwrite");
-        const store = tx.objectStore("draft");
-        if (snapshot) store.put(snapshot, "manual"); else store.delete("manual");
-        tx.oncomplete = resolve;
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error || new Error("手填草稿未保存"));
-      });
-      manualDurable = true;
-    } catch (error) { manualDurable = false; throw error; }
-  });
-  writes = result.catch(() => {});
-  return result;
-}
+// 2026-11-17：手填草稿（§22，键 `manual`）已随录入页整表一起下线 ——
+// 录入页不再有可填的属性表单，草稿存下来也没有地方恢复。
 export function newToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
