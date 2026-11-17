@@ -140,14 +140,20 @@ export function openBridgeSettings(ctx, onSaved, returnFocus = null, restoreEntr
     if (busy) return;
     clearChoices();
     setBusy(true);
-    const settings = { url: form.elements.url.value.trim(), token: form.elements.token.value.trim() };
+    const settings = {
+      url: form.elements.url.value.trim(),
+      token: form.elements.token.value.trim(),
+      keep_direct: ctx.health?.ai_channel?.mode === "direct",
+    };
     layer.querySelector("h2").focus();
     showResult("正在连接电脑…");
     try {
       await ctx.api.configureBridge(settings);
       form.elements.token.value = "";
       // 保存接口已成功即显示事实；健康状态刷新失败仍允许用户重试。
-      showResult("连接已保存。返回录入页后可点击「重新识别」或「重新检查服务」。", "success");
+      showResult(settings.keep_direct
+        ? "连接已保存。关闭后可从右上角设置切换到 WorkBuddy 账号额度。"
+        : "连接已保存。返回录入页后可点击「重新识别」或「重新检查服务」。", "success");
       try { ctx.health = await ctx.api.health(); onSaved(); }
       catch { showResult("连接已保存，状态刷新失败。关闭设置后重新打开应用即可更新状态。", "warning"); }
     } catch (error) {

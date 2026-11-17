@@ -49,6 +49,12 @@ MAX_OUTPUT_TOKENS = 2048
 #: 1 个 token 会被服务端拒绝，于是"探测失败"被误读成"不支持结构化输出"。
 PROBE_OUTPUT_TOKENS = 32
 
+#: 本机直连走高强度思考时的输出上限。
+#: 思考与正文**共用**这一份额度：DeepSeek 开 thinking 后，2048 很容易被 reasoning
+#: 吃光、正文返回空串 —— 看起来像"模型没说话"。给到 8192 留足余量；
+#: 计费按实际用量，不按上限，所以这个数字只是天花板。
+STRONG_OUTPUT_TOKENS = 8192
+
 #: 参数契约变了的模型族：`max_tokens` 换成 `max_completion_tokens`，
 #: 且 temperature 只接受默认值 1（传 0 直接 400）。
 #:
@@ -232,6 +238,7 @@ class OpenAICompatClient:
         *,
         timeout: float = 60.0,
         transport: httpx.BaseTransport | None = None,
+        device_direct: bool = False,
     ) -> None:
         self.base_url = (base_url if base_url is not None else config.LLM_BASE_URL).rstrip("/")
         self.api_key = api_key if api_key is not None else config.LLM_API_KEY
@@ -241,6 +248,7 @@ class OpenAICompatClient:
         # transport 只为可测试性存在：注入 MockTransport 才能在不联网的情况下验证降级链。
         # 生产路径传 None，走 httpx 默认实现。
         self._transport = transport
+        self._device_direct = device_direct
 
     # ------------------------------------------------------------------
     # HTTP 细节
@@ -254,10 +262,57 @@ class OpenAICompatClient:
             "Content-Type": "application/json",
         }
 
+    def _generation_fields(
+        self,
+        temperature: float,
+        limit: int | None = None,
+        *,
+        strong: bool = True,
+    ) -> dict[str, Any]:
+        """按通道给出"输出上限 + 采样温度 + 思考强度"。
+
+        **两条通道都走高强度**（2026-11-17 定）：两家都只有一档高能力模型，文字分析
+        和照片识别共用它，强度也不分档 —— OpenAI 发 `reasoning_effort=high`，
+        DeepSeek 发 `thinking={"type":"enabled"}` + `reasoning_effort=high`。
+
+        - 本机直连（用户自己的 Key，`device_direct=True`）：按供应商显式给。
+        - `.env` 直配（电脑上跑的那条）：推理族模型也给 `reasoning_effort=high`；
+          非推理族保持原样，避免往不认这个字段的端点塞参数。
+
+        实测 gpt-6-luna 高强度打标 5.6s / reasoning 84 token（关思考 3.7s / 0 token），
+        质量换这点延迟是划算的。
+
+        ⚠️ 例外是能力探测：它只有 `PROBE_OUTPUT_TOKENS` 的预算，开着思考时预算可能被
+        reasoning 吃光、响应里没有正文，有的服务端还会因为预算过小而直接 400；
+        探测只看状态码，一 400 就成了"不支持结构化输出"，静默退化到纯文本抽 JSON。
+        所以探测显式传 `strong=False`。
+        """
+        from .channel import DIRECT_MODELS, PROVIDERS
+
+        strength: dict[str, Any] = {}
+        if self._device_direct:
+            if self.base_url == PROVIDERS["openai"] and self.model == DIRECT_MODELS["openai"]:
+                strength["reasoning_effort"] = "high" if strong else "none"
+            elif self.base_url == PROVIDERS["deepseek"] and self.model == DIRECT_MODELS["deepseek"]:
+                strength["thinking"] = {"type": "enabled" if strong else "disabled"}
+                if strong:
+                    strength["reasoning_effort"] = "high"
+        elif config.LLM_THINKING_DISABLED:
+            strength["thinking"] = {"type": "disabled"}
+        elif strong and _is_reasoning_model(self.model):
+            strength["reasoning_effort"] = "high"
+
+        if limit is None:
+            high = strength.get("reasoning_effort") == "high" or strength.get("thinking", {}).get("type") == "enabled"
+            limit = STRONG_OUTPUT_TOKENS if high else MAX_OUTPUT_TOKENS
+        return {**_token_fields(self.model, temperature=temperature, limit=limit), **strength}
+
     def _new_client(self, timeout: float) -> httpx.Client:
         # transport 只给测试注入 MockTransport 用；httpx 不允许它和 proxy 同时出现
         if self._transport is not None:
             return httpx.Client(transport=self._transport, timeout=timeout)
+        if self._device_direct:
+            return httpx.Client(timeout=timeout, trust_env=False)
         proxy = _proxy_url()
         if proxy:
             return httpx.Client(timeout=timeout, proxy=proxy)
@@ -277,7 +332,7 @@ class OpenAICompatClient:
         if resp.status_code in _REJECT_STATUS:
             # 多半是"不认这个 response_format 参数"，用内部信号让 chat_json 降级
             raise _StrategyRejected(
-                f"服务端拒绝该输出模式（HTTP {resp.status_code}）：{resp.text[:200]}"
+                f"服务端拒绝该输出模式（HTTP {resp.status_code}）"
             )
         if resp.status_code >= 400:
             raise _service_error(resp.status_code)
@@ -339,9 +394,9 @@ class OpenAICompatClient:
         """发一个极小请求，看服务端是否接受该 response_format。"""
         payload = {
             "model": self.model,
-            "messages": [{"role": "user", "content": "ping"}],
+            "messages": [{"role": "user", "content": "Return an empty JSON object."}],
             "response_format": response_format,
-            **_token_fields(self.model, temperature=0, limit=PROBE_OUTPUT_TOKENS),
+            **self._generation_fields(0, PROBE_OUTPUT_TOKENS, strong=False),
         }
         try:
             with self._new_client(self.timeout) as client:
@@ -404,13 +459,8 @@ class OpenAICompatClient:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            **_token_fields(self.model, temperature=temperature),
+            **self._generation_fields(temperature),
         }
-        # 抑制思考：这是"从给定候选里挑几套并写一句话"的活，
-        # 不需要推理模型的长时间 chain-of-thought。实测 52s → 1.8s。
-        # ⚠️ 字段是 DeepSeek 专有的，严格端点会 400 → 由 `config.LLM_THINKING_DISABLED` 控制。
-        if config.LLM_THINKING_DISABLED:
-            payload["thinking"] = {"type": "disabled"}
         if strategy == "json_schema":
             payload["response_format"] = {
                 "type": "json_schema",
@@ -437,10 +487,8 @@ class OpenAICompatClient:
             "model": self.model,
             "messages": messages,
             # 与 `_post_chat` 同理：给上限 + 抑制思考，理由见 MAX_OUTPUT_TOKENS 的注释
-            **_token_fields(self.model, temperature=temperature),
+            **self._generation_fields(temperature),
         }
-        if config.LLM_THINKING_DISABLED:
-            payload["thinking"] = {"type": "disabled"}
         try:
             body = self._post(payload, timeout=timeout)
         except _StrategyRejected as e:
@@ -493,6 +541,7 @@ class OpenAICompatClient:
 #: 既白烧配额又加延迟；在限流时更糟（探测被拒 → 误判"不支持" → 多发一次）。
 #: 按 `vision` 分开缓存，视觉与文本用不同模型名，不能混。
 _CLIENTS: dict[bool, "OpenAICompatClient"] = {}
+_DIRECT_CLIENTS: dict[bool, "OpenAICompatClient"] = {}
 
 
 def get_client(*, vision: bool = False) -> LLMClient:
@@ -509,10 +558,32 @@ def get_client(*, vision: bool = False) -> LLMClient:
     **单例的原因**：能力探测结果存在实例上，不复用就等于每次调用都重新探测。
     测试要隔离时用 `reset_client_cache()`，不要绕过工厂直接 new。
     """
-    from .desktop import DesktopClient, load_settings
-    settings = load_settings()
-    if settings is not None:
-        return DesktopClient(settings)
+    from . import channel
+    from .desktop import ACCOUNT, DesktopClient, load_settings
+    state = channel.load()
+    mode = state.get("mode")
+    if mode == "direct":
+        current = channel.profile(state)
+        if state.get("invalid"):
+            raise LLMError("API 直连配置无法读取，请重新保存。", code="model_config")
+        if current:
+            model = current["vision_model" if vision else "model"]
+            if not model:
+                # 一个模型管两用之后，视觉与文本取的是同一个值；这里只是防御性兜底。
+                raise LLMError("模型没有保存成功，请重新保存 API 直连设置。", code="model_config")
+            base_url = channel.PROVIDERS[current["provider"]]
+            cached = _DIRECT_CLIENTS.get(vision)
+            if cached and (cached.model, cached.base_url, cached.api_key) == (model, base_url, current["key"]):
+                return cached
+            client = OpenAICompatClient(base_url, current["key"], model, device_direct=True)
+            _DIRECT_CLIENTS[vision] = client
+            return client
+    else:
+        settings = load_settings()
+        if settings is not None:
+            return DesktopClient({**settings, "engine": ACCOUNT} if mode == "account" else settings)
+        if mode == "account":
+            raise LLMError("请在设置里连接电脑中转。", code="bridge_config")
     # LLM_READY / VISION_READY 已经把 base_url + key + model 三件套都验过了
     ready = config.VISION_READY if vision else config.LLM_READY
     if not ready:
@@ -537,9 +608,20 @@ def get_client(*, vision: bool = False) -> LLMClient:
 def reset_client_cache() -> None:
     """清空客户端缓存。**只在测试里用**（改了 `.env` 或要重新探测时）。"""
     _CLIENTS.clear()
+    _DIRECT_CLIENTS.clear()
 
 
 def model_ready(*, vision: bool = False) -> bool:
     """§19：已配置中转也可调用；离线在真正请求时返回提示。"""
+    from . import channel
     from .desktop import settings_path
-    return settings_path().exists() or (config.VISION_READY if vision else config.LLM_READY)
+    state = channel.load()
+    if state.get("invalid"):
+        return False
+    if state.get("mode") == "direct":
+        current = channel.profile(state)
+        if current:
+            return bool(current["vision_model" if vision else "model"])
+    elif state.get("mode") == "account" or settings_path().exists():
+        return settings_path().exists()
+    return config.VISION_READY if vision else config.LLM_READY

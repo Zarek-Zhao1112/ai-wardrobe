@@ -130,6 +130,7 @@ export const api = {
   configureBridge: (settings) => request("PUT", "/settings/desktop-bridge", { json: settings, timeoutMs: 12000 }),
   repairBridge: (candidate) => request("POST", "/settings/desktop-bridge/repair", { json: { candidate }, timeoutMs: 28000 }),
   setEngine: (engine) => request("PUT", "/settings/engine", { json: { engine }, timeoutMs: 12000 }),
+  configureAIChannel: (settings) => request("PUT", "/settings/ai-channel", { json: settings, timeoutMs: 12000 }),
   taxonomy: () => request("GET", "/taxonomy", { timeoutMs: 10000 }),
 
   // 单品

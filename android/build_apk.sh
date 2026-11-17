@@ -74,32 +74,9 @@ if [ ! -x "$HOST_PY" ]; then HOST_PY=python3; fi
 "$HOST_PY" "$HERE/tools/sync_sources.py" "$REPO" "$PROJ"
 "$HOST_PY" "$REPO/scripts/checks/web_assets.py"
 
-# .env：APK 里也要有，否则视觉打标和 LLM 排序全哑，而且**报错很不像配置问题**。
-# 这一步之前是手工 cp 的 —— 构建目录一丢就打不出能用的包，所以写进脚本。
-# ⚠️ 复制过去之后会**把模型 key 剥空**：手机走 8891 中转用不到 key，
-#    而安装包一旦外流就等于把 key 送人。确实需要 APK 直连模型的例外场景，
-#    构建时显式 KEEP_LLM_KEY=1（见 android/README.md）。
-if [ -f "$REPO/.env" ]; then
-  cp "$REPO/.env" "$PY/.env"
-  if [ "${KEEP_LLM_KEY:-0}" != "1" ]; then
-    "$HOST_PY" - "$PY/.env" <<'STRIP_KEY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-lines = []
-for line in path.read_text(encoding="utf-8").splitlines():
-    lines.append("LLM_API_KEY=" if line.startswith("LLM_API_KEY=") else line)
-path.write_text("\n".join(lines).rstrip("\n") + "\n", encoding="utf-8")
-STRIP_KEY
-    echo "  ✓ 已剥空 APK 内的 LLM_API_KEY（要走直连请用 KEEP_LLM_KEY=1 构建）"
-  else
-    echo "  ! KEEP_LLM_KEY=1：key 会随安装包一起分发"
-  fi
-else
-  "$HOST_PY" "$HERE/tools/sync_sources.py" "$REPO" "$PROJ" --clear-env
-  echo "  ! 仓库根没有 .env —— 打出来的包不会有模型配置"
-fi
+# API Key 由用户在 App 中填写。清掉旧构建目录可能残留的 .env。
+"$HOST_PY" "$HERE/tools/sync_sources.py" "$REPO" "$PROJ" --clear-env
+echo "  ✓ 安装包使用 App 内的本机 AI 配置入口"
 
 echo "=== 3/4 校验快照（改了没同步，就在这里停） ==="
 if ! diff -r "$REPO/web" "$PY/web" >/dev/null; then

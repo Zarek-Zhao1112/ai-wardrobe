@@ -9,6 +9,7 @@ from pydantic import Field
 from .. import db
 from . import aesthetics, garment_profile, purchase, purchase_analysis, purchase_intent as intent
 from . import purchase_reference as refs
+from .llm.channel import load as load_channel
 
 _MODES = {"single", "multi", "outfit"}
 MAX_SELECTED = 12
@@ -71,6 +72,8 @@ def start(uid, request_id, aesthetic, mode, item_ids, *, client=None, background
     with intent._lock:
         if intent._existing(uid, rid, signature):
             return request_state(uid, rid)
+        if load_channel().get("mode") == "direct":
+            raise purchase.PurchaseError("添置需要生成款式图，请在设置里切换到 WorkBuddy 账号额度。", 409)
         previous = _latest(uid)
         if previous and ((uid, previous["id"]) in intent._active or previous["status"] in intent.PENDING or
                 any(job["status"] in refs.PENDING for job in purchase_analysis._snapshots(uid, previous).values())):

@@ -83,7 +83,7 @@ const NET_TIMEOUT_MS = 3000;
 
 // 清单由 scripts/checks/web_assets.py 生成，激活检查复用同一清单。
 // BEGIN GENERATED ASSETS
-const ASSET_REVISION = "d41d2400b28ac060";
+const ASSET_REVISION = "5b85683f9cbcf67f";
 const SHELL_ASSETS = [
   "/",
   "/css/base/page-chrome.css",
@@ -113,6 +113,7 @@ const SHELL_ASSETS = [
   "/js/components/horizontal-swipe.js",
   "/js/components/picker.js",
   "/js/components/style-deck.js",
+  "/js/core/ai-channel-settings.js",
   "/js/core/api.js",
   "/js/core/app.js",
   "/js/core/desktop-settings.js",

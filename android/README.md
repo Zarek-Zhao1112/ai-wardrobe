@@ -43,6 +43,8 @@ adb install -r "C:/wbuild/aiw/app/build/outputs/apk/debug/app-debug.apk"
 - tools/apk_diff.py：APK条目与增量打包空洞诊断。
 - 其余tools/：本机诊断辅助脚本，常规入口仍为build_apk.sh。
 
-构建脚本沿用本机.env；个人安装包可能包含配置，所以APK不提交或随源码发布。发布给其他人前应使用无私密配置的环境。源码没有.env时，脚本会清理构建区旧.env，避免继承上次配置。
+构建会清理构建区旧 `.env`。新安装从右上角设置进入「配置 OpenAI 或 DeepSeek」，填写自己的 API Key，配置保存在应用私有目录。使用 WorkBuddy 账号额度时仍需配对电脑中转。分发前以新构建产物为准，并核对 APK 内没有 `.env`。
+
+分享安装包时设置 `AIW_SHARE_BUILD=1`，关闭 Android 调试和 WebView 调试。此包仍使用本机调试签名，适合私下试装。
 
 历史迁移和Termux记录见docs/history/与deploy/legacy-termux/，当前维护说明见docs/DEVELOPMENT.md。

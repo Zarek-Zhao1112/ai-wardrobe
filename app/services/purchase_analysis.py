@@ -9,6 +9,7 @@ from uuid import uuid5, NAMESPACE_URL
 from .. import db
 from . import aesthetics, purchase, purchase_intent as intent, purchase_reference as refs
 from .llm.client import LLMError
+from .llm.channel import load as load_channel
 
 
 def record(uid, rid):
@@ -40,6 +41,8 @@ def start(uid, request_id, aesthetic, *, preference='', source_draft_id=None, di
     with intent._lock:
         if intent._existing(uid, rid, signature):
             return intent._response(uid, rid)
+        if load_channel().get("mode") == "direct":
+            raise purchase.PurchaseError("添置需要生成款式图，请在设置里切换到 WorkBuddy 账号额度。", 409)
         previous_id = intent._read(uid, 'analysis-latest')
         previous = intent._read(uid, 'request:' + previous_id) if previous_id else None
         if previous and ((uid, previous_id) in intent._active or previous.get('workflow_version') == 2 and

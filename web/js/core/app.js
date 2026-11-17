@@ -12,6 +12,7 @@ import { watchFlatlayImages } from "../components/flatlay-display.js";
 import { esc, icon, toast, serviceSettingsHtml } from "./ui.js";
 import { guardImportNavigation, refreshImportService } from "../features/import/photo-import.js";
 import { openBridgeSettings, restoreBridgeSettings } from "./desktop-settings.js";
+import { openAIChannelSettings } from "./ai-channel-settings.js";
 import { initCollapse } from "../components/collapse.js";
 import { initPickers } from "../components/picker.js";
 import * as add from "../features/import/view.js";
@@ -127,6 +128,38 @@ function renderStatus() {
   statusEl.innerHTML = serviceSettingsHtml(ctx.health);
 }
 
+function refreshAIChannel(health) {
+  ctx.health = health;
+  renderStatus();
+  refreshImportService();
+  refreshItemSheet(ctx);
+  const menu = statusEl.querySelector(".status-menu");
+  if (menu) menu.open = true;
+}
+
+async function switchAIChannel(button) {
+  const mode = button.dataset.aiMode;
+  if (mode === "direct" && !ctx.health?.ai_channel?.direct_ready) {
+    openAIChannelSettings(ctx, refreshAIChannel, button);
+    return;
+  }
+  if (button.getAttribute("aria-pressed") === "true") return;
+  if (mode === "account" && (!ctx.health?.desktop_bridge?.configured || ctx.health.desktop_bridge.invalid)) {
+    button.closest(".status-popover").querySelector("[data-desktop-settings]").click();
+    return;
+  }
+  const options = [...button.closest("[data-ai-channel]").querySelectorAll("button")];
+  options.forEach(option => { option.disabled = true; });
+  try {
+    refreshAIChannel(await api.configureAIChannel({ mode }));
+    statusEl.querySelector('[aria-pressed="true"][data-ai-mode]')?.focus();
+  } catch (error) {
+    toast(error.message || "切换失败，请重试。", "error");
+  } finally {
+    options.forEach(option => { option.disabled = false; });
+  }
+}
+
 /** 切换识别引擎：只影响这台手机发出的请求，电脑自己的模式不动。 */
 async function switchEngine(node) {
   const engine = node.dataset.engine;
@@ -150,6 +183,10 @@ async function switchEngine(node) {
 // 状态浮层不接管页面焦点；Escape 和点外部都可以收起。
 document.addEventListener("click", (ev) => {
   document.querySelectorAll(".status-menu[open]").forEach(menu => { if (!menu.contains(ev.target)) menu.open = false; });
+  const aiMode = ev.target.closest("[data-ai-mode]");
+  if (aiMode) { void switchAIChannel(aiMode); return; }
+  const aiSettings = ev.target.closest("[data-ai-configure]");
+  if (aiSettings) { openAIChannelSettings(ctx, refreshAIChannel, aiSettings); return; }
   const engineButton = ev.target.closest("[data-engine]");
   if (engineButton) { switchEngine(engineButton); return; }
   const button = ev.target.closest("[data-desktop-settings]");

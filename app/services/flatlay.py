@@ -7,6 +7,7 @@ import re
 from .. import taxonomy
 from . import images
 from .llm.client import LLMError
+from .llm.channel import load as load_channel
 from .llm.desktop import bridge_request, load_settings
 
 
@@ -24,6 +25,8 @@ def _token(value):
 
 
 def start(token, data, kind):
+    if load_channel().get("mode") == "direct":
+        raise LLMError("生成平铺图需要手动切换到 WorkBuddy 账号额度。", code="flatlay_not_configured", retryable=False)
     _token(token)
     sniffed = images.sniff(data)
     if not sniffed or sniffed[0] not in ("image/jpeg", "image/png", "image/webp"):

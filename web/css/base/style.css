@@ -794,7 +794,11 @@ body.crop-open { --crop-accent: #63b3ff; --crop-bg: #0b0c10; }
 .bridge-sheet .bridge-repair { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); }
 .bridge-repair .icon { width: 18px; height: 18px; }
 .bridge-candidates button { overflow-wrap: anywhere; }
+.api-settings { border: 1px solid var(--border); }
+.api-settings::backdrop { background: color-mix(in srgb, var(--text) 36%, transparent); }
+.api-settings select { display: block; width: 100%; min-height: 48px; margin-top: var(--sp-2); font: inherit; }
 @media (max-width: 640px) {
+  .api-settings { margin: auto 0 0; max-width: 100%; }
   .import-head { top: calc(var(--topbar-h-sm) + env(safe-area-inset-top, 0px)); }
   .import-photo, .import-photo img { height: 200px; max-height: 200px; }
   .import-actions button { border-radius: var(--radius); }

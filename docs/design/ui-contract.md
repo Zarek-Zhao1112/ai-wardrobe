@@ -1,6 +1,33 @@
 # UI 设计契约
 
-> **当前有效决定**：添置卡星光按钮与选衣生成流程见 §59，「我想要」与今日清单见 §57。搭配与添置的风格卡整图铺满，见 §56。添置主卡自动轮播同风格的三套 AI 穿搭，见 §55。添置未决生图的查询入口见 §54；今日页的最近记录见 §53；搭配与添置的轻叠卡、衣橱新版见 §52；底部导航直接切页见 §51；Android 状态栏与今日页间距见 §49。旧章节若与新章节冲突，以较新的决定为准。
+> **当前有效决定**：直连模型强度统一为高，两家都开思考，见 §61。AI 直连设置只留一个「模型」，文字分析与照片识别共用，见 §60。添置卡星光按钮与选衣生成流程见 §59，「我想要」与今日清单见 §57。搭配与添置的风格卡整图铺满，见 §56。添置主卡自动轮播同风格的三套 AI 穿搭，见 §55。添置未决生图的查询入口见 §54；今日页的最近记录见 §53；搭配与添置的轻叠卡、衣橱新版见 §52；底部导航直接切页见 §51；Android 状态栏与今日页间距见 §49。旧章节若与新章节冲突，以较新的决定为准。
+
+## §61 直连模型强度统一为高（2026-11-17 用户确认）
+
+本机直连（用自己 Key 的通道）只有一档高能力模型，强度也不分档 —— 两家都按**高强度思考**发请求，界面上不加「强度」选项。
+
+| 服务商 | 请求参数 | 实测（797KB 照片打标，同一张图） |
+|---|---|---|
+| OpenAI `gpt-6-luna` | `reasoning_effort: "high"` | 5.6s，reasoning 84 token（关思考 3.7s / 0 token） |
+| DeepSeek `deepseek-flash` | `thinking: {"type": "enabled"}` + `reasoning_effort: "high"` | 未实测（直付余额为 0）；参数取自官方《Thinking Mode》文档，模型默认即开思考、默认档就是 high |
+
+- 实现位置 `app/services/llm/client.py::_generation_fields()`，两条通道都生效：直连按供应商显式给；`.env` 直配（电脑当前跑的那条）对推理族模型也发 `reasoning_effort=high`，非推理族保持原样。
+- 输出上限由 2048 提到 `STRONG_OUTPUT_TOKENS = 8192`（只在真的发高强度时启用）：思考与正文共用这一份额度，2048 容易被 reasoning 吃光、正文返回空串。
+- **能力探测是唯一例外**：`_probe` 只有 32 token 预算，必须 `strong=False`（OpenAI `reasoning_effort: "none"`、DeepSeek `thinking: disabled`）。开着思考时预算可能被 reasoning 吃光，有的服务端还会因为预算过小而直接 400；探测只看状态码，一 400 就成了"不支持结构化输出"，静默退化到纯文本抽 JSON。
+- `LLM_THINKING_DISABLED=true` 时仍按旧行为关思考（换回不认 `reasoning_effort` 的端点靠它兜底）。
+
+验收：`pytest tests/test_llm_strength.py` 六条通过 —— 两家直连分别带 high / enabled，探测带 none / disabled 且上限仍是 32，非直连不带任何强度字段。
+
+## §60 AI 直连设置只留一个模型（2026-11-17 用户确认）
+
+两家服务商各只有一档高能力模型：OpenAI = GPT-6 Luna（`gpt-6-luna`），DeepSeek = V4.1 Flash（`deepseek-flash`）。文字分析和衣物照片识别**共用同一个模型**，界面上不再分「文本模型」和「图片识别模型」，也没有「暂不启用图片识别」这一档。
+
+- 弹层字段收敛成三个：API 服务商 / API Key / 模型。切换服务商时「模型」自动换成该服务商那一档。
+- 说明文案改为「选好服务商即可。文字分析和衣物照片识别用的是同一个模型。」，下方小字保留「两个服务商都只有一档高能力模型，文字分析和照片识别共用它。生成平铺图和添置款式图仍需 WorkBuddy。」
+- `vision_model` 不删：后端 `profile()` 要求这个键存在、打标走视觉通道时读的也是它，所以界面用隐藏字段跟随选中模型提交（前端改 `web/js/core/ai-channel-settings.js`）。
+- 老配置里 `vision_model` 为空（曾经「暂不启用」）的，由 `app/services/llm/channel.py::profile()` 归一成同一模型，升级后打标不会报「请选择图片识别模型」。
+
+验收：工作台交互预览打开 `?mode=live#ai-models`，面板只剩两个下拉（服务商、模型）；切 DeepSeek 后模型变 `DeepSeek V4.1 Flash`、隐藏 `vision_model` 同步为 `deepseek-flash`；保存提交 `{"provider":"deepseek","model":"deepseek-flash","vision_model":"deepseek-flash","mode":"direct"}`，回到 AI 通道菜单显示「API 直连 · DeepSeek」；截图 `screens/ai-models.png` 重抓为 393×819。
 
 ## §59 选衣后生成添置推荐（2026-11-10）
 

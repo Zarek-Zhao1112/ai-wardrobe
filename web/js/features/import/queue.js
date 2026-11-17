@@ -138,7 +138,7 @@ export class ImportQueue {
     try{
       const needRecognition=!resumed&&!options.generationOnly&&!options.restart&&(options.reidentify||!item.recognized||item.error?.kind==='recognition');
       if(needRecognition){
-        if(!this.ctx.health?.vision_ready){this.pause('not_configured','请先连接电脑，再继续自动准备。',item);return;}
+        if(!this.ctx.health?.vision_ready){this.pause('not_configured','请在设置中配置支持图片输入的 API 模型，或切换到 WorkBuddy 账号额度。',item);return;}
         item.assistant={...item.assistant,stage:'recognizing',attempt,startedAt:Date.now(),autoSelect:true};item.error=null;
         if(!await this.save()){item.assistant.stage='queued';this.pause('storage','进度尚未保存到本机，自动准备已暂停。',item);return;}
         if(!canStart())return;
@@ -160,7 +160,14 @@ export class ImportQueue {
       if(!valid())return;
       if(!options.restart&&!options.generationOnly&&photo.display&&item.flatlay?.state==='completed'){item.assistant={...item.assistant,stage:'ready'};return;}
       if(!resumed&&!item.fields.type){item.assistant={...item.assistant,stage:'needs_type'};return;}
-      if(!this.ctx.health?.flatlay_configured){this.pause('not_configured','请先连接电脑，再继续生成平铺图。',item);return;}
+      if(!resumed&&!this.ctx.health?.flatlay_configured){
+        if(this.ctx.health?.ai_channel?.mode==="direct"&&item.recognized){
+          item.assistant={...item.assistant,stage:'ready'};
+          await this.save();
+          return;
+        }
+        this.pause('not_configured','生成平铺图需要连接电脑并使用 WorkBuddy 账号额度。',item);return;
+      }
       if(!resumed&&!canStart())return;
       item.assistant={...item.assistant,stage:'generation',autoSelect:true};item.flatlay||={};
       const state=item.flatlay;if(!resumed)state.kind=item.fields.type;

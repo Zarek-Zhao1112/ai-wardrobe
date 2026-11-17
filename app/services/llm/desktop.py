@@ -204,14 +204,14 @@ def set_engine(engine):
 _probe_gate = {"at": 0.0}
 
 
-def bridge_status():
+def bridge_status(*, probe=True):
     try:
         settings = load_settings()
     except LLMError:
         return {"configured": True, "url": "", "model": MODEL, "invalid": True, "engine": "", "engines": {}}
     if not settings:
         return {"configured": False, "url": "", "model": MODEL, "engine": "", "engines": {}}
-    if not settings.get("api_model"):
+    if probe and not settings.get("api_model"):
         # 升级前保存的配置里没有这个字段。不补探的话「API 直连」永远不出现，
         # 而用户没有任何理由重新进设置页配对一次 —— 等于升级后功能凭空消失。
         now = time.monotonic()

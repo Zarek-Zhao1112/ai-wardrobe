@@ -68,13 +68,30 @@ export function serviceSettingsHtml(health) {
     '<button type="button" role="radio" aria-checked="' + (engine === key) + '" data-engine="' + key +
     '" class="engine-option' + (engine === key ? " on" : "") + '"><span class="engine-dot" aria-hidden="true"></span>' +
     '<span class="engine-copy"><strong>' + title + "</strong><span>" + note + "</span></span></button>";
-  const picker = canPick
+  const channel = h.ai_channel;
+  const active = channel?.mode === "legacy" && engine === "account" ? "account" : channel?.mode;
+  const provider = { openai: "OpenAI", deepseek: "DeepSeek" }[channel?.provider] || "";
+  const channelOption = (mode, title, description) =>
+    '<button type="button" class="engine-option' + (active === mode ? " on" : "") +
+    '" data-ai-mode="' + mode + '" aria-pressed="' + (active === mode) + '">' +
+    '<span class="engine-dot" aria-hidden="true"></span><span class="engine-copy"><strong>' + title +
+    '</strong><span>' + description + '</span></span></button>';
+  const picker = channel
+    ? '<div class="engine-picker" data-ai-channel aria-label="AI 通道"><span class="engine-title">AI 通道</span>' +
+      channelOption("direct", "API 直连", "本机联网 · 按 API 用量计费") +
+      '<button type="button" data-ai-configure>' + (provider ? provider + " · API 设置" : "配置 OpenAI 或 DeepSeek") + '</button>' +
+      channelOption("account", "WorkBuddy 账号额度", "使用电脑已登录账号的额度") + '</div>'
+    : canPick
     ? '<div class="engine-picker" role="radiogroup" aria-label="识别引擎"><span class="engine-title">识别引擎</span>' +
       option("account", "账号额度", "不花钱 · 每次十几秒") +
       option("api", "API 直连", "按量计费 · 每次几秒") +
       "</div>"
     : "";
-  const hint = !bridge.configured
+  const hint = channel ? ({
+    direct: channel.direct_ready ? "当前通道：API 直连" + (provider ? " · " + provider : "") : "当前通道：API 直连 · 待配置",
+    account: "当前通道：WorkBuddy 账号额度",
+    legacy: "当前通道：电脑中转 API（旧版设置）",
+  }[active] || "") : !bridge.configured
     ? (h.vision_ready ? "照片自动识别可用" : "视觉模型未配置，属性可手动填写")
     : engine === "api"
       ? "走电脑直调模型，需电脑代理开着"

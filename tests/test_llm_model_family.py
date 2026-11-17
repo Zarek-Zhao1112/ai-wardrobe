@@ -42,6 +42,8 @@ class TestReasoningFamily:
         assert seen, "应当至少发出一次请求"
         for payload in seen:
             assert "max_tokens" not in payload, "★ 推理族收到 max_tokens 会直接 400"
+            # 测试环境把 `LLM_THINKING_DISABLED` 写死成 true → 走"关思考"分支，上限仍是 MAX。
+            # 高强度那条分支由 `tests/test_llm_strength.py` 单独钉。
             assert payload["max_completion_tokens"] == client_mod.MAX_OUTPUT_TOKENS
             assert "temperature" not in payload, "★ 推理族只接受默认温度，传 0 会 400"
 

@@ -14,6 +14,7 @@ from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 from .. import db
 from . import images, purchase
 from .llm.desktop import bridge_request, load_settings
+from .llm.channel import load as load_channel
 from .llm.client import LLMError
 
 _lock = threading.RLock()
@@ -164,6 +165,8 @@ def _apply(uid, record, response):
 
 def _submit(uid, record, spec):
     try:
+        if load_channel().get("mode") == "direct":
+            raise LLMError("生成款式图需要手动切换到 WorkBuddy 账号额度。", code="reference_not_configured", retryable=False)
         settings = load_settings()
         if not settings: raise LLMError('请先连接电脑搜图服务。', code='reference_not_configured', retryable=False)
         endpoint = '/style/jobs' if record.get('image_origin') == 'generated' else '/reference/jobs'
@@ -257,7 +260,7 @@ def _start(uid, plan_id, direction_id, job_id, spec, *, retry=False, image_origi
 
 def launch_for_plan(uid, plan):
     """只从用户显式提交的新推荐调用；回看、GET与重启不进入这里。"""
-    if not load_settings(): return
+    if load_channel().get("mode") == "direct" or not load_settings(): return
     ensure_for_plan(uid, plan['id'])
 
 
