@@ -230,6 +230,24 @@ class PreviewHandler(BaseHTTPRequestHandler):
                 item = self.server.imports.setdefault(token, item)
                 ITEM_BY_ID[item["id"]] = item
             return self.respond(200, {"item": item})
+        if path.startswith("/items/") and path.count("/") == 2:
+            # §64 编辑衣物信息：直接改内存里那条演示单品。
+            # 只活在进程里 —— 工作台重启就复位，演示不会污染任何真实数据。
+            body = json.loads(self.read_body() or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError()
+            demo = ITEM_BY_ID.get(path.rsplit("/", 1)[-1])
+            if not demo:
+                return self.respond(404, {"detail": "没有这条演示单品"})
+            with self.server.demo_lock:
+                demo.update(body)
+                # 改品类时 label / slot 要跟着换，否则详情页显示的还是旧品类名，
+                # 「裤长」该不该出现也判错（slot 决定）。
+                if body.get("type"):
+                    info = taxonomy.CLOTHING_TYPES.get(str(body["type"]))
+                    if info:
+                        demo["type_label"], demo["slot"] = info[0], info[1]
+            return self.respond(200, demo)
         return self.respond(501, {"detail": "该操作暂未提供演示数据。"})
 
     do_PUT = do_POST

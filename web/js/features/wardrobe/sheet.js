@@ -53,6 +53,9 @@ function canClose(entry) {
   if (document.querySelector(".bridge-modal,.import-modal")) { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return false; }
   if (entry.content.detailGate?.busy && entry.content.dataset.flatlayRunning !== "true") { toast("正在保存，请稍候"); return false; }
   if (entry.content.deleteDialog) { entry.content.dismissDelete(); return false; }
+  // §64 编辑弹层开着时，关闭详情要先把弹层收掉 —— 否则用户按返回/点遮罩
+  // 直接把整张详情关了，弹层里改到一半的内容连提示都没有就没了。
+  if (entry.content.editDialog) { entry.content.dismissEdit(); return false; }
   return true;
 }
 function requestClose() {
@@ -95,17 +98,19 @@ export async function openItemSheet(ctx, id, base) {
   entry.onResize = viewport; window.addEventListener("resize", viewport); window.visualViewport?.addEventListener("resize", viewport);
   entry.onFocus = event => {
     if (active !== entry || document.querySelector(".bridge-modal,.import-modal")) return;
-    const scope = entry.content.deleteDialog || entry.panel;
+    const scope = entry.content.deleteDialog || entry.content.editDialog || entry.panel;
     if (!scope.contains(event.target)) scope.focus({ preventScroll: true });
   };
   entry.onKey = event => {
     if (active !== entry || document.querySelector(".bridge-modal,.import-modal")) return;
     if (event.key === "Escape") {
       event.preventDefault();
-      if (entry.content.deleteDialog || !entry.content.flipDetailBack?.()) requestClose();
+      // 编辑弹层在最上层：Esc 先收弹层，详情页留在原地（同删除确认）。
+      if (entry.content.editDialog) entry.content.dismissEdit();
+      else if (entry.content.deleteDialog || !entry.content.flipDetailBack?.()) requestClose();
     }
     if (event.key === "Tab") {
-      const scope = entry.content.deleteDialog || entry.panel;
+      const scope = entry.content.deleteDialog || entry.content.editDialog || entry.panel;
       const nodes = [...scope.querySelectorAll(focusSelector)].filter(n => n.getClientRects().length && !n.disabled && n.tabIndex >= 0 && !n.closest('[aria-hidden="true"]'));
       if (!nodes.length) { event.preventDefault(); scope.focus(); return; }
       if (event.shiftKey && (document.activeElement === nodes[0] || document.activeElement === scope)) { event.preventDefault(); nodes[nodes.length - 1].focus(); }
