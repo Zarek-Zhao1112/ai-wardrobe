@@ -80,10 +80,18 @@ class PreviewHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def health(self):
+        engine = getattr(self.server, "engine", "api")
         return {
             "status": "healthy", "item_count": len(ITEM_BY_ID), "pending_tagging": 0,
-            "llm_ready": True, "vision_ready": True, "llm_model": "演示模式", "vision_model": "演示模式",
-            "desktop_bridge": {"configured": True}, "flatlay_configured": True,
+            "llm_ready": True, "vision_ready": True,
+            "llm_model": "gpt-6-luna" if engine == "api" else "deepseek-v4.1-flash",
+            "vision_model": "gpt-6-luna" if engine == "api" else "deepseek-v4.1-flash",
+            # §65：走电脑时上游由 engine 决定，两条都报上来前端才给选择器。
+            "engine": engine,
+            "desktop_bridge": {"configured": True, "invalid": False, "engine": engine,
+                               "url": "http://192.168.0.111:8891", "api_model": "gpt-6-luna",
+                               "engines": {"account": "deepseek-v4.1-flash", "api": "gpt-6-luna"}},
+            "flatlay_configured": True,
             "ai_channel": self.server.ai_channel,
         }
 
@@ -171,6 +179,12 @@ class PreviewHandler(BaseHTTPRequestHandler):
             return self.respond(400, {"detail": "这次演示操作缺少必要的数据。"})
 
     def write_demo(self, path, query):
+        if path == "/settings/engine":
+            engine = json.loads(self.read_body()).get("engine")
+            if engine not in ("account", "api"):
+                raise ValueError()
+            self.server.engine = engine
+            return self.respond(200, self.health())
         if path == "/settings/ai-channel":
             body = json.loads(self.read_body())
             mode = body["mode"]
@@ -304,8 +318,10 @@ def main():
         server.latest_purchase = None
         server.flatlays = {}
         server.imports = {}
-        server.ai_channel = {"mode": "direct", "provider": "openai", "model": "gpt-6-luna",
-                             "vision_model": "", "configured": True, "direct_ready": True}
+        # 默认停在「电脑中转 + 电脑上游=API 计费」，就是 §65 落地后的真实状态。
+        server.engine = "api"
+        server.ai_channel = {"mode": "account", "provider": "openai", "model": "gpt-6-luna",
+                             "vision_model": "gpt-6-luna", "configured": True, "direct_ready": True}
         url = f"http://127.0.0.1:{server.server_port}/"
         print(f"设计工作台：{url}",flush=True)
         if args.open:

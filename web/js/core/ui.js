@@ -77,11 +77,18 @@ export function serviceSettingsHtml(health) {
     '" data-ai-mode="' + mode + '" aria-pressed="' + (active === mode) + '">' +
     '<span class="engine-dot" aria-hidden="true"></span><span class="engine-copy"><strong>' + title +
     '</strong><span>' + description + '</span></span></button>';
+  const upstream = canPick
+    ? '<div class="engine-picker" role="radiogroup" aria-label="电脑上游"><span class="engine-title">电脑上游</span>' +
+      option("account", "账号额度", "不占 API 额度 · 每次十几秒") +
+      option("api", "API 计费", "按 OpenAI 用量 · 每次几秒") +
+      "</div>"
+    : "";
   const picker = channel
     ? '<div class="engine-picker" data-ai-channel aria-label="AI 通道"><span class="engine-title">AI 通道</span>' +
-      channelOption("direct", "API 直连", "本机联网 · 按 API 用量计费") +
+      channelOption("direct", "API 直连", "手机自己联网 · 按 API 用量计费") +
       '<button type="button" data-ai-configure>' + (provider ? provider + " · API 设置" : "配置 OpenAI 或 DeepSeek") + '</button>' +
-      channelOption("account", "WorkBuddy 账号额度", "使用电脑已登录账号的额度") + '</div>'
+      channelOption("account", "电脑中转", "经电脑出网 · 上游在下方选") + '</div>' +
+      (active === "account" ? upstream : "")
     : canPick
     ? '<div class="engine-picker" role="radiogroup" aria-label="识别引擎"><span class="engine-title">识别引擎</span>' +
       option("account", "账号额度", "不花钱 · 每次十几秒") +
@@ -90,7 +97,7 @@ export function serviceSettingsHtml(health) {
     : "";
   const hint = channel ? ({
     direct: channel.direct_ready ? "当前通道：API 直连" + (provider ? " · " + provider : "") : "当前通道：API 直连 · 待配置",
-    account: "当前通道：WorkBuddy 账号额度",
+    account: engine === "api" ? "当前通道：电脑中转 · 按 API 用量计费" : "当前通道：WorkBuddy 账号额度",
     legacy: "当前通道：电脑中转 API（旧版设置）",
   }[active] || "") : !bridge.configured
     ? (h.vision_ready ? "照片自动识别可用" : "视觉模型未配置，属性可手动填写")

@@ -559,7 +559,7 @@ def get_client(*, vision: bool = False) -> LLMClient:
     测试要隔离时用 `reset_client_cache()`，不要绕过工厂直接 new。
     """
     from . import channel
-    from .desktop import ACCOUNT, DesktopClient, load_settings
+    from .desktop import DesktopClient, load_settings
     state = channel.load()
     mode = state.get("mode")
     if mode == "direct":
@@ -581,7 +581,10 @@ def get_client(*, vision: bool = False) -> LLMClient:
     else:
         settings = load_settings()
         if settings is not None:
-            return DesktopClient({**settings, "engine": ACCOUNT} if mode == "account" else settings)
+            # `mode` 只回答「走不走电脑」，走哪条上游由 `engine` 决定：
+            # account → 电脑的 CLI 账号额度；api → 电脑直调已配置的模型。
+            # 这里以前把 account 模式硬钉成 ACCOUNT，等于「走电脑 + 用 API」没有入口。
+            return DesktopClient(settings)
         if mode == "account":
             raise LLMError("请在设置里连接电脑中转。", code="bridge_config")
     # LLM_READY / VISION_READY 已经把 base_url + key + model 三件套都验过了
