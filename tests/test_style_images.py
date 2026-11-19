@@ -138,6 +138,7 @@ def test_style_cli_uses_fixed_model_exactly_one_tool_and_no_source(tmp_path,monk
           {'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'img','content':[{'type':'text','text':json.dumps({'type':'image_gen_tool_result','localPath':str(output)})}]}]}}]
         return SimpleNamespace(returncode=0,stdout='\n'.join(json.dumps(e) for e in events).encode())
     monkeypatch.setattr(style.subprocess,'run',run)
+    monkeypatch.setattr(style,'run_cli',run)
     rows=style.run_style_image(Path('node'),Path('entry'),tmp_path,SPEC,lambda:{})
     assert len(calls)==2 and calls[1][calls[1].index('--text-to-image-model')+1]=='hunyuan-image-alpha'
     assert rows[0]['origin']=='generated' and 'source_url' not in rows[0]

@@ -115,15 +115,15 @@ def test_cli_flags_environment_and_result(monkeypatch, isolated):
         assert "--no-session-persistence" in args and "--strict-mcp-config" in args
         assert "CODEBUDDY_API_KEY" not in kwargs["env"] and "LLM_API_KEY" not in kwargs["env"]
         assert not list(Path(kwargs["cwd"]).iterdir())
-        assert json.loads(kwargs["input"])["message"]["content"] == [{"type": "text", "text": "x"}]
+        assert json.loads(kwargs["stdin_bytes"])["message"]["content"] == [{"type": "text", "text": "x"}]
         return SimpleNamespace(returncode=0, stdout="\n".join(json.dumps(e) for e in events).encode(), stderr=b"")
-    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(bridge, "run_cli", run)
     assert bridge.execute_cli(isolated / "cli.exe", "system", [{"type": "text", "text": "x"}], json_output=True) == '{"type":"tshirt"}'
 
 
 @pytest.mark.parametrize("diagnostic,status", [(b"Authentication required", 401), (b"Insufficient credits", 402), (b"internal error secret", 502)])
 def test_cli_failure_safe(monkeypatch, isolated, diagnostic, status):
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stdout=b"", stderr=diagnostic))
+    monkeypatch.setattr(bridge, "run_cli", lambda *a, **k: SimpleNamespace(returncode=1, stdout=b"", stderr=diagnostic))
     with pytest.raises(HTTPException) as caught:
         bridge.execute_cli(isolated / "cli.exe", "", [], json_output=True)
     assert caught.value.status_code == status and "secret" not in caught.value.detail
@@ -132,7 +132,7 @@ def test_cli_failure_safe(monkeypatch, isolated, diagnostic, status):
 def test_cli_timeout(monkeypatch, isolated):
     def timeout(*args, **kwargs):
         raise subprocess.TimeoutExpired("cli", 75)
-    monkeypatch.setattr(subprocess, "run", timeout)
+    monkeypatch.setattr(bridge, "run_cli", timeout)
     with pytest.raises(HTTPException) as caught:
         bridge.execute_cli(isolated / "cli.exe", "", [], json_output=True)
     assert caught.value.status_code == 504
@@ -156,7 +156,7 @@ def test_cli_complete_result_can_survive_exit_timeout(monkeypatch, isolated, cap
     def run(*args,**kwargs):
         calls.append(1)
         raise subprocess.TimeoutExpired('cli',75,output=output,stderr=b'private secret')
-    monkeypatch.setattr(subprocess,'run',run)
+    monkeypatch.setattr(bridge,'run_cli',run)
     if change is None:
         assert bridge.execute_cli(isolated/'cli','private prompt',[],json_output=True)=='{"type":"tshirt"}'
     else:
@@ -172,7 +172,7 @@ def test_cli_complete_result_can_survive_exit_timeout(monkeypatch, isolated, cap
 def test_long_system_rejected_before_spawn(monkeypatch, isolated):
     def unexpected(*a, **k):
         raise AssertionError("不应启动进程")
-    monkeypatch.setattr(subprocess, "run", unexpected)
+    monkeypatch.setattr(bridge, "run_cli", unexpected)
     with pytest.raises(HTTPException) as caught:
         bridge.execute_cli(isolated / "cli.exe", "文" * 40000, [{"type": "text", "text": "x"}], json_output=True)
     assert caught.value.status_code == 413

@@ -150,6 +150,7 @@ const TAP_TARGETS = `(() => {
   const labels = [...document.querySelectorAll('input[type=checkbox], input[type=radio]')]
     .map(el => el.closest('label')).filter(Boolean);
   const els = [...new Set([...document.querySelectorAll(sel), ...labels])].filter(el =>
+    !el.closest('[inert], [aria-hidden="true"]') &&
     el.offsetParent !== null && (!el.checkVisibility || el.checkVisibility()));
   const small = els
     .map(el => { const r = el.getBoundingClientRect();
@@ -228,6 +229,31 @@ const SW_STATE = `(async () => {
   await cli.send("Page.enable");
   await cli.send("Runtime.enable");
 
+  // 自证小触控目标会被发现，后台卡片与 inert 容器不参与触控测量。
+  const fixture = '<button style="width:20px;height:20px;padding:0">x</button>' +
+    '<button style="width:44px;height:44px;padding:0">ok</button>' +
+    '<div inert><button style="width:20px;height:20px;padding:0">x</button></div>' +
+    '<div aria-hidden="true"><button style="width:20px;height:20px;padding:0">x</button></div>';
+  await cli.send("Page.navigate", { url: "data:text/html," + encodeURIComponent(fixture) });
+  await sleep(300);
+  const selfCheck = await evalJson(cli, TAP_TARGETS);
+  if (selfCheck.checked !== 2 || selfCheck.small_count !== 1) throw new Error("触控目标检查自证失败");
+
+  async function navigateReady(url) {
+    await cli.send("Page.navigate", { url });
+    await sleep(400);
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const ready = await evalJson(cli, `(() => {
+        const view = document.getElementById('view');
+        return document.readyState === 'complete' && window.__wz?.boot === 'ok' &&
+          !!view?.children.length && !/^加载中[….]*$/.test(view.textContent.trim());
+      })()`);
+      if (ready) return;
+      await sleep(100);
+    }
+    throw new Error("页面未加载就绪：" + url);
+  }
+
   const report = { layout: {}, mobile_subpages: {}, sw: null, console_errors: [], exceptions: [] };
 
   cli.on("Runtime.consoleAPICalled", (p) => {
@@ -244,14 +270,12 @@ const SW_STATE = `(async () => {
       width: vp.width, height: vp.height,
       deviceScaleFactor: vp.mobile ? 2 : 1, mobile: vp.mobile,
     });
-    await cli.send("Page.navigate", { url: BASE });
-    await sleep(1800);
+    await navigateReady(BASE);
     report.layout[vp.name] = await evalJson(cli, LAYOUT);
 
     if (vp.name === "mobile-390") {
       for (const hash of ["gaps", "add", "outfits"]) {
-        await cli.send("Page.navigate", { url: BASE + "#" + hash });
-        await sleep(1200);
+        await navigateReady(BASE + "#" + hash);
         const ov = await evalJson(cli, OVERFLOW_ONLY);
         ov.tap = await evalJson(cli, TAP_TARGETS);
         ov.tabbar_clearance = await evalJson(cli, TABBAR_CLEARANCE);
@@ -259,8 +283,7 @@ const SW_STATE = `(async () => {
         const s = await cli.send("Page.captureScreenshot", { format: "png" });
         fs.writeFileSync(`${OUT}/mobile-390-${hash}.png`, Buffer.from(s.data, "base64"));
       }
-      await cli.send("Page.navigate", { url: BASE + "#wardrobe" });
-      await sleep(1200);
+      await navigateReady(BASE + "#wardrobe");
     }
 
     const shot = await cli.send("Page.captureScreenshot", { format: "png" });
@@ -315,7 +338,10 @@ const SW_STATE = `(async () => {
 
   console.log(JSON.stringify(report, null, 2));
   ws.close();
-  process.exit(0);
+  const failures = [...Object.values(report.layout), ...Object.values(report.mobile_subpages)]
+    .some(row => row.overflow_x || row.tap?.small_count || row.tabbar_clearance?.ok === false);
+  process.exit(failures || report.console_errors.length || report.exceptions.length ||
+    !report.sw?.after_register?.active || report.manifest?.status !== 200 ? 1 : 0);
 })().catch((e) => {
   console.error("FAILED:", e && e.message);
   process.exit(1);
