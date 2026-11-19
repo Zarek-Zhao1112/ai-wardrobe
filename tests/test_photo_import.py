@@ -162,6 +162,32 @@ def test_invalid_token_is_400(context):
     response = context[0].post("/items/import-photo", data={"token": "../bad", "payload": json.dumps(PAYLOAD)}, files={"file": ("p.png", PNG)})
     assert response.status_code == 400
 
+def test_commit_without_flatlay_still_saves(context, uid):
+    """§66：没有平铺图也能入库 —— 原照片留着当封面，展示图留空等以后补。
+
+    以前 display 为空会被前端当成「这次没存上」，于是生图额度耗尽 / 电脑离线时
+    整件进不了衣橱。后端本来就允许，这里把这条路钉住，别再被收窄。
+    """
+    client, made = context
+    token = uuid.uuid4().hex
+    made.append(token)
+    response = client.post("/items/import-photo", data={"token": token, "payload": json.dumps(PAYLOAD)},
+        files={"file": ("photo.png", PNG), "original": ("original.png", PNG + b"original")})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    item = body["item"]
+    assert body["replayed"] is False
+    assert item["display_image_path"] is None and item["display_selected"] is False
+    assert (db.IMAGES_DIR / item["image_path"]).read_bytes() == PNG
+    assert (db.IMAGES_DIR / item["original_image_path"]).read_bytes() == PNG + b"original"
+    assert client.get(f"/items/import-photo/{token}").json()["saved"] is True
+    # 重放不能因为「没有展示图」被判成另一件；重放必须带同一份原图（指纹含它）。
+    again = client.post("/items/import-photo", data={"token": token, "payload": json.dumps(PAYLOAD)},
+        files={"file": ("photo.png", PNG), "original": ("original.png", PNG + b"original")})
+    assert again.status_code == 200 and again.json()["replayed"] is True
+    assert again.json()["item"]["id"] == item["id"]
+
+
 def test_client_path_and_hash_are_ignored(context):
     _, result = post(context, {**PAYLOAD, "image_path": "../bad", "image_hash": "fake"})
     item = result.json()["item"]

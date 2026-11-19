@@ -269,4 +269,13 @@ export const api = {
   presentationUrl(item) {
     return this.imageUrl(item.display_image_path, item.updated_at);
   },
+  /** §66：允许没有平铺图入库，所以「展示这件衣服」要能退回原照片。
+   *
+   * 只给衣橱卡片、详情页这类「认出这是哪件」的场景用。搭配 / 试穿那些
+   * 需要白底平铺素材的地方继续用 `presentationUrl` —— 原图带背景和人体，
+   * 混进搭配会很难看。
+   */
+  coverUrl(item) {
+    return this.presentationUrl(item) || this.imageUrl(item.image_path, item.updated_at);
+  },
 };

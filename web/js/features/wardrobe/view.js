@@ -25,7 +25,7 @@ const PAGE_SIZE = 60;
 const SEARCH_DEBOUNCE_MS = 250;
 
 function cardHtml(item) {
-  const url = api.presentationUrl(item);
+  const url = api.coverUrl(item);
   const media = url
     ? `<img src="${esc(url)}" data-flatlay-source="${esc(url)}" alt="" loading="lazy">`
     : `<span class="ph">${esc(item.type_label || "无照片")}</span>`;

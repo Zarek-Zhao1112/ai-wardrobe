@@ -36,7 +36,7 @@ export async function mount(root, ctx, id, restore = null) {
     ["正式度", value("formality", item.formality)], ["场合", value("scene", item.scene)],
     ["备注", known(item.notes) ? item.notes : ""],
   ]);
-  const url = api.presentationUrl(item);
+  const url = api.coverUrl(item);
   root.innerHTML = `<div class="item-detail-card" data-flipped="false">
       <button type="button" class="item-detail-flip" data-flip aria-expanded="false" aria-controls="item-detail-info" aria-label="查看衣物信息" title="查看衣物信息">
         <span data-flip-open>${icon("clipboard")}</span><span data-flip-back hidden>${icon("replay")}</span>

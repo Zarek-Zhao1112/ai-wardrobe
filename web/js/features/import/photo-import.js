@@ -325,8 +325,8 @@ class ImportFlow {
       try {
         const result = await api.photoImportStatus(id);
         if (!this.valid(id, sequence)) return;
-        if (result.saved && result.item.display_image_path && !item.recovered) { await this.saved(result.item); return; }
-        if (result.saved && !item.recovered) { item.recovered = result.item; item.pending = null; }
+        // §66：saved 表示这件已经入库了，有没有平铺图都不改变这个事实。
+        if (result.saved && !item.recovered) { await this.saved(result.item); return; }
       } catch {}
       item.error = { kind: "save", text: "上次保存结果待确认，点击重试会核对同一件，不会重复创建。" };
     }
@@ -427,6 +427,14 @@ class ImportFlow {
     const state = this.item?.flatlay;
     return Boolean(this.photo?.display && state && state.sourceValid !== false && (!state.kind || state.kind === this.item.fields.type) && (state.revision === undefined || state.revision === this.item.revision));
   }
+  /* §66：平铺图不是入库前提。已经认出品类 + 原图在本地，就可以直接用这张照片入库。
+     生图额度、电脑离线、队列暂停都不该把整件锁死 —— 那会让用户只剩「跳过」一条路。 */
+  attrReady() {
+    return Boolean(this.photo && this.item?.fields.type);
+  }
+  canSave() {
+    return Boolean(this.item?.pending) || this.displayReady() || this.attrReady();
+  }
   flipReview(open) {
     if (this.saving || this.switching || this.composing) return;
     if (!open) this.capture();
@@ -444,7 +452,7 @@ class ImportFlow {
     const working = processing || this.saving;
     const needsType = this.item.assistant?.stage === "needs_type" && !this.item.fields.type;
     const ready = this.displayReady();
-    const canReview = Boolean(this.photo && (this.photo.display || this.item.pending || needsType));
+    const canReview = Boolean(this.photo && (this.photo.display || this.item.pending || needsType || this.item.fields.type));
     if (processing || !canReview) this.reviewOpen = false;
     const review = this.root.querySelector("[data-import-review]");
     review.dataset.open = String(Boolean(this.reviewOpen));
@@ -473,7 +481,7 @@ class ImportFlow {
     this.root.querySelector("[data-batch-thumbs]").hidden = !this.batchOpen;
     const focusInside = panel.contains(document.activeElement), focused = focusInside ? document.activeElement.dataset.flatlay : null;
     panel.hidden = processing;
-    panel.innerHTML = assistantControls(this.item, { busy: phase==="recognizing"?"recognizing":this.busy, locked, chaining: preparing, queued:!phase&&this.queue.pending(this.item), configured: Boolean(this.ctx.health?.flatlay_configured), vision: Boolean(this.ctx.health?.vision_ready), hasImage: Boolean(this.photo?.display) });
+    panel.innerHTML = assistantControls(this.item, { busy: phase==="recognizing"?"recognizing":this.busy, locked, chaining: preparing, queued:!phase&&this.queue.pending(this.item), configured: Boolean(this.ctx.health?.flatlay_configured), vision: Boolean(this.ctx.health?.vision_ready), hasImage: Boolean(this.photo?.display), canSave: this.canSave() });
     panel.querySelector("#add-recognize")?.addEventListener("click", () => {
       const generationOnly = state.state === "failed" || this.item.assistant?.stage === "needs_type";
       void this.process(needsType ? { reidentify: true } : { generationOnly });
@@ -505,7 +513,7 @@ class ImportFlow {
     }
     const hint = picture?.querySelector(".import-photo-hint");
     if (hint) hint.hidden = !this.displayUrl || processing;
-    const save = this.root.querySelector("#add-submit"); if (save) save.disabled = !this.reviewOpen || working || this.switching || (!this.item.pending && !ready);
+    const save = this.root.querySelector("#add-submit"); if (save) save.disabled = !this.reviewOpen || working || this.switching || (!this.item.pending && !this.canSave());
     this.root.querySelectorAll("[data-skip],[data-review-skip]").forEach(button => button.disabled = working || this.switching || locked);
     this.root.querySelectorAll("[data-undo]").forEach(button => button.disabled = working || this.switching || locked);
     this.root.querySelectorAll("[data-append]").forEach(button => button.disabled = this.switching || locked);
@@ -549,16 +557,19 @@ class ImportFlow {
   async save() {
     if (!this.reviewOpen || this.busy || this.switching || this.queue.busy(this.item) || !this.photo || this.saving || flatlayBusy(this.item?.flatlay)) return;
     this.capture();
-    if (!this.item.pending && (!this.item.fields.type || !this.displayReady())) { toast("识别并生成平铺图后，再确认保存", "error"); return; }
+    if (!this.item.pending && (!this.item.fields.type || !this.canSave())) { toast("先确认品类，或等平铺图出来再保存", "error"); return; }
     const item = this.item, id = item.id, sequence = ++this.sequence;
     this.saving = true; this.busy = "saving"; this.updateFlatlay();
     if (!item.pending) {
       const hash = await sourceHash(this.photo.file).catch(() => null);
-      if (!this.valid(id, sequence) || hash !== item.flatlay?.sourceHash) { this.busy = ""; this.saving = false; this.updateFlatlay(); toast("平铺图来源已变化，请重新识别生成", "error"); return; }
-      if (item.recovered && !hash.startsWith((item.recovered.image_hash || "").replace(/^sha256:/, ""))) {
+      if (!this.valid(id, sequence)) return;
+      // §66：只有「带平铺图入库」才要求平铺图确实来自当前照片。没有平铺图时没有可比对象，
+      // 不能拿照片指纹当入库前提 —— 否则额度耗尽、电脑离线就永远存不进去。
+      if (this.displayReady() && hash !== item.flatlay?.sourceHash) { this.busy = ""; this.saving = false; this.updateFlatlay(); toast("平铺图来源已变化，请重新识别生成", "error"); return; }
+      if (item.recovered && hash && !hash.startsWith((item.recovered.image_hash || "").replace(/^sha256:/, ""))) {
         this.busy = ""; this.saving = false; item.error = { kind: "save", text: "恢复照片与已入库来源不同，请到已有衣物详情生成平铺图。", itemId: item.recovered.id }; this.render(); return;
       }
-      item.pending = { payload: clone(item.fields), revision: item.revision, display: true };
+      item.pending = { payload: clone(item.fields), revision: item.revision, display: Boolean(this.photo.display) };
     }
     if (item.pending.display && !this.photo.display) { this.busy = ""; this.saving = false; this.updateFlatlay(); toast("平铺图草稿暂不可用，请保留本次内容后重试", "error"); return; }
     this.saving = true; this.busy = "saving"; item.error = null;
@@ -567,15 +578,14 @@ class ImportFlow {
     try {
       let result;
       if (item.recovered) {
-        await api.savePresentation(item.recovered.id, this.photo.display, item.recovered.image_hash);
-        result = { item: await api.updateItem(item.recovered.id, item.pending.payload) };
+        if (item.pending.display && this.photo.display) await api.savePresentation(item.recovered.id, this.photo.display, item.recovered.image_hash);
+        result = { item: await api.updateItem(item.recovered.id, item.pending.payload), replayed: true };
       } else result = await api.commitPhoto(id, this.photo.file, item.pending.payload, { original: this.photo.original || this.photo.file, display: item.pending.display ? this.photo.display : null });
       if (!this.valid(id, sequence)) return;
       if (!result?.item?.id) throw new Error("保存响应格式不正确，请重试核对");
-      if (!result.item.display_image_path) {
-        item.recovered = result.item; item.pending = null; item.error = { kind: "save", text: "此前提交已入库。生成平铺图后会更新同一件衣服，不会重复入库。" };
-        this.busy = ""; this.saving = false; await this.persist(); this.render(); return;
-      }
+      // §66：display_image_path 为空现在是合法终态（没有平铺图也能入库）。
+      // 以前拿它当「这件早就入库了」的信号，会把刚保存成功的单品判成失败；
+      // replay 与否只看后端 replayed，两种都算保存成功。
       await this.saved(result.item);
     } catch (error) {
       if (!this.valid(id, sequence)) return;

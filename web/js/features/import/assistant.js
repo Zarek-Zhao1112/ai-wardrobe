@@ -1,9 +1,9 @@
-// §24：一键识别，无图种切换，平铺图就绪后确认入库。
+// §24：一键识别，无图种切换，平铺图就绪后确认入库。§66：无平铺图也可直接入库。
 import { esc, icon } from "../../core/ui.js";
 import { flatlayBusy, flatlayPreparing } from "./flatlay.js";
 import { layoutMessage } from "../../components/flatlay-display.js";
 
-export function controls(item, { busy = "", locked = false, chaining = false, queued = false, hasImage = false, vision = false, configured = false } = {}) {
+export function controls(item, { busy = "", locked = false, chaining = false, queued = false, hasImage = false, vision = false, configured = false, canSave = false } = {}) {
   const state = item.flatlay || {}, flow = item.assistant || {};
   const recognizing = busy === "recognizing", working = recognizing || flatlayBusy(state) || chaining;
   const preparing = flatlayPreparing(state);
@@ -30,6 +30,8 @@ export function controls(item, { busy = "", locked = false, chaining = false, qu
     if (waiting) html += `<button type="button" class="ghost" data-flatlay="restart" ${locked || working ? "disabled" : ""}>重新生成（另计积分）</button>`;
   }
   if (hasImage) html += `<small class="faint" data-flatlay-layout-note>${layoutMessage("pending")}</small><small class="faint">AI 可能补全被遮挡细节，请对照实物确认。</small>`;
+  // §66：生图失败/额度不足时，别让用户以为这件进不了衣橱。
+  if (canSave && !reuse && !working && !locked) html += '<p class="faint" role="status">也可以先不用平铺图，直接用这张照片入库。</p>';
   if ((!vision && !generationOnly && !waiting) || !configured) html += '<button type="button" class="ghost" data-flatlay="settings">连接电脑</button>';
   return html;
 }

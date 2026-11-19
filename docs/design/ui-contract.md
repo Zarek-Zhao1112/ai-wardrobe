@@ -1,6 +1,38 @@
 # UI 设计契约
 
-> **当前有效决定**：电脑中转的上游可选「账号额度 / API 计费」，AI 通道与上游是两件事，见 §65。入库后能改属性了 —— 详情页「衣物信息」面顶部「编辑衣物信息」弹层，见 §64。逐件确认页补回「更多属性」折叠，九项属性重新可手工修改，见 §63。录入页只留照片入口，手填属性改在逐件确认页，见 §62。直连模型强度统一为高，两家都开思考，见 §61。AI 直连设置只留一个「模型」，文字分析与照片识别共用，见 §60。添置卡星光按钮与选衣生成流程见 §59，「我想要」与今日清单见 §57。搭配与添置的风格卡整图铺满，见 §56。添置主卡自动轮播同风格的三套 AI 穿搭，见 §55。添置未决生图的查询入口见 §54；今日页的最近记录见 §53；搭配与添置的轻叠卡、衣橱新版见 §52；底部导航直接切页见 §51；Android 状态栏与今日页间距见 §49。旧章节若与新章节冲突，以较新的决定为准。
+> **当前有效决定**：没有平铺图也能入库 —— 认出品类 + 原图在本地就能存，衣橱先用原照片当封面，见 §66。电脑中转的上游可选「账号额度 / API 计费」，AI 通道与上游是两件事，见 §65。入库后能改属性了 —— 详情页「衣物信息」面顶部「编辑衣物信息」弹层，见 §64。逐件确认页补回「更多属性」折叠，九项属性重新可手工修改，见 §63。录入页只留照片入口，手填属性改在逐件确认页，见 §62。直连模型强度统一为高，两家都开思考，见 §61。AI 直连设置只留一个「模型」，文字分析与照片识别共用，见 §60。添置卡星光按钮与选衣生成流程见 §59，「我想要」与今日清单见 §57。搭配与添置的风格卡整图铺满，见 §56。添置主卡自动轮播同风格的三套 AI 穿搭，见 §55。添置未决生图的查询入口见 §54；今日页的最近记录见 §53；搭配与添置的轻叠卡、衣橱新版见 §52；底部导航直接切页见 §51；Android 状态栏与今日页间距见 §49。旧章节若与新章节冲突，以较新的决定为准。
+
+## §66 没有平铺图也能入库：原照片先顶上（2026-11-19 用户确认「可以允许没平铺图也能入库」）
+
+**现象**：生图额度耗尽（`automation.paused.code=flatlay_failed`）时，识别结果明明已经在草稿里（`fields.type=tshirt`），但整件被锁死 —— `[data-review-open]` 是 hidden、`#add-submit` 是 disabled、`displayReady()` 又要求平铺图，**唯一出路是「跳过这件」**。识别成功了却进不了衣橱，这是把两件事捆成了一件。
+
+**根因不在后端**：`photo_import.commit()` 本来就接受 `display_data=None`（`display_image_path=NULL`、`display_selected=0`），后端从来没要求过平铺图。是前端把「平铺图就绪」当成了「可以保存」的同义词，共五处：`canReview` 要求 `photo.display`、`save.disabled` 要求 `ready`、`save()` 的 gate 要求 `displayReady()`、「平铺图必须来自当前照片」的指纹校验在无平铺图时无从比对、`item.pending.display` 硬写 `true`。
+
+**决定**：把「能存」和「有平铺图」拆开。
+
+| 判据 | 含义 | 用途 |
+|---|---|---|
+| `displayReady()` | 平铺图就绪且来自当前照片、品类对得上（不动） | 控制「平铺图已就绪」文案、「重新生成平铺图」按钮 |
+| `attrReady()` | 照片在本地 + 品类已确认 | `§66` 新增 |
+| `canSave()` | `pending \|\| displayReady() \|\| attrReady()` | 保存按钮与 `save()` 的唯一 gate |
+
+**具体改动**（`web/js/features/import/photo-import.js`）：
+
+- `canReview` 加 `|| this.item.fields.type` —— 没平铺图也能翻到属性面确认/编辑（跳过入口仍在正面，翻面后是 `[data-skip]`）。
+- `item.pending = { …, display: Boolean(this.photo.display) }`，`commitPhoto` 只在真有平铺图时才带 `display`。
+- 指纹校验加活动范围：**只有 `displayReady()` 为真时才要求 `hash === flatlay.sourceHash`**。没有平铺图就没有可比对象，不能拿照片指纹当入库前提。
+- **`display_image_path` 不再是「已入库」的信号**。以前 `!result.item.display_image_path` 被判成「此前提交已入库」，于是刚保存成功的无图单品会显示成失败。现在一律按保存成功处理（`replayed` 只影响文案，不影响结果）。
+- 恢复路径（`openCurrent` 的 `photoImportStatus`）同理：`saved` 就是入库了，有没有平铺图都不改变这个事实；旧草稿里的 `item.recovered` 分支保留，但只在真有平铺图时才调 `savePresentation`。
+
+**显示层退回原照片**：`api.coverUrl(item) = presentationUrl(item) || imageUrl(item.image_path)`，只给**衣橱卡片、详情页、卡片刷新**三处用。搭配 / 试穿 / 添置参考继续用 `presentationUrl` —— 那些地方要的是白底平铺素材，原图带背景和人体，混进去很难看。
+
+**已知缺口（本轮不做）**：
+
+1. 入库后**没有「补平铺图」入口**。详情页只有「编辑衣物信息」。想补只能重新走一次录入、拍同一张照片 —— 此时 `import-photo` 会返回 `replayed`，草稿里的平铺图会经 `savePresentation` 补上去。要做成一键补图，得把 `/flatlay/jobs` 的任务上下文从录入草稿里解耦，是另一个功能。
+2. 原图在卡片里是 `object-fit: contain`（竖构图会在 1.08 方框里左右留白）。先按「能认出是哪件」优先，实测不好看再调。
+3. 衣橱从此会混着「带背景的原图」与「白底平铺图」，§37/§38 那套「全站平铺静物」的视觉统一被打破 —— 这是换「能入库」付的代价。
+
+**验收**：`tests/test_photo_import.py::test_commit_without_flatlay_still_saves` —— 带 `original` 不带 `display` 提交 200、`display_image_path=None`、`display_selected=False`、原图落盘、`/status` 返回 `saved=true`、同 fingerprint 重放 `replayed=true` 且不判成另一件。
 
 ## §65 AI 通道与「电脑上游」分开：识别可以不花账号额度（2026-11-18 用户要求「先用 api，不走积分」）
 

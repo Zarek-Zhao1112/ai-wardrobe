@@ -214,7 +214,7 @@ export async function closeItemSheet() {
         if (!item) continue;
         const image = link.querySelector("img"), label = link.querySelector("span");
         if (label) label.textContent = item.name || item.type_label;
-        if (image && api.presentationUrl(item)) { image.src = api.presentationUrl(item); image.dataset.flatlaySource = image.src; }
+        if (image && api.coverUrl(item)) { image.src = api.coverUrl(item); image.dataset.flatlaySource = image.src; }
       }
     }
     return true;
